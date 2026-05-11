@@ -1,0 +1,21 @@
+# Backups
+*backup*.json
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code working files
+.claude/
+
+# Pendrive output (modelo C — self-hosted)
+_pendrive/
+
+# Local env
+.env
+.env.local
