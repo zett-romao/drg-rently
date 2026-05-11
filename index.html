@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRG-Rently — Gestão de Locações</title>
-  <link rel="stylesheet" href="styles.css?v=20260510b">
+  <link rel="stylesheet" href="styles.css?v=20260510c">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -155,12 +155,34 @@
           </div>
         </section>
 
-        <!-- Placeholders dos demais módulos -->
+        <!-- Locadores -->
         <section class="section" id="section-locadores" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 1</div>
-            <h3>Locadores</h3>
-            <p>Cadastro de proprietários dos imóveis.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Locadores</h3>
+                <p class="muted">Proprietários dos imóveis sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>E-mail</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-locadores">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -252,6 +274,172 @@
     </main>
   </div>
 
-  <script src="app.js?v=20260510b"></script>
+  <!-- ============================================ -->
+  <!-- MODAL: Locador (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-locador" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-locador-title">Novo Locador</h3>
+        <button class="modal-close" onclick="closeLocadorModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="locador-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="locador-id">
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="locador-tipo" onchange="onLocadorTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="locador-nome-label" class="required">Nome completo</label>
+            <input type="text" id="locador-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locador-doc-label" class="required">CPF</label>
+            <input type="text" id="locador-documento" placeholder="000.000.000-00">
+            <span id="locador-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="locador-rg-group">
+            <label>RG</label>
+            <input type="text" id="locador-rg">
+          </div>
+          <div class="form-group" id="locador-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="locador-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="locador-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="locador-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Profissão</label>
+            <input type="text" id="locador-profissao">
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="locador-nacionalidade" value="Brasileira">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="locador-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="locador-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="locador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPLocador()">
+            <span id="locador-cep-status" class="input-status" style="display:none;">Buscando…</span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="locador-logradouro" placeholder="Rua, avenida, etc.">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="locador-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="locador-complemento" placeholder="Apto, bloco, sala…">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="locador-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="locador-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="locador-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados para repasse</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Chave Pix</label>
+            <input type="text" id="locador-pix" placeholder="CPF, e-mail, telefone ou chave aleatória">
+          </div>
+          <div class="form-group">
+            <label>Banco / Agência / Conta (alternativa ao Pix)</label>
+            <input type="text" id="locador-banco" placeholder="Ex: 341 / 1234 / 56789-0">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="locador-obs" rows="3"></textarea>
+        </div>
+
+        <!-- Documentos — só aparece em modo edição -->
+        <div id="locador-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de endereço, escritura, IPTU, autorização de administração, etc.</p>
+
+          <div id="locador-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="locador-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadLocadorDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeLocadorModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-locador" onclick="deleteLocador()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-locador" onclick="saveLocador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260510c"></script>
 </body>
 </html>
