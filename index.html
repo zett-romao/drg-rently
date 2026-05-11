@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRG-Rently — Gestão de Locações</title>
-  <link rel="stylesheet" href="styles.css?v=20260510c">
+  <link rel="stylesheet" href="styles.css?v=20260511b">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -119,15 +119,30 @@
       </div>
 
       <nav class="sidebar-nav" id="sidebar-nav">
-        <a class="nav-link active" data-section="dashboard">📊 Dashboard</a>
-        <a class="nav-link" data-section="locadores">🏠 Locadores</a>
-        <a class="nav-link" data-section="locatarios">👤 Locatários</a>
-        <a class="nav-link" data-section="garantias">🛡 Garantias</a>
-        <a class="nav-link" data-section="imoveis">🏢 Imóveis</a>
-        <a class="nav-link" data-section="contratos">📝 Contratos</a>
-        <a class="nav-link" data-section="balancetes">💰 Balancetes</a>
-        <a class="nav-link" id="nav-superadmin" data-section="superadmin" style="display:none;">⚙️ Super Admin</a>
-        <a class="nav-link" data-section="configuracoes">🔧 Configurações</a>
+        <div class="nav-group">
+          <div class="nav-group-title">Visão Geral</div>
+          <a class="nav-link active" data-section="dashboard"><span class="nav-ico">📊</span><span>Dashboard</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Cadastros</div>
+          <a class="nav-link" data-section="locadores"><span class="nav-ico">🏠</span><span>Locadores</span></a>
+          <a class="nav-link" data-section="locatarios"><span class="nav-ico">👤</span><span>Locatários</span></a>
+          <a class="nav-link" data-section="garantias"><span class="nav-ico">🛡</span><span>Garantias</span></a>
+          <a class="nav-link" data-section="imoveis"><span class="nav-ico">🏢</span><span>Imóveis</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Operação</div>
+          <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
+          <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Administração</div>
+          <a class="nav-link" id="nav-superadmin" data-section="superadmin" style="display:none;"><span class="nav-ico">⚙️</span><span>Super Admin</span></a>
+          <a class="nav-link" data-section="configuracoes"><span class="nav-ico">🔧</span><span>Configurações</span></a>
+        </div>
       </nav>
 
       <div class="sidebar-footer">
@@ -1403,6 +1418,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260510c"></script>
+  <script src="app.js?v=20260511b"></script>
 </body>
 </html>
