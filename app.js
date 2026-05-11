@@ -14,6 +14,7 @@ const State = {
   tenant: null,        // documento tenants/{tenantId}
   isSuperAdmin: false,
   currentSection: 'dashboard',
+  signingUp: false,    // bloqueia onAuthStateChanged durante criação do tenant
 };
 
 // =============================================================
@@ -64,20 +65,10 @@ function translateAuthError(code) {
 }
 
 // =============================================================
-// Auth — listener principal
+// Carregar perfil do usuário e direcionar pra tela apropriada
 // =============================================================
-auth.onAuthStateChanged(async (user) => {
-  if (!user) {
-    State.user = null;
-    State.userDoc = null;
-    State.tenant = null;
-    State.isSuperAdmin = false;
-    showScreen('screen-login');
-    return;
-  }
-
+async function loadProfileAndShow(user) {
   State.user = user;
-
   try {
     const userSnap = await db.collection('users').doc(user.uid).get();
     if (!userSnap.exists) {
@@ -113,6 +104,27 @@ auth.onAuthStateChanged(async (user) => {
     await auth.signOut();
     showAlert('login-alert', 'Erro ao carregar perfil: ' + err.message);
   }
+}
+
+// =============================================================
+// Auth — listener principal
+// =============================================================
+auth.onAuthStateChanged(async (user) => {
+  // Durante signup, doSignupTenant chama loadProfileAndShow manualmente
+  // depois do batch.commit. Bloquear esse listener evita a race condition em que
+  // onAuthStateChanged dispara antes do user doc existir no Firestore.
+  if (State.signingUp) return;
+
+  if (!user) {
+    State.user = null;
+    State.userDoc = null;
+    State.tenant = null;
+    State.isSuperAdmin = false;
+    showScreen('screen-login');
+    return;
+  }
+
+  await loadProfileAndShow(user);
 });
 
 // =============================================================
@@ -174,6 +186,7 @@ async function doSignupTenant() {
   btn.textContent = 'Criando…';
 
   let createdUid = null;
+  State.signingUp = true;
 
   try {
     const cred = await auth.createUserWithEmailAndPassword(email, senha);
@@ -201,12 +214,15 @@ async function doSignupTenant() {
     });
 
     await batch.commit();
-    // onAuthStateChanged dispara automaticamente e roteia pro app
+
+    State.signingUp = false;
+    await loadProfileAndShow(cred.user);
 
   } catch (err) {
+    State.signingUp = false;
     console.error('Erro no signup:', err);
     showAlert('signup-alert', translateAuthError(err.code) || err.message);
-    if (createdUid) {
+    if (createdUid && auth.currentUser) {
       try { await auth.currentUser.delete(); } catch (_) { /* ignore */ }
     }
     btn.disabled = false;

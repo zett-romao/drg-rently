@@ -93,33 +93,48 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() { return request.auth != null; }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function isSignedIn() { return request.auth != null; }
-    function isSuperAdmin() { return isSignedIn() && userDoc().role == 'super_admin'; }
-    function belongsToTenant(tenantId) {
-      return isSignedIn() && userDoc().tenantId == tenantId;
+    function isSuperAdmin() {
+      return isSignedIn() && userExists() && userDoc().role == 'super_admin';
     }
 
-    // users
+    function belongsToTenant(tenantId) {
+      return isSignedIn() && userExists() && userDoc().tenantId == tenantId;
+    }
+
+    // users — allow read separado em duas regras pra evitar avaliação eager
+    // do isSuperAdmin (que chama get() em doc que pode não existir durante o signup)
     match /users/{uid} {
-      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isSuperAdmin();
       allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow update: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
     }
 
     // tenants
     match /tenants/{tenantId} {
-      allow read: if belongsToTenant(tenantId) || isSuperAdmin();
+      allow read: if belongsToTenant(tenantId);
+      allow read: if isSuperAdmin();
       allow create: if isSignedIn(); // primeiro tenant no signup
-      allow update: if (belongsToTenant(tenantId) && userDoc().role == 'admin') || isSuperAdmin();
+      allow update: if belongsToTenant(tenantId) && userDoc().role == 'admin';
+      allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
+      // subcoleções (locadores, locatarios, imoveis, contratos, etc.)
       match /{collection}/{docId} {
-        allow read, write: if belongsToTenant(tenantId) || isSuperAdmin();
+        allow read, write: if belongsToTenant(tenantId);
+        allow read, write: if isSuperAdmin();
       }
     }
   }
