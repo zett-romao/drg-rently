@@ -358,6 +358,10 @@ label.required::after {
 .badge-status.aprovado { background: var(--success-light); color: var(--success); }
 .badge-status.reprovado { background: var(--danger-light); color: var(--danger); }
 .badge-status.pendente_analise { background: var(--warning-light); color: var(--warning); }
+.badge-status.disponivel { background: var(--success-light); color: var(--success); }
+.badge-status.alugado { background: var(--primary-light); color: var(--primary-dark); }
+.badge-status.em_reforma { background: var(--warning-light); color: var(--warning); }
+.badge-status.indisponivel { background: var(--danger-light); color: var(--danger); }
 
 /* ----- Section header (título + botão de ação) ----- */
 .section-header {

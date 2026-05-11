@@ -247,10 +247,33 @@
         </section>
 
         <section class="section" id="section-imoveis" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 1</div>
-            <h3>Imóveis</h3>
-            <p>Cadastro de unidades sob administração.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Imóveis</h3>
+                <p class="muted">Unidades sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openImovelModal()">+ Novo Imóvel</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Apelido</th>
+                    <th>Tipo</th>
+                    <th>Locador</th>
+                    <th>Aluguel sugerido</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-imoveis">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -982,6 +1005,206 @@
         <button class="btn btn-secondary" onclick="closeGarantiaModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-garantia" onclick="deleteGarantia()" style="display:none;">Excluir</button>
         <button class="btn btn-primary" id="btn-save-garantia" onclick="saveGarantia()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Imóvel (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-imovel" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-imovel-title">Novo Imóvel</h3>
+        <button class="modal-close" onclick="closeImovelModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="imovel-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="imovel-id">
+
+        <h4 class="form-section-title">Identificação</h4>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Apelido / Identificação interna</label>
+            <input type="text" id="imovel-apelido" placeholder="Ex: Apto 301 - Ed. Solar do Lago">
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="imovel-status">
+              <option value="disponivel">🟢 Disponível</option>
+              <option value="alugado">🟠 Alugado</option>
+              <option value="em_reforma">🟡 Em reforma</option>
+              <option value="indisponivel">🔴 Indisponível</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Tipo</label>
+            <select id="imovel-tipo">
+              <option value="residencial">Residencial</option>
+              <option value="comercial">Comercial</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Subtipo</label>
+            <select id="imovel-subtipo">
+              <option value="">—</option>
+              <option value="apartamento">Apartamento</option>
+              <option value="casa">Casa</option>
+              <option value="sobrado">Sobrado</option>
+              <option value="kitnet">Kitnet / Studio</option>
+              <option value="sala">Sala comercial</option>
+              <option value="loja">Loja</option>
+              <option value="galpao">Galpão</option>
+              <option value="terreno">Terreno</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Locador (proprietário)</label>
+            <select id="imovel-locador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="imovel-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPImovel()">
+            <span id="imovel-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="imovel-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="imovel-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="imovel-complemento" placeholder="Apto, bloco, sala…">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="imovel-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="imovel-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="imovel-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Características</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Área útil (m²)</label>
+            <input type="number" id="imovel-area-util" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Área total (m²)</label>
+            <input type="number" id="imovel-area-total" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Andar</label>
+            <input type="text" id="imovel-andar" placeholder="Ex: 3º, Térreo">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quartos</label>
+            <input type="number" id="imovel-quartos" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Banheiros</label>
+            <input type="number" id="imovel-banheiros" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Vagas de garagem</label>
+            <input type="number" id="imovel-vagas" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Mobiliado</label>
+            <select id="imovel-mobiliado">
+              <option value="nao">Não</option>
+              <option value="parcial">Parcialmente</option>
+              <option value="sim">Sim</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Registros legais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Matrícula do registro de imóveis</label>
+            <input type="text" id="imovel-matricula">
+          </div>
+          <div class="form-group">
+            <label>Inscrição imobiliária (IPTU)</label>
+            <input type="text" id="imovel-iptu">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Valores</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor de mercado / avaliação (R$)</label>
+            <input type="number" id="imovel-valor-mercado" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Aluguel sugerido (R$)</label>
+            <input type="number" id="imovel-aluguel-sugerido" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="imovel-obs" rows="3"></textarea>
+        </div>
+
+        <div id="imovel-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Escritura, IPTU, planta, autorização de administração, fotos, etc.</p>
+
+          <div id="imovel-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="imovel-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadImovelDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeImovelModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-imovel" onclick="deleteImovel()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-imovel" onclick="saveImovel()">Salvar</button>
       </div>
     </div>
   </div>

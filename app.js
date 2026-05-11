@@ -423,6 +423,9 @@ function showSection(name) {
   if (name === 'garantias' && State.tenant) {
     loadGarantias();
   }
+  if (name === 'imoveis' && State.tenant) {
+    loadImoveis();
+  }
   if (name === 'configuracoes' && State.tenant) {
     $('cfg-razao').value = State.tenant.nome || '';
     $('cfg-cnpj').value = State.tenant.cnpj || '';
@@ -795,11 +798,13 @@ async function saveLocador() {
       // re-abrir em modo edição pra liberar uploads de docs
       btn.disabled = false;
       btn.textContent = 'Salvar';
+      invalidateLocadoresCache();
       await openLocadorModal(docRef.id);
       showAlert('locador-alert', 'Locador criado. Agora você pode anexar documentos.', 'success');
       loadLocadores();
       return;
     }
+    invalidateLocadoresCache();
     closeLocadorModal();
     loadLocadores();
   } catch (err) {
@@ -826,6 +831,7 @@ async function deleteLocador() {
 
     // apagar doc do Firestore
     await tenantPath().collection('locadores').doc(id).delete();
+    invalidateLocadoresCache();
     closeLocadorModal();
     loadLocadores();
   } catch (err) {
@@ -1873,6 +1879,391 @@ async function deleteGarantiaDoc(garantiaId, filename) {
 }
 
 // =============================================================
+// IMÓVEIS — CRUD + vínculo com Locador + documentos
+// =============================================================
+
+const IMOVEL_STATUS_LABEL = {
+  disponivel: 'Disponível',
+  alugado: 'Alugado',
+  em_reforma: 'Em reforma',
+  indisponivel: 'Indisponível',
+};
+
+const IMOVEL_TIPO_LABEL = {
+  residencial: 'Residencial',
+  comercial: 'Comercial',
+};
+
+// Cache de locadores para evitar refetch a cada abertura do modal
+let _locadoresCache = null;
+
+async function ensureLocadoresCache() {
+  if (_locadoresCache) return _locadoresCache;
+  const snap = await tenantPath().collection('locadores').orderBy('nome').get();
+  _locadoresCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _locadoresCache;
+}
+
+function invalidateLocadoresCache() { _locadoresCache = null; }
+
+async function populateLocadorSelect(selectEl, selectedId) {
+  selectEl.innerHTML = '<option value="">Carregando…</option>';
+  try {
+    const locs = await ensureLocadoresCache();
+    if (locs.length === 0) {
+      selectEl.innerHTML = '<option value="">— Nenhum locador cadastrado —</option>';
+      return;
+    }
+    const options = ['<option value="">— Selecione —</option>'];
+    locs.forEach(l => {
+      const label = l.nome + (l.tipo === 'PJ' ? ' (PJ)' : '');
+      const sel = l.id === selectedId ? ' selected' : '';
+      options.push(`<option value="${l.id}"${sel}>${label}</option>`);
+    });
+    selectEl.innerHTML = options.join('');
+  } catch (err) {
+    console.error('Erro ao carregar locadores:', err);
+    selectEl.innerHTML = '<option value="">Erro ao carregar</option>';
+  }
+}
+
+async function loadImoveis() {
+  const tbody = $('tbody-imoveis');
+  tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
+
+  try {
+    const [imSnap, locs] = await Promise.all([
+      tenantPath().collection('imoveis').orderBy('apelido').get(),
+      ensureLocadoresCache(),
+    ]);
+
+    if (imSnap.empty) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum imóvel cadastrado. Clique em "Novo Imóvel" para começar.</td></tr>`;
+      return;
+    }
+
+    const locMap = Object.fromEntries(locs.map(l => [l.id, l.nome]));
+
+    const rows = imSnap.docs.map((doc, i) => {
+      const im = doc.data();
+      const status = im.status || 'disponivel';
+      const locNome = locMap[im.locadorId] || (im.locadorId ? '⚠ locador apagado' : '—');
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${im.apelido || '—'}</strong></td>
+          <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
+          <td>${locNome}</td>
+          <td>${fmtBRL(im.aluguelSugerido)}</td>
+          <td><span class="badge-status ${status}">${IMOVEL_STATUS_LABEL[status] || status}</span></td>
+          <td>
+            <div class="action-btns">
+              <button class="btn btn-sm btn-secondary" onclick="openImovelModal('${doc.id}')">Editar</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar imóveis:', err);
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function buscarCEPImovel() {
+  const input = $('imovel-cep');
+  const status = $('imovel-cep-status');
+  const cepRaw = (input.value || '').replace(/\D/g, '');
+
+  if (cepRaw.length === 0) return;
+  if (cepRaw.length !== 8) {
+    showAlert('imovel-alert', 'CEP deve ter 8 dígitos.');
+    return;
+  }
+
+  input.value = cepRaw.replace(/(\d{5})(\d{3})/, '$1-$2');
+  status.style.display = 'block';
+  status.textContent = 'Buscando…';
+  status.style.color = 'var(--primary)';
+
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cepRaw}/json/`);
+    const data = await res.json();
+    if (data.erro) {
+      status.textContent = 'CEP não encontrado';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    if (data.logradouro) $('imovel-logradouro').value = data.logradouro;
+    if (data.bairro)     $('imovel-bairro').value     = data.bairro;
+    if (data.localidade) $('imovel-cidade').value     = data.localidade;
+    if (data.uf)         $('imovel-uf').value         = data.uf;
+    status.textContent = '✓';
+    status.style.color = 'var(--success)';
+    $('imovel-numero').focus();
+  } catch (err) {
+    console.error('Erro CEP:', err);
+    status.textContent = 'Erro de conexão';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function openImovelModal(id) {
+  clearAlert('imovel-alert');
+
+  $('imovel-id').value = id || '';
+  $('modal-imovel-title').textContent = id ? 'Editar Imóvel' : 'Novo Imóvel';
+  $('btn-delete-imovel').style.display = id ? 'inline-block' : 'none';
+
+  ['imovel-apelido', 'imovel-cep', 'imovel-logradouro', 'imovel-numero',
+   'imovel-complemento', 'imovel-bairro', 'imovel-cidade', 'imovel-uf',
+   'imovel-area-util', 'imovel-area-total', 'imovel-andar',
+   'imovel-matricula', 'imovel-iptu',
+   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-obs'].forEach(f => $(f).value = '');
+  $('imovel-status').value = 'disponivel';
+  $('imovel-tipo').value = 'residencial';
+  $('imovel-subtipo').value = '';
+  $('imovel-quartos').value = '0';
+  $('imovel-banheiros').value = '0';
+  $('imovel-vagas').value = '0';
+  $('imovel-mobiliado').value = 'nao';
+  $('imovel-cep-status').style.display = 'none';
+
+  // Refresh cache de locadores e popula select (deferido para após carregar dados)
+  invalidateLocadoresCache();
+
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('imoveis').doc(id).get();
+      if (snap.exists) {
+        const im = snap.data();
+        $('imovel-apelido').value = im.apelido || '';
+        $('imovel-status').value = im.status || 'disponivel';
+        $('imovel-tipo').value = im.tipo || 'residencial';
+        $('imovel-subtipo').value = im.subtipo || '';
+        await populateLocadorSelect($('imovel-locador'), im.locadorId);
+
+        const end = im.endereco || {};
+        $('imovel-cep').value = end.cep ? maskCEP(end.cep) : '';
+        $('imovel-logradouro').value = end.logradouro || '';
+        $('imovel-numero').value = end.numero || '';
+        $('imovel-complemento').value = end.complemento || '';
+        $('imovel-bairro').value = end.bairro || '';
+        $('imovel-cidade').value = end.cidade || '';
+        $('imovel-uf').value = end.uf || '';
+
+        $('imovel-area-util').value = im.areaUtil ?? '';
+        $('imovel-area-total').value = im.areaTotal ?? '';
+        $('imovel-andar').value = im.andar || '';
+        $('imovel-quartos').value = im.quartos ?? 0;
+        $('imovel-banheiros').value = im.banheiros ?? 0;
+        $('imovel-vagas').value = im.vagas ?? 0;
+        $('imovel-mobiliado').value = im.mobiliado || 'nao';
+
+        $('imovel-matricula').value = im.matricula || '';
+        $('imovel-iptu').value = im.iptu || '';
+        $('imovel-valor-mercado').value = im.valorMercado ?? '';
+        $('imovel-aluguel-sugerido').value = im.aluguelSugerido ?? '';
+        $('imovel-obs').value = im.obs || '';
+      }
+    } catch (err) {
+      console.error('Erro ao carregar imóvel:', err);
+      showAlert('imovel-alert', 'Erro ao carregar dados: ' + err.message);
+    }
+    $('imovel-docs-section').style.display = 'block';
+    loadImovelDocs(id);
+  } else {
+    await populateLocadorSelect($('imovel-locador'), null);
+    $('imovel-docs-section').style.display = 'none';
+  }
+
+  $('modal-imovel').style.display = 'flex';
+}
+
+function closeImovelModal() {
+  $('modal-imovel').style.display = 'none';
+}
+
+async function saveImovel() {
+  clearAlert('imovel-alert');
+
+  const id = $('imovel-id').value;
+  const apelido = $('imovel-apelido').value.trim();
+  const locadorId = $('imovel-locador').value;
+
+  if (!apelido) { showAlert('imovel-alert', 'Apelido / Identificação é obrigatório.'); return; }
+  if (!locadorId) { showAlert('imovel-alert', 'Selecione o locador (proprietário).'); return; }
+
+  const data = {
+    apelido,
+    status: $('imovel-status').value,
+    tipo: $('imovel-tipo').value,
+    subtipo: $('imovel-subtipo').value || null,
+    locadorId,
+    endereco: {
+      cep: $('imovel-cep').value.replace(/\D/g, '') || null,
+      logradouro: $('imovel-logradouro').value.trim() || null,
+      numero: $('imovel-numero').value.trim() || null,
+      complemento: $('imovel-complemento').value.trim() || null,
+      bairro: $('imovel-bairro').value.trim() || null,
+      cidade: $('imovel-cidade').value.trim() || null,
+      uf: $('imovel-uf').value.trim().toUpperCase() || null,
+    },
+    areaUtil: parseFloat($('imovel-area-util').value) || null,
+    areaTotal: parseFloat($('imovel-area-total').value) || null,
+    andar: $('imovel-andar').value.trim() || null,
+    quartos: parseInt($('imovel-quartos').value, 10) || 0,
+    banheiros: parseInt($('imovel-banheiros').value, 10) || 0,
+    vagas: parseInt($('imovel-vagas').value, 10) || 0,
+    mobiliado: $('imovel-mobiliado').value,
+    matricula: $('imovel-matricula').value.trim() || null,
+    iptu: $('imovel-iptu').value.trim() || null,
+    valorMercado: parseFloat($('imovel-valor-mercado').value) || null,
+    aluguelSugerido: parseFloat($('imovel-aluguel-sugerido').value) || null,
+    obs: $('imovel-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-imovel');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  try {
+    if (id) {
+      await tenantPath().collection('imoveis').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('imoveis').add(data);
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+      await openImovelModal(docRef.id);
+      showAlert('imovel-alert', 'Imóvel criado. Agora você pode anexar documentos.', 'success');
+      loadImoveis();
+      return;
+    }
+    closeImovelModal();
+    loadImoveis();
+  } catch (err) {
+    console.error('Erro ao salvar:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteImovel() {
+  const id = $('imovel-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este imóvel? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+
+  try {
+    const folderRef = storageTenantRef().child(`imoveis/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) { /* pasta pode não existir */ }
+
+    await tenantPath().collection('imoveis').doc(id).delete();
+    closeImovelModal();
+    loadImoveis();
+  } catch (err) {
+    console.error('Erro ao excluir:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadImovelDocs(imovelId) {
+  const container = $('imovel-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+
+  try {
+    const folderRef = storageTenantRef().child(`imoveis/${imovelId}`);
+    const list = await folderRef.listAll();
+
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteImovelDoc('${imovelId}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    console.error('Erro ao listar docs:', err);
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadImovelDocs() {
+  const imovelId = $('imovel-id').value;
+  if (!imovelId) {
+    showAlert('imovel-alert', 'Salve o imóvel antes de anexar documentos.');
+    return;
+  }
+
+  const input = $('imovel-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    showAlert('imovel-alert', 'Selecione ao menos um arquivo.');
+    return;
+  }
+
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) {
+    showAlert('imovel-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+    return;
+  }
+
+  const folderRef = storageTenantRef().child(`imoveis/${imovelId}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('imovel-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadImovelDocs(imovelId);
+  } catch (err) {
+    console.error('Erro no upload:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteImovelDoc(imovelId, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`imoveis/${imovelId}/${filename}`).delete();
+    loadImovelDocs(imovelId);
+  } catch (err) {
+    console.error('Erro ao excluir doc:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
 // Init
 // =============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1919,4 +2310,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindMask('garantia-fiador-cep', maskCEP);
   $('garantia-fiador-cpf').addEventListener('input', onGarantiaFiadorCPFInput);
   $('garantia-fiador-conjuge-cpf').addEventListener('input', onGarantiaConjugeCPFInput);
+
+  // Máscara — Imóvel
+  bindMask('imovel-cep', maskCEP);
 });
