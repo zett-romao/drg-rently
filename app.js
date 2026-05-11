@@ -411,6 +411,9 @@ function showSection(name) {
   };
   $('topbar-title').textContent = titles[name] || name;
 
+  if (name === 'dashboard' && State.tenant) {
+    loadDashboard();
+  }
   if (name === 'superadmin' && State.isSuperAdmin) {
     loadTenantsTable();
   }
@@ -495,6 +498,43 @@ async function toggleTenantStatus(tenantId, ativo) {
     loadTenantsTable();
   } catch (err) {
     alert('Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// DASHBOARD — contagens das entidades principais
+// =============================================================
+
+async function loadDashboard() {
+  const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
+               'stat-imoveis-disponiveis', 'stat-contratos-vigentes', 'stat-garantias-ativas'];
+  ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
+
+  if (!State.tenant) return;
+
+  try {
+    const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap] = await Promise.all([
+      tenantPath().collection('locadores').get(),
+      tenantPath().collection('locatarios').get(),
+      tenantPath().collection('imoveis').get(),
+      tenantPath().collection('contratos').get(),
+      tenantPath().collection('garantias').get(),
+    ]);
+
+    const imoveisAlugados = imoveisSnap.docs.filter(d => d.data().status === 'alugado').length;
+    const imoveisDisponiveis = imoveisSnap.docs.filter(d => d.data().status === 'disponivel').length;
+    const contratosVigentes = contratosSnap.docs.filter(d => d.data().status === 'vigente').length;
+    const garantiasAtivas = garantiasSnap.docs.filter(d => (d.data().status || 'ativa') === 'ativa').length;
+
+    $('stat-locadores').textContent = locadoresSnap.size;
+    $('stat-locatarios').textContent = locatariosSnap.size;
+    $('stat-imoveis-alugados').textContent = imoveisAlugados;
+    $('stat-imoveis-disponiveis').textContent = imoveisDisponiveis;
+    $('stat-contratos-vigentes').textContent = contratosVigentes;
+    $('stat-garantias-ativas').textContent = garantiasAtivas;
+  } catch (err) {
+    console.error('Erro ao carregar dashboard:', err);
+    ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
   }
 }
 
