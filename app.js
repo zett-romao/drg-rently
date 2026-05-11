@@ -417,6 +417,9 @@ function showSection(name) {
   if (name === 'locadores' && State.tenant) {
     loadLocadores();
   }
+  if (name === 'locatarios' && State.tenant) {
+    loadLocatarios();
+  }
   if (name === 'configuracoes' && State.tenant) {
     $('cfg-razao').value = State.tenant.nome || '';
     $('cfg-cnpj').value = State.tenant.cnpj || '';
@@ -920,6 +923,442 @@ async function deleteLocadorDoc(locadorId, filename) {
 }
 
 // =============================================================
+// LOCATÁRIOS — CRUD + análise de crédito + documentos
+// =============================================================
+
+const LOCATARIO_STATUS_LABEL = {
+  pendente_analise: 'Pendente',
+  aprovado: 'Aprovado',
+  reprovado: 'Reprovado',
+};
+
+async function loadLocatarios() {
+  const tbody = $('tbody-locatarios');
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+
+  try {
+    const snap = await tenantPath().collection('locatarios').orderBy('nome').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum locatário cadastrado. Clique em "Novo Locatário" para começar.</td></tr>`;
+      return;
+    }
+
+    const rows = snap.docs.map((doc, i) => {
+      const l = doc.data();
+      const docFmt = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '—';
+      const telFmt = l.telefone ? maskTelefone(l.telefone) : '—';
+      const status = l.status || 'pendente_analise';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${l.nome || '—'}</strong>${l.tipo === 'PJ' ? ' <span class="muted" style="font-size:11px;">(PJ)</span>' : ''}</td>
+          <td>${docFmt}</td>
+          <td>${telFmt}</td>
+          <td><span class="badge-status ${status}">${LOCATARIO_STATUS_LABEL[status] || status}</span></td>
+          <td>
+            <div class="action-btns">
+              <button class="btn btn-sm btn-secondary" onclick="openLocatarioModal('${doc.id}')">Editar</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar locatários:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function buscarCEPLocatario() {
+  const input = $('locatario-cep');
+  const status = $('locatario-cep-status');
+  const cepRaw = (input.value || '').replace(/\D/g, '');
+
+  if (cepRaw.length === 0) return;
+  if (cepRaw.length !== 8) {
+    showAlert('locatario-alert', 'CEP deve ter 8 dígitos.');
+    return;
+  }
+
+  input.value = cepRaw.replace(/(\d{5})(\d{3})/, '$1-$2');
+  status.style.display = 'block';
+  status.textContent = 'Buscando…';
+  status.style.color = 'var(--primary)';
+
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cepRaw}/json/`);
+    const data = await res.json();
+
+    if (data.erro) {
+      status.textContent = 'CEP não encontrado';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+
+    if (data.logradouro) $('locatario-logradouro').value = data.logradouro;
+    if (data.bairro)     $('locatario-bairro').value     = data.bairro;
+    if (data.localidade) $('locatario-cidade').value     = data.localidade;
+    if (data.uf)         $('locatario-uf').value         = data.uf;
+
+    status.textContent = '✓';
+    status.style.color = 'var(--success)';
+    $('locatario-numero').focus();
+  } catch (err) {
+    console.error('Erro CEP:', err);
+    status.textContent = 'Erro de conexão';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+function onLocatarioTipoChange() {
+  const tipo = $('locatario-tipo').value;
+  const isPJ = tipo === 'PJ';
+  $('locatario-nome-label').textContent = isPJ ? 'Razão social' : 'Nome completo';
+  $('locatario-doc-label').textContent = isPJ ? 'CNPJ' : 'CPF';
+  $('locatario-documento').placeholder = isPJ ? '00.000.000/0000-00' : '000.000.000-00';
+  $('locatario-rg-group').style.display = isPJ ? 'none' : 'block';
+  $('locatario-nascimento-group').style.display = isPJ ? 'none' : 'block';
+  $('locatario-pf-extra').style.display = isPJ ? 'none' : 'grid';
+  $('locatario-profissao-label').textContent = isPJ ? 'Ramo de atividade' : 'Profissão';
+  const docInput = $('locatario-documento');
+  docInput.value = isPJ ? maskCNPJ(docInput.value) : maskCPF(docInput.value);
+  onLocatarioDocumentoInput();
+}
+
+function onLocatarioDocumentoInput() {
+  const tipo = $('locatario-tipo').value;
+  const digits = $('locatario-documento').value.replace(/\D/g, '');
+  const status = $('locatario-doc-status');
+
+  if (digits.length === 0) {
+    status.style.display = 'none';
+    return;
+  }
+  status.style.display = 'block';
+
+  const isPJ = tipo === 'PJ';
+  const max = isPJ ? 14 : 11;
+  const valido = isPJ ? isCNPJValid(digits) : isCPFValid(digits);
+
+  if (digits.length < max) {
+    status.textContent = `${digits.length}/${max} dígitos`;
+    status.style.color = 'var(--text-muted)';
+  } else if (valido) {
+    status.textContent = `✓ ${isPJ ? 'CNPJ' : 'CPF'} válido`;
+    status.style.color = 'var(--success)';
+  } else {
+    status.textContent = `✗ ${isPJ ? 'CNPJ' : 'CPF'} inválido`;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function onLocatarioDocumentoBlur() {
+  if ($('locatario-tipo').value !== 'PJ') return;
+
+  const digits = $('locatario-documento').value.replace(/\D/g, '');
+  if (digits.length !== 14 || !isCNPJValid(digits)) return;
+
+  const nomeAtual = $('locatario-nome').value.trim();
+  if (nomeAtual && !confirm('Buscar dados na Receita Federal pode sobrescrever a razão social e o endereço já preenchidos. Deseja prosseguir?')) return;
+
+  const status = $('locatario-doc-status');
+  status.style.display = 'block';
+  status.textContent = 'Buscando na Receita…';
+  status.style.color = 'var(--primary)';
+
+  try {
+    const data = await fetchCNPJ(digits);
+    $('locatario-nome').value = data.razao_social || nomeAtual;
+    if (data.logradouro)  $('locatario-logradouro').value  = data.logradouro;
+    if (data.numero)      $('locatario-numero').value      = data.numero;
+    if (data.complemento) $('locatario-complemento').value = data.complemento;
+    if (data.bairro)      $('locatario-bairro').value      = data.bairro;
+    if (data.municipio)   $('locatario-cidade').value      = data.municipio;
+    if (data.uf)          $('locatario-uf').value          = data.uf;
+    if (data.cep)         $('locatario-cep').value         = maskCEP(String(data.cep));
+    if (data.email && !$('locatario-email').value)         $('locatario-email').value    = data.email;
+    if (data.ddd_telefone_1 && !$('locatario-telefone').value) {
+      $('locatario-telefone').value = maskTelefone(String(data.ddd_telefone_1));
+    }
+
+    const situacao = (data.descricao_situacao_cadastral || '').toUpperCase();
+    if (situacao === 'ATIVA') {
+      status.textContent = '✓ CNPJ ativo na Receita';
+      status.style.color = 'var(--success)';
+    } else if (situacao) {
+      status.textContent = `⚠ Situação: ${situacao}`;
+      status.style.color = 'var(--warning)';
+    } else {
+      status.textContent = '✓ Dados encontrados';
+      status.style.color = 'var(--success)';
+    }
+  } catch (err) {
+    console.error('Erro BrasilAPI:', err);
+    status.textContent = 'Não foi possível consultar a Receita: ' + err.message;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function openLocatarioModal(id) {
+  clearAlert('locatario-alert');
+
+  $('locatario-id').value = id || '';
+  $('modal-locatario-title').textContent = id ? 'Editar Locatário' : 'Novo Locatário';
+  $('btn-delete-locatario').style.display = id ? 'inline-block' : 'none';
+
+  ['locatario-nome', 'locatario-documento', 'locatario-rg', 'locatario-nascimento',
+   'locatario-profissao', 'locatario-empresa', 'locatario-cargo', 'locatario-admissao',
+   'locatario-renda', 'locatario-outros-detalhes',
+   'locatario-email', 'locatario-telefone',
+   'locatario-cep', 'locatario-logradouro', 'locatario-numero', 'locatario-complemento',
+   'locatario-bairro', 'locatario-cidade', 'locatario-uf',
+   'locatario-obs', 'locatario-motivo-status'].forEach(f => $(f).value = '');
+  $('locatario-tipo').value = 'PF';
+  $('locatario-estado-civil').value = '';
+  $('locatario-nacionalidade').value = 'Brasileira';
+  $('locatario-dependentes').value = '0';
+  $('locatario-outros-imoveis').value = 'nao';
+  $('locatario-status').value = 'pendente_analise';
+  $('locatario-cep-status').style.display = 'none';
+  $('locatario-doc-status').style.display = 'none';
+  onLocatarioTipoChange();
+
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('locatarios').doc(id).get();
+      if (snap.exists) {
+        const l = snap.data();
+        $('locatario-status').value = l.status || 'pendente_analise';
+        $('locatario-motivo-status').value = l.motivoStatus || '';
+        $('locatario-tipo').value = l.tipo || 'PF';
+        $('locatario-nome').value = l.nome || '';
+        $('locatario-documento').value = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '';
+        $('locatario-rg').value = l.rg || '';
+        $('locatario-nascimento').value = l.nascimento || '';
+        $('locatario-estado-civil').value = l.estadoCivil || '';
+        $('locatario-nacionalidade').value = l.nacionalidade || 'Brasileira';
+        $('locatario-dependentes').value = l.dependentes ?? 0;
+        $('locatario-email').value = l.email || '';
+        $('locatario-telefone').value = l.telefone ? maskTelefone(l.telefone) : '';
+        onLocatarioTipoChange();
+        const end = l.endereco || {};
+        $('locatario-cep').value = end.cep ? maskCEP(end.cep) : '';
+        $('locatario-logradouro').value = end.logradouro || '';
+        $('locatario-numero').value = end.numero || '';
+        $('locatario-complemento').value = end.complemento || '';
+        $('locatario-bairro').value = end.bairro || '';
+        $('locatario-cidade').value = end.cidade || '';
+        $('locatario-uf').value = end.uf || '';
+        $('locatario-profissao').value = l.profissao || '';
+        $('locatario-empresa').value = l.empresa || '';
+        $('locatario-cargo').value = l.cargo || '';
+        $('locatario-admissao').value = l.admissao || '';
+        $('locatario-renda').value = l.renda ?? '';
+        $('locatario-outros-imoveis').value = l.outrosImoveis || 'nao';
+        $('locatario-outros-detalhes').value = l.outrosImoveisDetalhes || '';
+        $('locatario-obs').value = l.obs || '';
+      }
+    } catch (err) {
+      console.error('Erro ao carregar locatário:', err);
+      showAlert('locatario-alert', 'Erro ao carregar dados: ' + err.message);
+    }
+    $('locatario-docs-section').style.display = 'block';
+    loadLocatarioDocs(id);
+  } else {
+    $('locatario-docs-section').style.display = 'none';
+  }
+
+  $('modal-locatario').style.display = 'flex';
+}
+
+function closeLocatarioModal() {
+  $('modal-locatario').style.display = 'none';
+}
+
+async function saveLocatario() {
+  clearAlert('locatario-alert');
+
+  const id = $('locatario-id').value;
+  const nome = $('locatario-nome').value.trim();
+  const documento = $('locatario-documento').value.trim();
+
+  if (!nome) { showAlert('locatario-alert', 'Nome / Razão social é obrigatório.'); return; }
+  if (!documento) { showAlert('locatario-alert', 'CPF / CNPJ é obrigatório.'); return; }
+
+  const rendaRaw = $('locatario-renda').value;
+  const data = {
+    status: $('locatario-status').value,
+    motivoStatus: $('locatario-motivo-status').value.trim() || null,
+    tipo: $('locatario-tipo').value,
+    nome,
+    documento: documento.replace(/\D/g, ''),
+    rg: $('locatario-rg').value.trim() || null,
+    nascimento: $('locatario-nascimento').value || null,
+    estadoCivil: $('locatario-estado-civil').value || null,
+    nacionalidade: $('locatario-nacionalidade').value.trim() || null,
+    dependentes: parseInt($('locatario-dependentes').value, 10) || 0,
+    email: $('locatario-email').value.trim() || null,
+    telefone: $('locatario-telefone').value.replace(/\D/g, '') || null,
+    endereco: {
+      cep: $('locatario-cep').value.replace(/\D/g, '') || null,
+      logradouro: $('locatario-logradouro').value.trim() || null,
+      numero: $('locatario-numero').value.trim() || null,
+      complemento: $('locatario-complemento').value.trim() || null,
+      bairro: $('locatario-bairro').value.trim() || null,
+      cidade: $('locatario-cidade').value.trim() || null,
+      uf: $('locatario-uf').value.trim().toUpperCase() || null,
+    },
+    profissao: $('locatario-profissao').value.trim() || null,
+    empresa: $('locatario-empresa').value.trim() || null,
+    cargo: $('locatario-cargo').value.trim() || null,
+    admissao: $('locatario-admissao').value || null,
+    renda: rendaRaw ? parseFloat(rendaRaw) : null,
+    outrosImoveis: $('locatario-outros-imoveis').value,
+    outrosImoveisDetalhes: $('locatario-outros-detalhes').value.trim() || null,
+    obs: $('locatario-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-locatario');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  try {
+    if (id) {
+      await tenantPath().collection('locatarios').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('locatarios').add(data);
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+      await openLocatarioModal(docRef.id);
+      showAlert('locatario-alert', 'Locatário criado. Agora você pode anexar documentos.', 'success');
+      loadLocatarios();
+      return;
+    }
+    closeLocatarioModal();
+    loadLocatarios();
+  } catch (err) {
+    console.error('Erro ao salvar:', err);
+    showAlert('locatario-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteLocatario() {
+  const id = $('locatario-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este locatário? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+
+  try {
+    const folderRef = storageTenantRef().child(`locatarios/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) { /* pasta pode não existir */ }
+
+    await tenantPath().collection('locatarios').doc(id).delete();
+    closeLocatarioModal();
+    loadLocatarios();
+  } catch (err) {
+    console.error('Erro ao excluir:', err);
+    showAlert('locatario-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadLocatarioDocs(locatarioId) {
+  const container = $('locatario-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+
+  try {
+    const folderRef = storageTenantRef().child(`locatarios/${locatarioId}`);
+    const list = await folderRef.listAll();
+
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteLocatarioDoc('${locatarioId}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    console.error('Erro ao listar docs:', err);
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadLocatarioDocs() {
+  const locatarioId = $('locatario-id').value;
+  if (!locatarioId) {
+    showAlert('locatario-alert', 'Salve o locatário antes de anexar documentos.');
+    return;
+  }
+
+  const input = $('locatario-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    showAlert('locatario-alert', 'Selecione ao menos um arquivo.');
+    return;
+  }
+
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) {
+    showAlert('locatario-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+    return;
+  }
+
+  const folderRef = storageTenantRef().child(`locatarios/${locatarioId}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('locatario-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadLocatarioDocs(locatarioId);
+  } catch (err) {
+    console.error('Erro no upload:', err);
+    showAlert('locatario-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteLocatarioDoc(locatarioId, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`locatarios/${locatarioId}/${filename}`).delete();
+    loadLocatarioDocs(locatarioId);
+  } catch (err) {
+    console.error('Erro ao excluir doc:', err);
+    showAlert('locatario-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
 // Init
 // =============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -951,4 +1390,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Validação em tempo real do CPF/CNPJ + busca BrasilAPI ao sair (CNPJ)
   $('locador-documento').addEventListener('input', onLocadorDocumentoInput);
   $('locador-documento').addEventListener('blur', onLocadorDocumentoBlur);
+
+  // Máscaras e validação — Locatário
+  bindMask('locatario-documento', (v) => $('locatario-tipo').value === 'PJ' ? maskCNPJ(v) : maskCPF(v));
+  bindMask('locatario-telefone', maskTelefone);
+  bindMask('locatario-cep', maskCEP);
+  $('locatario-documento').addEventListener('input', onLocatarioDocumentoInput);
+  $('locatario-documento').addEventListener('blur', onLocatarioDocumentoBlur);
 });

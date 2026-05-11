@@ -187,10 +187,32 @@
         </section>
 
         <section class="section" id="section-locatarios" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 1</div>
-            <h3>Locatários</h3>
-            <p>Cadastro de inquilinos e ficha sócio-econômica.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Locatários</h3>
+                <p class="muted">Inquilinos e ficha sócio-econômica.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openLocatarioModal()">+ Novo Locatário</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-locatarios">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -436,6 +458,215 @@
         <button class="btn btn-secondary" onclick="closeLocadorModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-locador" onclick="deleteLocador()" style="display:none;">Excluir</button>
         <button class="btn btn-primary" id="btn-save-locador" onclick="saveLocador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Locatário (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-locatario" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-locatario-title">Novo Locatário</h3>
+        <button class="modal-close" onclick="closeLocatarioModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="locatario-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="locatario-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="locatario-status">
+              <option value="pendente_analise">Pendente de análise</option>
+              <option value="aprovado">Aprovado</option>
+              <option value="reprovado">Reprovado</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se reprovado)</label>
+            <input type="text" id="locatario-motivo-status" placeholder="Ex: renda incompatível, restrição cadastral">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="locatario-tipo" onchange="onLocatarioTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="locatario-nome-label" class="required">Nome completo</label>
+            <input type="text" id="locatario-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locatario-doc-label" class="required">CPF</label>
+            <input type="text" id="locatario-documento" placeholder="000.000.000-00">
+            <span id="locatario-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="locatario-rg-group">
+            <label>RG</label>
+            <input type="text" id="locatario-rg">
+          </div>
+          <div class="form-group" id="locatario-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="locatario-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="locatario-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="locatario-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="locatario-nacionalidade" value="Brasileira">
+          </div>
+          <div class="form-group">
+            <label>Dependentes</label>
+            <input type="number" id="locatario-dependentes" min="0" step="1" value="0">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="locatario-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="locatario-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço atual</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="locatario-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPLocatario()">
+            <span id="locatario-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="locatario-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="locatario-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="locatario-complemento">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="locatario-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="locatario-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="locatario-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Análise de crédito</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locatario-profissao-label">Profissão</label>
+            <input type="text" id="locatario-profissao">
+          </div>
+          <div class="form-group">
+            <label>Empresa onde trabalha</label>
+            <input type="text" id="locatario-empresa">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cargo</label>
+            <input type="text" id="locatario-cargo">
+          </div>
+          <div class="form-group">
+            <label>Data de admissão</label>
+            <input type="date" id="locatario-admissao">
+          </div>
+          <div class="form-group">
+            <label>Renda mensal (R$)</label>
+            <input type="number" id="locatario-renda" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Aluga outros imóveis?</label>
+            <select id="locatario-outros-imoveis">
+              <option value="nao">Não</option>
+              <option value="sim">Sim</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Detalhes (se aluga outros imóveis)</label>
+            <input type="text" id="locatario-outros-detalhes" placeholder="Ex: 1 sala comercial no centro, R$ 1.500,00/mês">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="locatario-obs" rows="3"></textarea>
+        </div>
+
+        <div id="locatario-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de residência, últimos 3 contracheques, DIRPF (autônomo), carteira de trabalho, etc.</p>
+
+          <div id="locatario-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="locatario-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadLocatarioDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeLocatarioModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-locatario" onclick="deleteLocatario()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-locatario" onclick="saveLocatario()">Salvar</button>
       </div>
     </div>
   </div>
