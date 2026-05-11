@@ -426,6 +426,9 @@ function showSection(name) {
   if (name === 'imoveis' && State.tenant) {
     loadImoveis();
   }
+  if (name === 'contratos' && State.tenant) {
+    loadContratos();
+  }
   if (name === 'configuracoes' && State.tenant) {
     $('cfg-razao').value = State.tenant.nome || '';
     $('cfg-cnpj').value = State.tenant.cnpj || '';
@@ -1242,11 +1245,13 @@ async function saveLocatario() {
       const docRef = await tenantPath().collection('locatarios').add(data);
       btn.disabled = false;
       btn.textContent = 'Salvar';
+      invalidateLocatariosCache();
       await openLocatarioModal(docRef.id);
       showAlert('locatario-alert', 'Locatário criado. Agora você pode anexar documentos.', 'success');
       loadLocatarios();
       return;
     }
+    invalidateLocatariosCache();
     closeLocatarioModal();
     loadLocatarios();
   } catch (err) {
@@ -1271,6 +1276,7 @@ async function deleteLocatario() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('locatarios').doc(id).delete();
+    invalidateLocatariosCache();
     closeLocatarioModal();
     loadLocatarios();
   } catch (err) {
@@ -1753,11 +1759,13 @@ async function saveGarantia() {
       const docRef = await tenantPath().collection('garantias').add(data);
       btn.disabled = false;
       btn.textContent = 'Salvar';
+      invalidateGarantiasCache();
       await openGarantiaModal(docRef.id);
       showAlert('garantia-alert', 'Garantia criada. Agora você pode anexar documentos.', 'success');
       loadGarantias();
       return;
     }
+    invalidateGarantiasCache();
     closeGarantiaModal();
     loadGarantias();
   } catch (err) {
@@ -1782,6 +1790,7 @@ async function deleteGarantia() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('garantias').doc(id).delete();
+    invalidateGarantiasCache();
     closeGarantiaModal();
     loadGarantias();
   } catch (err) {
@@ -2138,11 +2147,13 @@ async function saveImovel() {
       const docRef = await tenantPath().collection('imoveis').add(data);
       btn.disabled = false;
       btn.textContent = 'Salvar';
+      invalidateImoveisCache();
       await openImovelModal(docRef.id);
       showAlert('imovel-alert', 'Imóvel criado. Agora você pode anexar documentos.', 'success');
       loadImoveis();
       return;
     }
+    invalidateImoveisCache();
     closeImovelModal();
     loadImoveis();
   } catch (err) {
@@ -2167,6 +2178,7 @@ async function deleteImovel() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('imoveis').doc(id).delete();
+    invalidateImoveisCache();
     closeImovelModal();
     loadImoveis();
   } catch (err) {
@@ -2260,6 +2272,490 @@ async function deleteImovelDoc(imovelId, filename) {
   } catch (err) {
     console.error('Erro ao excluir doc:', err);
     showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// CONTRATOS — amarra locador + locatário + imóvel + garantia
+// =============================================================
+
+const CONTRATO_STATUS_LABEL = {
+  rascunho: 'Rascunho',
+  vigente: 'Vigente',
+  encerrado: 'Encerrado',
+  rescindido: 'Rescindido',
+};
+
+// Caches para os selects do modal de contrato
+let _locatariosCache = null;
+let _imoveisCache = null;
+let _garantiasCache = null;
+
+async function ensureLocatariosCache() {
+  if (_locatariosCache) return _locatariosCache;
+  const snap = await tenantPath().collection('locatarios').orderBy('nome').get();
+  _locatariosCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _locatariosCache;
+}
+async function ensureImoveisCache() {
+  if (_imoveisCache) return _imoveisCache;
+  const snap = await tenantPath().collection('imoveis').orderBy('apelido').get();
+  _imoveisCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _imoveisCache;
+}
+async function ensureGarantiasCache() {
+  if (_garantiasCache) return _garantiasCache;
+  const snap = await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get();
+  _garantiasCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _garantiasCache;
+}
+
+function invalidateLocatariosCache() { _locatariosCache = null; }
+function invalidateImoveisCache() { _imoveisCache = null; }
+function invalidateGarantiasCache() { _garantiasCache = null; }
+
+function fmtDataBR(iso) {
+  if (!iso) return '—';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+
+function calcDataFim(inicioISO, prazoMeses) {
+  if (!inicioISO || !prazoMeses) return '';
+  const d = new Date(inicioISO + 'T00:00:00');
+  d.setMonth(d.getMonth() + parseInt(prazoMeses, 10));
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function loadContratos() {
+  const tbody = $('tbody-contratos');
+  tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
+
+  try {
+    const [snap, imoveis, locatarios] = await Promise.all([
+      tenantPath().collection('contratos').orderBy('criadoEm', 'desc').get(),
+      ensureImoveisCache(),
+      ensureLocatariosCache(),
+    ]);
+
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum contrato cadastrado. Clique em "Novo Contrato" para começar.</td></tr>`;
+      return;
+    }
+
+    const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+    const locMap = Object.fromEntries(locatarios.map(l => [l.id, l.nome]));
+
+    const rows = snap.docs.map((doc, i) => {
+      const c = doc.data();
+      const status = c.status || 'rascunho';
+      const imovelLabel = imMap[c.imovelId] || (c.imovelId ? '⚠ imóvel apagado' : '—');
+      const locatarioLabel = locMap[c.locatarioId] || (c.locatarioId ? '⚠ locatário apagado' : '—');
+      const periodo = (c.inicio && c.fim) ? `${fmtDataBR(c.inicio)} → ${fmtDataBR(c.fim)}` : '—';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${imovelLabel}</strong></td>
+          <td>${locatarioLabel}</td>
+          <td>${periodo}</td>
+          <td>${fmtBRL(c.aluguel)}</td>
+          <td><span class="badge-status ${status}">${CONTRATO_STATUS_LABEL[status] || status}</span></td>
+          <td>
+            <div class="action-btns">
+              <button class="btn btn-sm btn-secondary" onclick="openContratoModal('${doc.id}')">Editar</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar contratos:', err);
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function populateContratoSelects(selected) {
+  const [locadores, locatarios, imoveis, garantias] = await Promise.all([
+    ensureLocadoresCache(),
+    ensureLocatariosCache(),
+    ensureImoveisCache(),
+    ensureGarantiasCache(),
+  ]);
+
+  // Locador
+  $('contrato-locador').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(locadores.map(l => `<option value="${l.id}"${l.id === selected?.locadorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
+    .join('');
+
+  // Locatário (badge do status na label)
+  $('contrato-locatario').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(locatarios.map(l => {
+      const stLabel = l.status === 'aprovado' ? ' ✓' : l.status === 'reprovado' ? ' ✗' : ' ⏳';
+      return `<option value="${l.id}"${l.id === selected?.locatarioId ? ' selected' : ''}>${l.nome}${stLabel}</option>`;
+    }))
+    .join('');
+
+  // Imóvel
+  $('contrato-imovel').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(imoveis.map(i => {
+      const stLabel = i.status === 'disponivel' ? ' 🟢' : i.status === 'alugado' ? ' 🟠' : i.status === 'em_reforma' ? ' 🟡' : ' 🔴';
+      return `<option value="${i.id}"${i.id === selected?.imovelId ? ' selected' : ''}>${i.apelido}${stLabel}</option>`;
+    }))
+    .join('');
+
+  // Garantia
+  $('contrato-garantia').innerHTML = ['<option value="">— Sem garantia (atípico) —</option>']
+    .concat(garantias.filter(g => g.status !== 'encerrada').map(g => {
+      return `<option value="${g.id}"${g.id === selected?.garantiaId ? ' selected' : ''}>${garantiaIdentificacao(g)} (${GARANTIA_TIPO_LABEL[g.tipo] || g.tipo})</option>`;
+    }))
+    .join('');
+}
+
+function onContratoImovelChange() {
+  const imovelId = $('contrato-imovel').value;
+  const info = $('contrato-imovel-info');
+  if (!imovelId) { info.style.display = 'none'; return; }
+
+  const imovel = (_imoveisCache || []).find(i => i.id === imovelId);
+  if (!imovel) { info.style.display = 'none'; return; }
+
+  // Auto-preenche locador se o imóvel já tem um (e o select estiver vazio ou diferente)
+  if (imovel.locadorId) {
+    $('contrato-locador').value = imovel.locadorId;
+  }
+
+  // Auto-preenche valor de aluguel se vazio
+  const aluguelInput = $('contrato-aluguel');
+  if (!aluguelInput.value && imovel.aluguelSugerido) {
+    aluguelInput.value = imovel.aluguelSugerido;
+    onContratoAluguelChange();
+  }
+
+  // Mostra info do imóvel
+  const end = imovel.endereco || {};
+  const endStr = [end.logradouro, end.numero, end.bairro, end.cidade, end.uf].filter(Boolean).join(', ');
+  const statusLabel = IMOVEL_STATUS_LABEL[imovel.status] || imovel.status;
+  info.style.display = 'block';
+  info.textContent = `${endStr || 'sem endereço'} · ${statusLabel}`;
+  info.style.color = imovel.status === 'alugado' ? 'var(--warning)' : 'var(--text-muted)';
+}
+
+function onContratoPrazoOrInicioChange() {
+  const inicio = $('contrato-inicio').value;
+  const prazo = $('contrato-prazo').value;
+  const fimAtual = $('contrato-fim').value;
+  const fimCalc = calcDataFim(inicio, prazo);
+  // só sobrescreve se o user não editou manualmente (vazio ou igual ao cálculo antigo)
+  if (!fimAtual || fimAtual === calcDataFim(inicio, parseInt(prazo, 10) - 1) || fimAtual === calcDataFim(inicio, parseInt(prazo, 10) + 1)) {
+    $('contrato-fim').value = fimCalc;
+  } else if (!fimAtual) {
+    $('contrato-fim').value = fimCalc;
+  }
+  if (!fimAtual) $('contrato-fim').value = fimCalc;
+}
+
+function onContratoAluguelChange() {
+  const aluguel = parseFloat($('contrato-aluguel').value) || 0;
+  const multaInput = $('contrato-multa');
+  // Só auto-preenche multa se ela estiver vazia
+  if (!multaInput.value || parseFloat(multaInput.value) === 0) {
+    multaInput.value = (aluguel * 3).toFixed(2);
+  }
+  $('contrato-multa-info').textContent = `Sugerido: 3× o aluguel = ${fmtBRL(aluguel * 3)}`;
+}
+
+async function openContratoModal(id) {
+  clearAlert('contrato-alert');
+
+  $('contrato-id').value = id || '';
+  $('modal-contrato-title').textContent = id ? 'Editar Contrato' : 'Novo Contrato';
+  $('btn-delete-contrato').style.display = id ? 'inline-block' : 'none';
+
+  // Limpar
+  ['contrato-inicio', 'contrato-fim', 'contrato-aluguel', 'contrato-multa',
+   'contrato-clausulas', 'contrato-obs', 'contrato-motivo-status'].forEach(f => $(f).value = '');
+  $('contrato-status').value = 'rascunho';
+  $('contrato-prazo').value = '30';
+  $('contrato-vencimento').value = '5';
+  $('contrato-taxa-adm').value = '10';
+  $('contrato-reajuste-indice').value = 'ipca';
+  $('contrato-reajuste-periodicidade').value = 'anual';
+  $('contrato-primeiro-aluguel-escritorio').checked = false;
+  $('contrato-imovel-info').style.display = 'none';
+  $('contrato-locatario-info').style.display = 'none';
+  $('contrato-multa-info').textContent = 'Sugerido: 3× o aluguel';
+
+  // Invalida caches pra pegar entidades atualizadas
+  invalidateLocadoresCache();
+  invalidateLocatariosCache();
+  invalidateImoveisCache();
+  invalidateGarantiasCache();
+
+  let selected = null;
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('contratos').doc(id).get();
+      if (snap.exists) {
+        const c = snap.data();
+        selected = {
+          locadorId: c.locadorId,
+          locatarioId: c.locatarioId,
+          imovelId: c.imovelId,
+          garantiaId: c.garantiaId,
+        };
+        $('contrato-status').value = c.status || 'rascunho';
+        $('contrato-motivo-status').value = c.motivoStatus || '';
+        $('contrato-prazo').value = c.prazoMeses ?? '30';
+        $('contrato-inicio').value = c.inicio || '';
+        $('contrato-fim').value = c.fim || '';
+        $('contrato-aluguel').value = c.aluguel ?? '';
+        $('contrato-vencimento').value = c.diaVencimento ?? 5;
+        $('contrato-taxa-adm').value = c.taxaAdm ?? 10;
+        $('contrato-multa').value = c.multaRescisoria ?? '';
+        $('contrato-reajuste-indice').value = c.reajusteIndice || 'ipca';
+        $('contrato-reajuste-periodicidade').value = c.reajustePeriodicidade || 'anual';
+        $('contrato-primeiro-aluguel-escritorio').checked = !!c.primeiroAluguelEscritorio;
+        $('contrato-clausulas').value = c.clausulas || '';
+        $('contrato-obs').value = c.obs || '';
+      }
+    } catch (err) {
+      console.error('Erro ao carregar contrato:', err);
+      showAlert('contrato-alert', 'Erro ao carregar dados: ' + err.message);
+    }
+    $('contrato-docs-section').style.display = 'block';
+    loadContratoDocs(id);
+  } else {
+    $('contrato-docs-section').style.display = 'none';
+  }
+
+  await populateContratoSelects(selected);
+  onContratoImovelChange();
+  onContratoAluguelChange();
+
+  $('modal-contrato').style.display = 'flex';
+}
+
+function closeContratoModal() {
+  $('modal-contrato').style.display = 'none';
+}
+
+async function saveContrato() {
+  clearAlert('contrato-alert');
+
+  const id = $('contrato-id').value;
+  const imovelId = $('contrato-imovel').value;
+  const locadorId = $('contrato-locador').value;
+  const locatarioId = $('contrato-locatario').value;
+  const inicio = $('contrato-inicio').value;
+  const aluguel = parseFloat($('contrato-aluguel').value);
+  const status = $('contrato-status').value;
+
+  // Validações
+  if (!imovelId) { showAlert('contrato-alert', 'Selecione o imóvel.'); return; }
+  if (!locadorId) { showAlert('contrato-alert', 'Selecione o locador.'); return; }
+  if (!locatarioId) { showAlert('contrato-alert', 'Selecione o locatário.'); return; }
+  if (!inicio) { showAlert('contrato-alert', 'Data de início é obrigatória.'); return; }
+  if (!aluguel || aluguel <= 0) { showAlert('contrato-alert', 'Aluguel mensal é obrigatório.'); return; }
+
+  // Lê status anterior do imóvel pra decidir se libera/ocupa
+  let statusImovelAnterior = null;
+  if (id) {
+    try {
+      const prev = await tenantPath().collection('contratos').doc(id).get();
+      if (prev.exists) statusImovelAnterior = prev.data().status;
+    } catch (_) {}
+  }
+
+  const data = {
+    status,
+    motivoStatus: $('contrato-motivo-status').value.trim() || null,
+    imovelId,
+    locadorId,
+    locatarioId,
+    garantiaId: $('contrato-garantia').value || null,
+    prazoMeses: parseInt($('contrato-prazo').value, 10),
+    inicio,
+    fim: $('contrato-fim').value || null,
+    aluguel,
+    diaVencimento: parseInt($('contrato-vencimento').value, 10) || 5,
+    taxaAdm: parseFloat($('contrato-taxa-adm').value) || 10,
+    multaRescisoria: parseFloat($('contrato-multa').value) || (aluguel * 3),
+    reajusteIndice: $('contrato-reajuste-indice').value,
+    reajustePeriodicidade: $('contrato-reajuste-periodicidade').value,
+    primeiroAluguelEscritorio: $('contrato-primeiro-aluguel-escritorio').checked,
+    clausulas: $('contrato-clausulas').value.trim() || null,
+    obs: $('contrato-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-contrato');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  try {
+    let contratoId = id;
+    if (id) {
+      await tenantPath().collection('contratos').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('contratos').add(data);
+      contratoId = docRef.id;
+    }
+
+    // Sincroniza status do imóvel
+    await syncImovelStatusFromContrato(imovelId, status, statusImovelAnterior);
+    invalidateImoveisCache();
+
+    if (!id) {
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+      await openContratoModal(contratoId);
+      showAlert('contrato-alert', 'Contrato criado. Agora você pode anexar documentos.', 'success');
+      loadContratos();
+      return;
+    }
+    closeContratoModal();
+    loadContratos();
+  } catch (err) {
+    console.error('Erro ao salvar contrato:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar';
+  }
+}
+
+// Atualiza imovel.status conforme o contrato muda de estado.
+async function syncImovelStatusFromContrato(imovelId, statusNovo, statusAnterior) {
+  if (!imovelId) return;
+  const imovelRef = tenantPath().collection('imoveis').doc(imovelId);
+  if (statusNovo === 'vigente') {
+    await imovelRef.update({ status: 'alugado' });
+  } else if ((statusNovo === 'encerrado' || statusNovo === 'rescindido') && statusAnterior === 'vigente') {
+    await imovelRef.update({ status: 'disponivel' });
+  }
+}
+
+async function deleteContrato() {
+  const id = $('contrato-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este contrato? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+
+  try {
+    // Liberar imóvel se contrato vigente
+    const snap = await tenantPath().collection('contratos').doc(id).get();
+    if (snap.exists) {
+      const c = snap.data();
+      if (c.status === 'vigente' && c.imovelId) {
+        await tenantPath().collection('imoveis').doc(c.imovelId).update({ status: 'disponivel' });
+        invalidateImoveisCache();
+      }
+    }
+
+    // Apagar docs do Storage
+    const folderRef = storageTenantRef().child(`contratos/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) {}
+
+    await tenantPath().collection('contratos').doc(id).delete();
+    closeContratoModal();
+    loadContratos();
+  } catch (err) {
+    console.error('Erro ao excluir:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadContratoDocs(contratoId) {
+  const container = $('contrato-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+
+  try {
+    const folderRef = storageTenantRef().child(`contratos/${contratoId}`);
+    const list = await folderRef.listAll();
+
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteContratoDoc('${contratoId}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    console.error('Erro ao listar docs:', err);
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadContratoDocs() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) {
+    showAlert('contrato-alert', 'Salve o contrato antes de anexar documentos.');
+    return;
+  }
+
+  const input = $('contrato-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    showAlert('contrato-alert', 'Selecione ao menos um arquivo.');
+    return;
+  }
+
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) {
+    showAlert('contrato-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+    return;
+  }
+
+  const folderRef = storageTenantRef().child(`contratos/${contratoId}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('contrato-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadContratoDocs(contratoId);
+  } catch (err) {
+    console.error('Erro no upload:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteContratoDoc(contratoId, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`contratos/${contratoId}/${filename}`).delete();
+    loadContratoDocs(contratoId);
+  } catch (err) {
+    console.error('Erro ao excluir doc:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
   }
 }
 

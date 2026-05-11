@@ -278,10 +278,33 @@
         </section>
 
         <section class="section" id="section-contratos" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 1</div>
-            <h3>Contratos</h3>
-            <p>Vínculo locador + locatário + imóvel + garantia. Prazos 6/12/24/36 meses.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Contratos</h3>
+                <p class="muted">Vínculo locador + locatário + imóvel + garantia.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openContratoModal()">+ Novo Contrato</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Locatário</th>
+                    <th>Período</th>
+                    <th>Aluguel</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-contratos">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -1205,6 +1228,177 @@
         <button class="btn btn-secondary" onclick="closeImovelModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-imovel" onclick="deleteImovel()" style="display:none;">Excluir</button>
         <button class="btn btn-primary" id="btn-save-imovel" onclick="saveImovel()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Contrato (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-contrato" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-contrato-title">Novo Contrato</h3>
+        <button class="modal-close" onclick="closeContratoModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="contrato-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="contrato-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Status</label>
+            <select id="contrato-status">
+              <option value="rascunho">📝 Rascunho</option>
+              <option value="vigente">✅ Vigente</option>
+              <option value="encerrado">🏁 Encerrado</option>
+              <option value="rescindido">❌ Rescindido</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se rescindido / encerrado antecipadamente)</label>
+            <input type="text" id="contrato-motivo-status" placeholder="Ex: desinteresse do locatário, inadimplência, mudança de cidade">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Vínculos</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Imóvel</label>
+            <select id="contrato-imovel" onchange="onContratoImovelChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="contrato-imovel-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Locador (proprietário)</label>
+            <select id="contrato-locador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Locatário (inquilino)</label>
+            <select id="contrato-locatario">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="contrato-locatario-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label>Garantia</label>
+            <select id="contrato-garantia">
+              <option value="">— Sem garantia (atípico) —</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Termo comercial</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Prazo</label>
+            <select id="contrato-prazo" onchange="onContratoPrazoOrInicioChange()">
+              <option value="6">6 meses</option>
+              <option value="12">12 meses</option>
+              <option value="24">24 meses</option>
+              <option value="30" selected>30 meses</option>
+              <option value="36">36 meses</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Data de início</label>
+            <input type="date" id="contrato-inicio" onchange="onContratoPrazoOrInicioChange()">
+          </div>
+          <div class="form-group">
+            <label>Data de fim</label>
+            <input type="date" id="contrato-fim">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Aluguel mensal (R$)</label>
+            <input type="number" id="contrato-aluguel" min="0" step="0.01" placeholder="0,00" oninput="onContratoAluguelChange()">
+          </div>
+          <div class="form-group">
+            <label class="required">Dia de vencimento</label>
+            <input type="number" id="contrato-vencimento" min="1" max="30" step="1" value="5">
+          </div>
+          <div class="form-group">
+            <label>Taxa de administração (%)</label>
+            <input type="number" id="contrato-taxa-adm" min="0" max="100" step="0.1" value="10">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Multa rescisória (R$)</label>
+            <input type="number" id="contrato-multa" min="0" step="0.01" placeholder="0,00">
+            <span class="input-status muted" id="contrato-multa-info">Sugerido: 3× o aluguel</span>
+          </div>
+          <div class="form-group">
+            <label>Índice de reajuste</label>
+            <select id="contrato-reajuste-indice">
+              <option value="igpm">IGP-M</option>
+              <option value="ipca" selected>IPCA</option>
+              <option value="inpc">INPC</option>
+              <option value="sem">Sem reajuste</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Periodicidade do reajuste</label>
+            <select id="contrato-reajuste-periodicidade">
+              <option value="anual" selected>Anual</option>
+              <option value="bienal">Bienal</option>
+              <option value="sem">Sem reajuste</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="contrato-primeiro-aluguel-escritorio" style="width:auto;">
+            🎯 Primeiro aluguel destinado ao escritório (captação realizada por nós)
+          </label>
+        </div>
+
+        <h4 class="form-section-title">Cláusulas extras</h4>
+
+        <div class="form-group">
+          <textarea id="contrato-clausulas" rows="4" placeholder="Regras específicas, animais permitidos, pintura, sublocação, etc."></textarea>
+        </div>
+
+        <h4 class="form-section-title">Observações internas</h4>
+
+        <div class="form-group">
+          <textarea id="contrato-obs" rows="2" placeholder="Anotações da imobiliária — não vão para o contrato impresso"></textarea>
+        </div>
+
+        <div id="contrato-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Contrato assinado em PDF, vistoria de entrada, autorizações específicas, anexos.</p>
+
+          <div id="contrato-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="contrato-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadContratoDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-contrato" onclick="saveContrato()">Salvar</button>
       </div>
     </div>
   </div>
