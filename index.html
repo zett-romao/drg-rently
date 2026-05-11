@@ -217,10 +217,32 @@
         </section>
 
         <section class="section" id="section-garantias" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 1</div>
-            <h3>Garantias</h3>
-            <p>Fiador, caução ou seguro fiança.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Garantias</h3>
+                <p class="muted">Fiador, caução ou seguro fiança.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openGarantiaModal()">+ Nova Garantia</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Identificação</th>
+                    <th>Tipo</th>
+                    <th>Valor referência</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-garantias">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -667,6 +689,299 @@
         <button class="btn btn-secondary" onclick="closeLocatarioModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-locatario" onclick="deleteLocatario()" style="display:none;">Excluir</button>
         <button class="btn btn-primary" id="btn-save-locatario" onclick="saveLocatario()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Garantia (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-garantia" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-garantia-title">Nova Garantia</h3>
+        <button class="modal-close" onclick="closeGarantiaModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="garantia-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="garantia-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Tipo de garantia</label>
+            <select id="garantia-tipo" onchange="onGarantiaTipoChange()">
+              <option value="fiador">Fiador</option>
+              <option value="caucao">Caução</option>
+              <option value="seguro_fianca">Seguro Fiança</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="garantia-status">
+              <option value="ativa">Ativa</option>
+              <option value="encerrada">Encerrada</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Data de início</label>
+            <input type="date" id="garantia-inicio">
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: FIADOR (PF) -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-fiador">
+          <h4 class="form-section-title">Dados do fiador</h4>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label class="required">Nome completo</label>
+              <input type="text" id="garantia-fiador-nome">
+            </div>
+            <div class="form-group">
+              <label class="required">CPF</label>
+              <input type="text" id="garantia-fiador-cpf" placeholder="000.000.000-00">
+              <span id="garantia-fiador-cpf-status" class="input-status" style="display:none;"></span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>RG</label>
+              <input type="text" id="garantia-fiador-rg">
+            </div>
+            <div class="form-group">
+              <label>Data de nascimento</label>
+              <input type="date" id="garantia-fiador-nascimento">
+            </div>
+            <div class="form-group">
+              <label>Profissão</label>
+              <input type="text" id="garantia-fiador-profissao">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Estado civil</label>
+              <select id="garantia-fiador-estado-civil" onchange="onFiadorEstadoCivilChange()">
+                <option value="">—</option>
+                <option value="solteiro">Solteiro(a)</option>
+                <option value="casado">Casado(a)</option>
+                <option value="divorciado">Divorciado(a)</option>
+                <option value="viuvo">Viúvo(a)</option>
+                <option value="uniao_estavel">União Estável</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>E-mail</label>
+              <input type="email" id="garantia-fiador-email">
+            </div>
+            <div class="form-group">
+              <label>Telefone</label>
+              <input type="text" id="garantia-fiador-telefone" placeholder="(00) 00000-0000">
+            </div>
+          </div>
+
+          <h4 class="form-section-title">Endereço do fiador</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>CEP</label>
+              <input type="text" id="garantia-fiador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPFiador()">
+              <span id="garantia-fiador-cep-status" class="input-status" style="display:none;"></span>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Logradouro</label>
+              <input type="text" id="garantia-fiador-logradouro">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Número</label>
+              <input type="text" id="garantia-fiador-numero">
+            </div>
+            <div class="form-group">
+              <label>Complemento</label>
+              <input type="text" id="garantia-fiador-complemento">
+            </div>
+            <div class="form-group">
+              <label>Bairro</label>
+              <input type="text" id="garantia-fiador-bairro">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Cidade</label>
+              <input type="text" id="garantia-fiador-cidade">
+            </div>
+            <div class="form-group">
+              <label>UF</label>
+              <input type="text" id="garantia-fiador-uf" maxlength="2" style="text-transform:uppercase;">
+            </div>
+          </div>
+
+          <h4 class="form-section-title">Análise financeira</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Renda mensal (R$)</label>
+              <input type="number" id="garantia-fiador-renda" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Bens declarados</label>
+              <input type="text" id="garantia-fiador-bens" placeholder="Imóveis, veículos, contas, aplicações…">
+            </div>
+          </div>
+
+          <div id="garantia-fiador-conjuge-wrap" style="display:none;">
+            <h4 class="form-section-title">Cônjuge (obrigatório se casado)</h4>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: span 2;">
+                <label>Nome do cônjuge</label>
+                <input type="text" id="garantia-fiador-conjuge-nome">
+              </div>
+              <div class="form-group">
+                <label>CPF do cônjuge</label>
+                <input type="text" id="garantia-fiador-conjuge-cpf" placeholder="000.000.000-00">
+                <span id="garantia-fiador-conjuge-cpf-status" class="input-status" style="display:none;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: CAUÇÃO -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-caucao" style="display:none;">
+          <h4 class="form-section-title">Dados da caução</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Modalidade</label>
+              <select id="garantia-caucao-modalidade" onchange="onCaucaoModalidadeChange()">
+                <option value="dinheiro">Dinheiro</option>
+                <option value="imovel">Imóvel</option>
+                <option value="titulo">Título / Aplicação</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Data do depósito / registro</label>
+              <input type="date" id="garantia-caucao-data">
+            </div>
+            <div class="form-group">
+              <label>Valor (R$)</label>
+              <input type="number" id="garantia-caucao-valor" min="0" step="0.01" placeholder="0,00">
+            </div>
+          </div>
+
+          <div id="garantia-caucao-dinheiro-extra">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Banco</label>
+                <input type="text" id="garantia-caucao-banco">
+              </div>
+              <div class="form-group">
+                <label>Agência</label>
+                <input type="text" id="garantia-caucao-agencia">
+              </div>
+              <div class="form-group">
+                <label>Conta</label>
+                <input type="text" id="garantia-caucao-conta">
+              </div>
+            </div>
+          </div>
+
+          <div id="garantia-caucao-bem-extra" style="display:none;">
+            <div class="form-group">
+              <label>Descrição do bem</label>
+              <textarea id="garantia-caucao-bem-descricao" rows="2" placeholder="Matrícula, endereço, número do título, instituição emissora…"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: SEGURO FIANÇA -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-seguro" style="display:none;">
+          <h4 class="form-section-title">Dados da apólice</h4>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label class="required">Seguradora</label>
+              <input type="text" id="garantia-seguro-seguradora">
+            </div>
+            <div class="form-group">
+              <label class="required">Número da apólice</label>
+              <input type="text" id="garantia-seguro-apolice">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Vigência — início</label>
+              <input type="date" id="garantia-seguro-vigencia-ini">
+            </div>
+            <div class="form-group">
+              <label>Vigência — fim</label>
+              <input type="date" id="garantia-seguro-vigencia-fim">
+            </div>
+            <div class="form-group">
+              <label>Cobertura contratada (R$)</label>
+              <input type="number" id="garantia-seguro-cobertura" min="0" step="0.01" placeholder="0,00">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Prêmio total (R$)</label>
+              <input type="number" id="garantia-seguro-premio" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="form-group">
+              <label>Forma de pagamento</label>
+              <select id="garantia-seguro-forma">
+                <option value="">—</option>
+                <option value="a_vista">À vista</option>
+                <option value="parcelado">Parcelado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Parcelas (se parcelado)</label>
+              <input type="number" id="garantia-seguro-parcelas" min="1" step="1">
+            </div>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="garantia-obs" rows="3"></textarea>
+        </div>
+
+        <div id="garantia-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Comprovantes da garantia: docs do fiador, escritura do imóvel caucionado, comprovante de depósito, apólice de seguro, etc.</p>
+
+          <div id="garantia-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="garantia-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadGarantiaDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeGarantiaModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-garantia" onclick="deleteGarantia()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-garantia" onclick="saveGarantia()">Salvar</button>
       </div>
     </div>
   </div>

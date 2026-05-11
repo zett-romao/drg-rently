@@ -420,6 +420,9 @@ function showSection(name) {
   if (name === 'locatarios' && State.tenant) {
     loadLocatarios();
   }
+  if (name === 'garantias' && State.tenant) {
+    loadGarantias();
+  }
   if (name === 'configuracoes' && State.tenant) {
     $('cfg-razao').value = State.tenant.nome || '';
     $('cfg-cnpj').value = State.tenant.cnpj || '';
@@ -1359,6 +1362,517 @@ async function deleteLocatarioDoc(locatarioId, filename) {
 }
 
 // =============================================================
+// GARANTIAS — fiador / caução / seguro fiança
+// =============================================================
+
+const GARANTIA_TIPO_LABEL = {
+  fiador: '🧑 Fiador',
+  caucao: '💰 Caução',
+  seguro_fianca: '🛡 Seguro Fiança',
+};
+
+function garantiaIdentificacao(g) {
+  if (g.tipo === 'fiador') return g.fiador?.nome || '—';
+  if (g.tipo === 'caucao') {
+    const mod = g.caucao?.modalidade || '—';
+    const label = mod === 'dinheiro' ? 'Dinheiro' : mod === 'imovel' ? 'Imóvel' : mod === 'titulo' ? 'Título' : mod;
+    return `Caução em ${label}`;
+  }
+  if (g.tipo === 'seguro_fianca') {
+    const s = g.seguro || {};
+    return `${s.seguradora || 'Seguradora'} · Apólice ${s.apolice || '—'}`;
+  }
+  return '—';
+}
+
+function garantiaValorRef(g) {
+  if (g.tipo === 'fiador' && g.fiador?.renda) return g.fiador.renda;
+  if (g.tipo === 'caucao' && g.caucao?.valor) return g.caucao.valor;
+  if (g.tipo === 'seguro_fianca' && g.seguro?.cobertura) return g.seguro.cobertura;
+  return null;
+}
+
+function fmtBRL(n) {
+  if (n == null || isNaN(n)) return '—';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+async function loadGarantias() {
+  const tbody = $('tbody-garantias');
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+
+  try {
+    const snap = await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhuma garantia cadastrada. Clique em "Nova Garantia" para começar.</td></tr>`;
+      return;
+    }
+
+    const rows = snap.docs.map((doc, i) => {
+      const g = doc.data();
+      const status = g.status || 'ativa';
+      const statusClass = status === 'ativa' ? 'ativo' : 'suspenso';
+      const statusLabel = status === 'ativa' ? 'Ativa' : 'Encerrada';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${garantiaIdentificacao(g)}</strong></td>
+          <td>${GARANTIA_TIPO_LABEL[g.tipo] || g.tipo}</td>
+          <td>${fmtBRL(garantiaValorRef(g))}</td>
+          <td><span class="badge-status ${statusClass}">${statusLabel}</span></td>
+          <td>
+            <div class="action-btns">
+              <button class="btn btn-sm btn-secondary" onclick="openGarantiaModal('${doc.id}')">Editar</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar garantias:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+function onGarantiaTipoChange() {
+  const tipo = $('garantia-tipo').value;
+  $('garantia-bloco-fiador').style.display = (tipo === 'fiador') ? 'block' : 'none';
+  $('garantia-bloco-caucao').style.display = (tipo === 'caucao') ? 'block' : 'none';
+  $('garantia-bloco-seguro').style.display = (tipo === 'seguro_fianca') ? 'block' : 'none';
+}
+
+function onCaucaoModalidadeChange() {
+  const m = $('garantia-caucao-modalidade').value;
+  $('garantia-caucao-dinheiro-extra').style.display = (m === 'dinheiro') ? 'block' : 'none';
+  $('garantia-caucao-bem-extra').style.display = (m === 'imovel' || m === 'titulo') ? 'block' : 'none';
+}
+
+function onFiadorEstadoCivilChange() {
+  const ec = $('garantia-fiador-estado-civil').value;
+  const mostra = (ec === 'casado' || ec === 'uniao_estavel');
+  $('garantia-fiador-conjuge-wrap').style.display = mostra ? 'block' : 'none';
+}
+
+function onGarantiaFiadorCPFInput() {
+  const digits = $('garantia-fiador-cpf').value.replace(/\D/g, '');
+  const status = $('garantia-fiador-cpf-status');
+  if (digits.length === 0) { status.style.display = 'none'; return; }
+  status.style.display = 'block';
+  if (digits.length < 11) {
+    status.textContent = `${digits.length}/11 dígitos`;
+    status.style.color = 'var(--text-muted)';
+  } else if (isCPFValid(digits)) {
+    status.textContent = '✓ CPF válido';
+    status.style.color = 'var(--success)';
+  } else {
+    status.textContent = '✗ CPF inválido';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+function onGarantiaConjugeCPFInput() {
+  const digits = $('garantia-fiador-conjuge-cpf').value.replace(/\D/g, '');
+  const status = $('garantia-fiador-conjuge-cpf-status');
+  if (digits.length === 0) { status.style.display = 'none'; return; }
+  status.style.display = 'block';
+  if (digits.length < 11) {
+    status.textContent = `${digits.length}/11 dígitos`;
+    status.style.color = 'var(--text-muted)';
+  } else if (isCPFValid(digits)) {
+    status.textContent = '✓ CPF válido';
+    status.style.color = 'var(--success)';
+  } else {
+    status.textContent = '✗ CPF inválido';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function buscarCEPFiador() {
+  const input = $('garantia-fiador-cep');
+  const status = $('garantia-fiador-cep-status');
+  const cepRaw = (input.value || '').replace(/\D/g, '');
+
+  if (cepRaw.length === 0) return;
+  if (cepRaw.length !== 8) {
+    showAlert('garantia-alert', 'CEP deve ter 8 dígitos.');
+    return;
+  }
+
+  input.value = cepRaw.replace(/(\d{5})(\d{3})/, '$1-$2');
+  status.style.display = 'block';
+  status.textContent = 'Buscando…';
+  status.style.color = 'var(--primary)';
+
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cepRaw}/json/`);
+    const data = await res.json();
+    if (data.erro) {
+      status.textContent = 'CEP não encontrado';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    if (data.logradouro) $('garantia-fiador-logradouro').value = data.logradouro;
+    if (data.bairro)     $('garantia-fiador-bairro').value     = data.bairro;
+    if (data.localidade) $('garantia-fiador-cidade').value     = data.localidade;
+    if (data.uf)         $('garantia-fiador-uf').value         = data.uf;
+    status.textContent = '✓';
+    status.style.color = 'var(--success)';
+    $('garantia-fiador-numero').focus();
+  } catch (err) {
+    console.error('Erro CEP:', err);
+    status.textContent = 'Erro de conexão';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function openGarantiaModal(id) {
+  clearAlert('garantia-alert');
+
+  $('garantia-id').value = id || '';
+  $('modal-garantia-title').textContent = id ? 'Editar Garantia' : 'Nova Garantia';
+  $('btn-delete-garantia').style.display = id ? 'inline-block' : 'none';
+
+  // Reset comum
+  $('garantia-tipo').value = 'fiador';
+  $('garantia-status').value = 'ativa';
+  $('garantia-inicio').value = '';
+  $('garantia-obs').value = '';
+
+  // Reset fiador
+  ['garantia-fiador-nome', 'garantia-fiador-cpf', 'garantia-fiador-rg',
+   'garantia-fiador-nascimento', 'garantia-fiador-profissao',
+   'garantia-fiador-email', 'garantia-fiador-telefone',
+   'garantia-fiador-cep', 'garantia-fiador-logradouro', 'garantia-fiador-numero',
+   'garantia-fiador-complemento', 'garantia-fiador-bairro', 'garantia-fiador-cidade',
+   'garantia-fiador-uf', 'garantia-fiador-renda', 'garantia-fiador-bens',
+   'garantia-fiador-conjuge-nome', 'garantia-fiador-conjuge-cpf'].forEach(f => $(f).value = '');
+  $('garantia-fiador-estado-civil').value = '';
+  $('garantia-fiador-cpf-status').style.display = 'none';
+  $('garantia-fiador-cep-status').style.display = 'none';
+  $('garantia-fiador-conjuge-cpf-status').style.display = 'none';
+
+  // Reset caução
+  $('garantia-caucao-modalidade').value = 'dinheiro';
+  ['garantia-caucao-data', 'garantia-caucao-valor', 'garantia-caucao-banco',
+   'garantia-caucao-agencia', 'garantia-caucao-conta', 'garantia-caucao-bem-descricao'].forEach(f => $(f).value = '');
+
+  // Reset seguro
+  ['garantia-seguro-seguradora', 'garantia-seguro-apolice',
+   'garantia-seguro-vigencia-ini', 'garantia-seguro-vigencia-fim',
+   'garantia-seguro-cobertura', 'garantia-seguro-premio',
+   'garantia-seguro-parcelas'].forEach(f => $(f).value = '');
+  $('garantia-seguro-forma').value = '';
+
+  onGarantiaTipoChange();
+  onCaucaoModalidadeChange();
+  onFiadorEstadoCivilChange();
+
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('garantias').doc(id).get();
+      if (snap.exists) {
+        const g = snap.data();
+        $('garantia-tipo').value = g.tipo || 'fiador';
+        $('garantia-status').value = g.status || 'ativa';
+        $('garantia-inicio').value = g.inicio || '';
+        $('garantia-obs').value = g.obs || '';
+
+        if (g.fiador) {
+          const f = g.fiador;
+          $('garantia-fiador-nome').value = f.nome || '';
+          $('garantia-fiador-cpf').value = f.cpf ? maskCPF(f.cpf) : '';
+          $('garantia-fiador-rg').value = f.rg || '';
+          $('garantia-fiador-nascimento').value = f.nascimento || '';
+          $('garantia-fiador-profissao').value = f.profissao || '';
+          $('garantia-fiador-estado-civil').value = f.estadoCivil || '';
+          $('garantia-fiador-email').value = f.email || '';
+          $('garantia-fiador-telefone').value = f.telefone ? maskTelefone(f.telefone) : '';
+          const end = f.endereco || {};
+          $('garantia-fiador-cep').value = end.cep ? maskCEP(end.cep) : '';
+          $('garantia-fiador-logradouro').value = end.logradouro || '';
+          $('garantia-fiador-numero').value = end.numero || '';
+          $('garantia-fiador-complemento').value = end.complemento || '';
+          $('garantia-fiador-bairro').value = end.bairro || '';
+          $('garantia-fiador-cidade').value = end.cidade || '';
+          $('garantia-fiador-uf').value = end.uf || '';
+          $('garantia-fiador-renda').value = f.renda ?? '';
+          $('garantia-fiador-bens').value = f.bens || '';
+          $('garantia-fiador-conjuge-nome').value = f.conjugeNome || '';
+          $('garantia-fiador-conjuge-cpf').value = f.conjugeCpf ? maskCPF(f.conjugeCpf) : '';
+          onFiadorEstadoCivilChange();
+          onGarantiaFiadorCPFInput();
+          onGarantiaConjugeCPFInput();
+        }
+
+        if (g.caucao) {
+          const c = g.caucao;
+          $('garantia-caucao-modalidade').value = c.modalidade || 'dinheiro';
+          $('garantia-caucao-data').value = c.data || '';
+          $('garantia-caucao-valor').value = c.valor ?? '';
+          $('garantia-caucao-banco').value = c.banco || '';
+          $('garantia-caucao-agencia').value = c.agencia || '';
+          $('garantia-caucao-conta').value = c.conta || '';
+          $('garantia-caucao-bem-descricao').value = c.bemDescricao || '';
+          onCaucaoModalidadeChange();
+        }
+
+        if (g.seguro) {
+          const s = g.seguro;
+          $('garantia-seguro-seguradora').value = s.seguradora || '';
+          $('garantia-seguro-apolice').value = s.apolice || '';
+          $('garantia-seguro-vigencia-ini').value = s.vigenciaInicio || '';
+          $('garantia-seguro-vigencia-fim').value = s.vigenciaFim || '';
+          $('garantia-seguro-cobertura').value = s.cobertura ?? '';
+          $('garantia-seguro-premio').value = s.premio ?? '';
+          $('garantia-seguro-forma').value = s.formaPagamento || '';
+          $('garantia-seguro-parcelas').value = s.parcelas ?? '';
+        }
+
+        onGarantiaTipoChange();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar garantia:', err);
+      showAlert('garantia-alert', 'Erro ao carregar dados: ' + err.message);
+    }
+    $('garantia-docs-section').style.display = 'block';
+    loadGarantiaDocs(id);
+  } else {
+    $('garantia-docs-section').style.display = 'none';
+  }
+
+  $('modal-garantia').style.display = 'flex';
+}
+
+function closeGarantiaModal() {
+  $('modal-garantia').style.display = 'none';
+}
+
+async function saveGarantia() {
+  clearAlert('garantia-alert');
+
+  const id = $('garantia-id').value;
+  const tipo = $('garantia-tipo').value;
+
+  // Validações específicas
+  if (tipo === 'fiador') {
+    if (!$('garantia-fiador-nome').value.trim()) {
+      showAlert('garantia-alert', 'Nome do fiador é obrigatório.');
+      return;
+    }
+    const cpfDigits = $('garantia-fiador-cpf').value.replace(/\D/g, '');
+    if (!cpfDigits) {
+      showAlert('garantia-alert', 'CPF do fiador é obrigatório.');
+      return;
+    }
+  } else if (tipo === 'seguro_fianca') {
+    if (!$('garantia-seguro-seguradora').value.trim()) {
+      showAlert('garantia-alert', 'Seguradora é obrigatória.');
+      return;
+    }
+    if (!$('garantia-seguro-apolice').value.trim()) {
+      showAlert('garantia-alert', 'Número da apólice é obrigatório.');
+      return;
+    }
+  }
+
+  const data = {
+    tipo,
+    status: $('garantia-status').value,
+    inicio: $('garantia-inicio').value || null,
+    obs: $('garantia-obs').value.trim() || null,
+    fiador: null,
+    caucao: null,
+    seguro: null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  if (tipo === 'fiador') {
+    data.fiador = {
+      nome: $('garantia-fiador-nome').value.trim(),
+      cpf: $('garantia-fiador-cpf').value.replace(/\D/g, ''),
+      rg: $('garantia-fiador-rg').value.trim() || null,
+      nascimento: $('garantia-fiador-nascimento').value || null,
+      profissao: $('garantia-fiador-profissao').value.trim() || null,
+      estadoCivil: $('garantia-fiador-estado-civil').value || null,
+      email: $('garantia-fiador-email').value.trim() || null,
+      telefone: $('garantia-fiador-telefone').value.replace(/\D/g, '') || null,
+      endereco: {
+        cep: $('garantia-fiador-cep').value.replace(/\D/g, '') || null,
+        logradouro: $('garantia-fiador-logradouro').value.trim() || null,
+        numero: $('garantia-fiador-numero').value.trim() || null,
+        complemento: $('garantia-fiador-complemento').value.trim() || null,
+        bairro: $('garantia-fiador-bairro').value.trim() || null,
+        cidade: $('garantia-fiador-cidade').value.trim() || null,
+        uf: $('garantia-fiador-uf').value.trim().toUpperCase() || null,
+      },
+      renda: parseFloat($('garantia-fiador-renda').value) || null,
+      bens: $('garantia-fiador-bens').value.trim() || null,
+      conjugeNome: $('garantia-fiador-conjuge-nome').value.trim() || null,
+      conjugeCpf: $('garantia-fiador-conjuge-cpf').value.replace(/\D/g, '') || null,
+    };
+  } else if (tipo === 'caucao') {
+    data.caucao = {
+      modalidade: $('garantia-caucao-modalidade').value,
+      data: $('garantia-caucao-data').value || null,
+      valor: parseFloat($('garantia-caucao-valor').value) || null,
+      banco: $('garantia-caucao-banco').value.trim() || null,
+      agencia: $('garantia-caucao-agencia').value.trim() || null,
+      conta: $('garantia-caucao-conta').value.trim() || null,
+      bemDescricao: $('garantia-caucao-bem-descricao').value.trim() || null,
+    };
+  } else if (tipo === 'seguro_fianca') {
+    data.seguro = {
+      seguradora: $('garantia-seguro-seguradora').value.trim(),
+      apolice: $('garantia-seguro-apolice').value.trim(),
+      vigenciaInicio: $('garantia-seguro-vigencia-ini').value || null,
+      vigenciaFim: $('garantia-seguro-vigencia-fim').value || null,
+      cobertura: parseFloat($('garantia-seguro-cobertura').value) || null,
+      premio: parseFloat($('garantia-seguro-premio').value) || null,
+      formaPagamento: $('garantia-seguro-forma').value || null,
+      parcelas: parseInt($('garantia-seguro-parcelas').value, 10) || null,
+    };
+  }
+
+  const btn = $('btn-save-garantia');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  try {
+    if (id) {
+      await tenantPath().collection('garantias').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('garantias').add(data);
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+      await openGarantiaModal(docRef.id);
+      showAlert('garantia-alert', 'Garantia criada. Agora você pode anexar documentos.', 'success');
+      loadGarantias();
+      return;
+    }
+    closeGarantiaModal();
+    loadGarantias();
+  } catch (err) {
+    console.error('Erro ao salvar:', err);
+    showAlert('garantia-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteGarantia() {
+  const id = $('garantia-id').value;
+  if (!id) return;
+  if (!confirm('Excluir esta garantia? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+
+  try {
+    const folderRef = storageTenantRef().child(`garantias/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) { /* pasta pode não existir */ }
+
+    await tenantPath().collection('garantias').doc(id).delete();
+    closeGarantiaModal();
+    loadGarantias();
+  } catch (err) {
+    console.error('Erro ao excluir:', err);
+    showAlert('garantia-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadGarantiaDocs(garantiaId) {
+  const container = $('garantia-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+
+  try {
+    const folderRef = storageTenantRef().child(`garantias/${garantiaId}`);
+    const list = await folderRef.listAll();
+
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteGarantiaDoc('${garantiaId}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    console.error('Erro ao listar docs:', err);
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadGarantiaDocs() {
+  const garantiaId = $('garantia-id').value;
+  if (!garantiaId) {
+    showAlert('garantia-alert', 'Salve a garantia antes de anexar documentos.');
+    return;
+  }
+
+  const input = $('garantia-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    showAlert('garantia-alert', 'Selecione ao menos um arquivo.');
+    return;
+  }
+
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) {
+    showAlert('garantia-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+    return;
+  }
+
+  const folderRef = storageTenantRef().child(`garantias/${garantiaId}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('garantia-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadGarantiaDocs(garantiaId);
+  } catch (err) {
+    console.error('Erro no upload:', err);
+    showAlert('garantia-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteGarantiaDoc(garantiaId, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`garantias/${garantiaId}/${filename}`).delete();
+    loadGarantiaDocs(garantiaId);
+  } catch (err) {
+    console.error('Erro ao excluir doc:', err);
+    showAlert('garantia-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
 // Init
 // =============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1397,4 +1911,12 @@ document.addEventListener('DOMContentLoaded', () => {
   bindMask('locatario-cep', maskCEP);
   $('locatario-documento').addEventListener('input', onLocatarioDocumentoInput);
   $('locatario-documento').addEventListener('blur', onLocatarioDocumentoBlur);
+
+  // Máscaras e validação — Garantia (fiador)
+  bindMask('garantia-fiador-cpf', maskCPF);
+  bindMask('garantia-fiador-conjuge-cpf', maskCPF);
+  bindMask('garantia-fiador-telefone', maskTelefone);
+  bindMask('garantia-fiador-cep', maskCEP);
+  $('garantia-fiador-cpf').addEventListener('input', onGarantiaFiadorCPFInput);
+  $('garantia-fiador-conjuge-cpf').addEventListener('input', onGarantiaConjugeCPFInput);
 });
