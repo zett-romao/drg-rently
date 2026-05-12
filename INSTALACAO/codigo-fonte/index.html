@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" href="logo.png?v=20260513a">
-  <link rel="stylesheet" href="styles.css?v=20260513c">
+  <link rel="stylesheet" href="styles.css?v=20260513d">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1652,11 +1652,49 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <!-- CARD: Apuração em tempo real -->
+        <div class="card apuracao-card" id="card-apuracao-tempo-real" style="margin-bottom:16px;">
+          <h4 style="margin:0 0 8px;">📊 Apuração em tempo real</h4>
+          <div class="apuracao-grid">
+            <div class="apuracao-item entrada">
+              <span class="apuracao-label">🟢 Receitas</span>
+              <strong id="apuracao-receitas">R$ 0,00</strong>
+            </div>
+            <div class="apuracao-item saida">
+              <span class="apuracao-label">🔴 Despesas do locador</span>
+              <strong id="apuracao-despesas">R$ 0,00</strong>
+            </div>
+            <div class="apuracao-item taxa">
+              <span class="apuracao-label">🧾 Taxa de administração</span>
+              <strong id="apuracao-taxa">R$ 0,00</strong>
+            </div>
+            <div class="apuracao-item liquido">
+              <span class="apuracao-label">💰 LÍQUIDO ao locador</span>
+              <strong id="apuracao-liquido">R$ 0,00</strong>
+            </div>
+          </div>
+          <p class="muted" style="font-size:11px; margin:6px 0 0;">Atualizado em tempo real conforme você adiciona lançamentos. Confirme tudo antes de fechar o balancete.</p>
+        </div>
+
+        <!-- BLOCO: Análise multi-comprovante (Gemini IA) -->
+        <div class="card multi-comprovante-card" style="margin-bottom:16px; background:linear-gradient(135deg,#eef2ff,#e0e7ff); border:1px solid #c7d2fe;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div>
+              <h4 style="margin:0 0 4px; color:var(--primary-dark);">🤖 Análise inteligente de comprovantes</h4>
+              <p style="margin:0; font-size:12px; color:var(--text);">Anexe um arquivo (PDF/imagem) com <strong>vários comprovantes</strong> e a IA processa tudo de uma vez — separa NF, comprovantes PIX, boletos pagos, etc.</p>
+            </div>
+            <button class="btn btn-primary btn-sm" type="button" onclick="lerMultiComprovantes()" style="white-space:nowrap;">📂 Analisar arquivo</button>
+          </div>
+        </div>
+
         <!-- BLOCO: Entradas -->
         <div class="balancete-bloco">
           <div class="balancete-bloco-header bloco-entrada">
             <h4>⬆ Entradas (recebidas pela imobiliária)</h4>
-            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('entrada')">+ Adicionar</button>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="lerBoletoLancamento('entrada')">🤖 Ler comprovante</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('entrada')">+ Adicionar</button>
+            </div>
           </div>
           <div id="lanc-entrada-list" class="lanc-list"></div>
           <div class="balancete-bloco-total">Total entradas: <strong id="total-entradas">R$ 0,00</strong></div>
@@ -2106,71 +2144,94 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
-  <!-- MODAL: Revisão do boleto lido pelo Gemini -->
+  <!-- MODAL: Revisão (single OU multi comprovantes) -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-boleto-revisao" style="display:none;">
     <div class="modal modal-lg">
       <div class="modal-header">
-        <h3>🤖 Dados extraídos do boleto</h3>
+        <h3 id="boleto-revisao-titulo">🤖 Dados extraídos do boleto</h3>
         <button class="modal-close" onclick="closeBoletoRevisao()">×</button>
       </div>
       <div class="modal-body">
         <div id="boleto-alert" class="alert alert-error" style="display:none;"></div>
 
-        <p class="muted" style="font-size:12px; margin-bottom:14px;">
-          Revise os campos extraídos pelo Gemini. Você pode editar antes de confirmar.
-          Ao confirmar, será criado um lançamento e o boleto anexado como comprovante.
-        </p>
+        <!-- Modo SINGLE (legado — 1 só comprovante) -->
+        <div id="revisao-single">
+          <p class="muted" style="font-size:12px; margin-bottom:14px;">
+            Revise os campos extraídos pelo Gemini. Você pode editar antes de confirmar.
+            Ao confirmar, será criado um lançamento e o comprovante anexado.
+          </p>
 
-        <div class="form-row">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Categoria sugerida</label>
+              <select id="boleto-categoria"></select>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Descrição</label>
+              <input type="text" id="boleto-descricao">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Valor (R$)</label>
+              <input type="number" id="boleto-valor" min="0" step="0.01">
+            </div>
+            <div class="form-group">
+              <label>Vencimento</label>
+              <input type="date" id="boleto-vencimento">
+            </div>
+            <div class="form-group">
+              <label>Competência</label>
+              <input type="month" id="boleto-competencia">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Beneficiário</label>
+              <input type="text" id="boleto-beneficiario">
+            </div>
+            <div class="form-group">
+              <label>CNPJ/CPF do beneficiário</label>
+              <input type="text" id="boleto-doc-benef">
+            </div>
+          </div>
+
           <div class="form-group">
-            <label>Categoria sugerida</label>
-            <select id="boleto-categoria"></select>
+            <label>Linha digitável</label>
+            <input type="text" id="boleto-linha-digitavel" style="font-family: 'Courier New', monospace; font-size: 12px;">
           </div>
-          <div class="form-group" style="grid-column: span 2;">
-            <label>Descrição</label>
-            <input type="text" id="boleto-descricao">
-          </div>
+
+          <p class="muted" style="font-size:11px;">
+            📎 Arquivo carregado: <strong id="boleto-arquivo-nome">—</strong>
+          </p>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label class="required">Valor (R$)</label>
-            <input type="number" id="boleto-valor" min="0" step="0.01">
-          </div>
-          <div class="form-group">
-            <label>Vencimento</label>
-            <input type="date" id="boleto-vencimento">
-          </div>
-          <div class="form-group">
-            <label>Competência</label>
-            <input type="month" id="boleto-competencia">
-          </div>
-        </div>
+        <!-- Modo MULTI — N comprovantes detectados pelo Gemini -->
+        <div id="revisao-multi" style="display:none;">
+          <p class="muted" style="font-size:12px; margin-bottom:6px;">
+            🤖 A IA detectou <strong id="multi-count">0</strong> documento(s) no arquivo. Revise cada um:
+            <span style="color:var(--text-muted);">marque/desmarque "Lançar" e edite os valores se necessário.</span>
+          </p>
+          <p class="muted" style="font-size:11px; margin-bottom:14px;">
+            <span style="color:#92400e;">⚠️ Campos em amarelo</span> têm confiança baixa — confira com atenção. Documentos não-pagáveis (NF, cupom) ficam <strong>desmarcados por padrão</strong>.
+          </p>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Beneficiário</label>
-            <input type="text" id="boleto-beneficiario">
-          </div>
-          <div class="form-group">
-            <label>CNPJ/CPF do beneficiário</label>
-            <input type="text" id="boleto-doc-benef">
-          </div>
-        </div>
+          <div id="multi-observacoes" class="alert" style="display:none; background:#fef3c7; color:#92400e; border:1px solid #fcd34d;"></div>
 
-        <div class="form-group">
-          <label>Linha digitável</label>
-          <input type="text" id="boleto-linha-digitavel" style="font-family: 'Courier New', monospace; font-size: 12px;">
-        </div>
+          <div id="multi-comprovantes-container"></div>
 
-        <p class="muted" style="font-size:11px;">
-          📎 Arquivo carregado: <strong id="boleto-arquivo-nome">—</strong>
-        </p>
+          <p class="muted" style="font-size:11px; margin-top:14px;">
+            📎 Arquivo carregado: <strong id="boleto-arquivo-nome-multi">—</strong>
+          </p>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeBoletoRevisao()">Cancelar</button>
         <button class="btn btn-primary" id="btn-confirmar-boleto" onclick="confirmarBoletoExtraido()">✓ Confirmar e adicionar</button>
+        <button class="btn btn-primary" id="btn-confirmar-multi" onclick="confirmarMultiComprovantes()" style="display:none;">✓ Lançar selecionados (<span id="multi-marcados">0</span>)</button>
       </div>
     </div>
   </div>
@@ -3401,6 +3462,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513c"></script>
+  <script src="app.js?v=20260513d"></script>
 </body>
 </html>

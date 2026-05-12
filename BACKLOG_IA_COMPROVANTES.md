@@ -1,8 +1,24 @@
 # 📋 Backlog — IA de Leitura de Comprovantes (Locação)
 
-**Status:** Planejado · Aguardando implementação
-**Solicitado em:** 2026-05-12 (final da sessão)
+**Status:** ✅ Fases 1, 2 e 4 implementadas em 2026-05-13 · Fase 3 pendente
+**Solicitado em:** 2026-05-12
 **Prioridade:** Alta — feature comercial chave
+
+## ✅ Já implementado (commit `[próximo]`)
+
+- ✅ **Fase 1**: Worker Gemini com prompt multi-comprovante
+- ✅ **Fase 2**: Modal multi-card com cards individuais editáveis
+- ✅ **Fase 2**: Botão "🤖 Ler comprovante" também em Entradas
+- ✅ **Fase 2**: Botão "📂 Analisar arquivo" geral no topo do balancete
+- ✅ **Fase 4**: Card "Apuração em tempo real" sempre atualizado
+
+## 🟡 Pendente (próxima sessão)
+
+- 🟡 **Fase 3**: Vinculação automática do lançamento ao contrato específico
+  - Match por valor (±5%) + CPF do locatário
+  - Suporte a prédio com múltiplas unidades (kitnet)
+  - Filtro de balancete por contrato (não só por imóvel/mês)
+  - Requer ajuste na estrutura do balancete (adicionar `contratoId` no lançamento)
 
 ---
 

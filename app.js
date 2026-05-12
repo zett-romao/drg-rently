@@ -612,6 +612,11 @@ async function doSignupTenant() {
 
 // Exposição global pra onclick do botão funcionar
 window.setTipoPessoaSignup = setTipoPessoaSignup;
+// Multi-comprovante (chamadas via onclick no HTML)
+window.lerMultiComprovantes = function() { return lerMultiComprovantes(); };
+window.toggleMultiLancar = function(id, checked) { return toggleMultiLancar(id, checked); };
+window.updateMultiCampo = function(id, campo, valor) { return updateMultiCampo(id, campo, valor); };
+window.confirmarMultiComprovantes = function() { return confirmarMultiComprovantes(); };
 
 // =============================================================
 // Logout
@@ -3176,6 +3181,16 @@ function recalcBalancete() {
   $('resumo-despesas-locador').textContent = fmtBRL(totalDespLocador);
   $('resumo-taxa-adm').textContent = fmtBRL(taxaValor);
   $('resumo-liquido').textContent = fmtBRL(liquido);
+
+  // Apuração em tempo real (card no topo do modal de balancete)
+  const apuRec = $('apuracao-receitas');
+  const apuDes = $('apuracao-despesas');
+  const apuTax = $('apuracao-taxa');
+  const apuLiq = $('apuracao-liquido');
+  if (apuRec) apuRec.textContent = fmtBRL(totalEntradas);
+  if (apuDes) apuDes.textContent = fmtBRL(totalDespLocador);
+  if (apuTax) apuTax.textContent = fmtBRL(taxaValor);
+  if (apuLiq) apuLiq.textContent = fmtBRL(liquido);
 }
 
 function aplicarStatusBalancete() {
@@ -3304,6 +3319,366 @@ function abrirBoletoRevisao(dados, bloco, file) {
 function closeBoletoRevisao() {
   $('modal-boleto-revisao').style.display = 'none';
   _boletoContexto = null;
+  _multiContexto = null;
+  // Reset visibilidade dos modos
+  const s = $('revisao-single'); if (s) s.style.display = 'block';
+  const m = $('revisao-multi'); if (m) m.style.display = 'none';
+  const btnS = $('btn-confirmar-boleto'); if (btnS) btnS.style.display = 'inline-block';
+  const btnM = $('btn-confirmar-multi'); if (btnM) btnM.style.display = 'none';
+}
+
+// =============================================================
+// MULTI-COMPROVANTE — Gemini detecta vários documentos em UM arquivo
+// =============================================================
+
+let _multiContexto = null; // { file, comprovantes: [...] }
+
+// Mapeia categoria sugerida pelo Gemini → bloco do balancete
+function blocoDeCategoria(categoria, direcao) {
+  if (direcao === 'entrada') return 'entrada';
+  // Saída: tenta inferir se é despesa do locador ou locatário
+  const locador = ['iptu', 'condominio', 'manutencao', 'seguro', 'repasse_locador', 'taxa_administracao'];
+  const locatario = ['agua', 'luz', 'gas', 'internet'];
+  if (locador.includes(categoria)) return 'despesa_locador';
+  if (locatario.includes(categoria)) return 'despesa_locatario';
+  // Default: despesa do locador
+  return 'despesa_locador';
+}
+
+// Mapeia categoria do Gemini → categoria interna do balancete
+function mapearCategoria(categoriaGemini, bloco) {
+  const validas = LANC_CATEGORIAS[bloco] || [];
+  if (validas.includes(categoriaGemini)) return categoriaGemini;
+  // Mapeamentos
+  if (categoriaGemini === 'aluguel') return 'aluguel';
+  if (categoriaGemini === 'multa_atraso') return bloco === 'entrada' ? 'multa_juros' : 'outros';
+  if (categoriaGemini === 'deposito_caucao') return 'outros';
+  if (categoriaGemini === 'taxa_administracao') return 'outros';
+  if (categoriaGemini === 'repasse_locador') return 'outros';
+  return validas[validas.length - 1] || 'outros'; // 'outros' como fallback
+}
+
+async function lerMultiComprovantes() {
+  if ($('balancete-status').value !== 'aberto' && $('balancete-id').value) {
+    showAlert('balancete-alert', 'Reabra o balancete para adicionar lançamentos.');
+    return;
+  }
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      showAlert('balancete-alert', 'Configure a URL do Worker Gemini em Configurações antes de usar a análise.');
+      return;
+    }
+  } catch (_) {}
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      showAlert('balancete-alert', 'Arquivo excede 4MB.');
+      return;
+    }
+    await processarMultiComprovantes(file);
+  };
+  input.click();
+}
+
+async function processarMultiComprovantes(file) {
+  showAlert('balancete-alert', '🤖 Analisando arquivo com IA... pode levar 5-30 segundos pra detectar múltiplos comprovantes.', 'info');
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      showAlert('balancete-alert', 'Configure a URL do Worker Gemini em Configurações.');
+      return;
+    }
+    const fileBase64 = await fileToBase64(file);
+    const res = await fetch(cfg.workerGeminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileBase64,
+        mimeType: file.type || 'application/pdf',
+        modo: 'multi',
+      }),
+    });
+    if (!res.ok) {
+      let errMsg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      throw new Error(errMsg);
+    }
+    const result = await res.json();
+    if (!result.success || !result.data) {
+      throw new Error('Resposta inválida do Worker');
+    }
+    const comprovantes = result.data.comprovantes || [];
+    const observacoes = result.data.observacoes_gerais || null;
+
+    if (comprovantes.length === 0) {
+      showAlert('balancete-alert', '⚠️ Nenhum documento financeiro foi detectado no arquivo.');
+      return;
+    }
+
+    abrirRevisaoMulti(comprovantes, observacoes, file);
+    clearAlert('balancete-alert');
+  } catch (err) {
+    console.error('Erro ao processar multi-comprovante:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  }
+}
+
+function abrirRevisaoMulti(comprovantes, observacoes, file) {
+  // Atribui ID local pra cada um (pra controle no modal)
+  comprovantes.forEach((c, idx) => {
+    c._id = 'cmp_' + idx + '_' + Date.now();
+    c._lancar = !!c.eh_pagamento_efetivado; // default: só pagamentos efetivados
+    // Garante campos default
+    c.direcao = c.direcao || 'ambiguo';
+    c.bloco = blocoDeCategoria(c.categoria_sugerida, c.direcao);
+    c.confidence_score = typeof c.confidence_score === 'number' ? c.confidence_score : 0.7;
+    c.campos_duvidosos = c.campos_duvidosos || [];
+  });
+  _multiContexto = { file, comprovantes };
+
+  // Configura UI do modal
+  $('boleto-revisao-titulo').textContent = '🤖 Documentos detectados pela IA';
+  $('revisao-single').style.display = 'none';
+  $('revisao-multi').style.display = 'block';
+  $('btn-confirmar-boleto').style.display = 'none';
+  $('btn-confirmar-multi').style.display = 'inline-block';
+
+  $('multi-count').textContent = comprovantes.length;
+  $('boleto-arquivo-nome-multi').textContent = file.name;
+
+  const obsEl = $('multi-observacoes');
+  if (observacoes && obsEl) {
+    obsEl.style.display = 'block';
+    obsEl.innerHTML = '⚠️ ' + escapeHtml(observacoes);
+  } else if (obsEl) {
+    obsEl.style.display = 'none';
+  }
+
+  renderMultiCards();
+  $('modal-boleto-revisao').style.display = 'flex';
+}
+
+const TIPO_DOC_LABEL = {
+  comprovante_pagamento: { label: '💰 Comprovante de pagamento', cor: '#16a34a', bg: '#d1fae5' },
+  boleto_a_pagar:        { label: '📄 Boleto a pagar', cor: '#92400e', bg: '#fef3c7' },
+  nota_fiscal:           { label: '🧾 Nota Fiscal', cor: '#1e40af', bg: '#dbeafe' },
+  cupom_fiscal:          { label: '🧾 Cupom Fiscal', cor: '#1e40af', bg: '#dbeafe' },
+  recibo:                { label: '📋 Recibo', cor: '#7c2d12', bg: '#fed7aa' },
+  outro:                 { label: '❓ Outro', cor: '#374151', bg: '#e5e7eb' },
+};
+
+function renderMultiCards() {
+  const container = $('multi-comprovantes-container');
+  if (!container || !_multiContexto) return;
+  const cs = _multiContexto.comprovantes;
+
+  container.innerHTML = cs.map((c, idx) => {
+    const tipoInfo = TIPO_DOC_LABEL[c.tipo_documento] || TIPO_DOC_LABEL.outro;
+    const confPct = Math.round((c.confidence_score || 0) * 100);
+    const lowConf = confPct < 85;
+    const dirIco = c.direcao === 'entrada' ? '🟢 ENTRADA' : c.direcao === 'saida' ? '🔴 SAÍDA' : '⚠️ AMBÍGUO';
+    const blocoLabel = c.bloco === 'entrada' ? '⬆ Entradas' : c.bloco === 'despesa_locador' ? '⬇ Despesa do locador' : '⬇ Despesa do locatário';
+    const duvidoso = (campo) => c.campos_duvidosos.includes(campo);
+    const hl = (campo) => duvidoso(campo) ? 'background:#fef3c7; border-color:#fcd34d;' : '';
+
+    // Categorias possíveis do bloco
+    const cats = LANC_CATEGORIAS[c.bloco] || [];
+    const catSel = mapearCategoria(c.categoria_sugerida, c.bloco);
+    const catOpts = cats.map(k =>
+      `<option value="${k}"${k === catSel ? ' selected' : ''}>${LANC_CATEGORIA_LABEL[k] || k}</option>`
+    ).join('');
+
+    return `
+      <div class="multi-card ${c._lancar ? 'multi-card-active' : 'multi-card-skip'}" data-id="${c._id}">
+        <div class="multi-card-header">
+          <div>
+            <span class="badge-tipo-doc" style="background:${tipoInfo.bg}; color:${tipoInfo.cor};">${tipoInfo.label}</span>
+            <span class="muted" style="font-size:11px; margin-left:8px;">${dirIco} · Confiança: ${confPct}%${lowConf ? ' ⚠️' : ''}</span>
+          </div>
+          <label class="multi-card-toggle">
+            <input type="checkbox" ${c._lancar ? 'checked' : ''} onchange="toggleMultiLancar('${c._id}', this.checked)">
+            <span>Lançar este</span>
+          </label>
+        </div>
+        ${!c.eh_pagamento_efetivado ? `<p style="background:#fef3c7; color:#92400e; padding:6px 10px; border-radius:6px; font-size:12px; margin:0 0 10px;">⚠️ Este documento é apenas <strong>${tipoInfo.label}</strong> — não é comprovante de pagamento. Marque "Lançar" só se você confirmou que foi pago.</p>` : ''}
+        <div class="form-row">
+          <div class="form-group">
+            <label>Bloco</label>
+            <select onchange="updateMultiCampo('${c._id}', 'bloco', this.value)">
+              <option value="entrada"${c.bloco === 'entrada' ? ' selected' : ''}>⬆ Entradas</option>
+              <option value="despesa_locador"${c.bloco === 'despesa_locador' ? ' selected' : ''}>⬇ Despesa do locador</option>
+              <option value="despesa_locatario"${c.bloco === 'despesa_locatario' ? ' selected' : ''}>⬇ Despesa do locatário</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="multi-cat-${c._id}" onchange="updateMultiCampo('${c._id}', 'categoria_sugerida', this.value)">${catOpts}</select>
+          </div>
+          <div class="form-group" style="${hl('valor')}">
+            <label>Valor (R$) ${duvidoso('valor') ? '⚠️' : ''}</label>
+            <input type="number" min="0" step="0.01" value="${c.valor || ''}" onchange="updateMultiCampo('${c._id}', 'valor', parseFloat(this.value) || 0)">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="${hl('data_pagamento')}">
+            <label>Data de pagamento ${duvidoso('data_pagamento') ? '⚠️' : ''}</label>
+            <input type="date" value="${c.data_pagamento || ''}" onchange="updateMultiCampo('${c._id}', 'data_pagamento', this.value)">
+          </div>
+          <div class="form-group">
+            <label>Competência</label>
+            <input type="month" value="${c.competencia || ''}" onchange="updateMultiCampo('${c._id}', 'competencia', this.value)">
+          </div>
+          <div class="form-group" style="${hl('metodo')}">
+            <label>Método</label>
+            <select onchange="updateMultiCampo('${c._id}', 'metodo', this.value)">
+              <option value="">—</option>
+              <option value="pix"${c.metodo === 'pix' ? ' selected' : ''}>PIX</option>
+              <option value="ted"${c.metodo === 'ted' ? ' selected' : ''}>TED</option>
+              <option value="doc"${c.metodo === 'doc' ? ' selected' : ''}>DOC</option>
+              <option value="boleto"${c.metodo === 'boleto' ? ' selected' : ''}>Boleto</option>
+              <option value="dinheiro"${c.metodo === 'dinheiro' ? ' selected' : ''}>Dinheiro</option>
+              <option value="cartao"${c.metodo === 'cartao' ? ' selected' : ''}>Cartão</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="${hl(c.direcao === 'entrada' ? 'pagador_nome' : 'beneficiario')}">
+            <label>${c.direcao === 'entrada' ? 'Pagador' : 'Beneficiário'} ${duvidoso(c.direcao === 'entrada' ? 'pagador_nome' : 'beneficiario') ? '⚠️' : ''}</label>
+            <input type="text" value="${escapeHtml(c.direcao === 'entrada' ? (c.pagador_nome || '') : (c.beneficiario || ''))}"
+                   oninput="updateMultiCampo('${c._id}', '${c.direcao === 'entrada' ? 'pagador_nome' : 'beneficiario'}', this.value)">
+          </div>
+          <div class="form-group">
+            <label>${c.direcao === 'entrada' ? 'CPF/CNPJ pagador' : 'CPF/CNPJ beneficiário'}</label>
+            <input type="text" value="${escapeHtml(c.direcao === 'entrada' ? (c.pagador_documento || '') : (c.documento_beneficiario || ''))}"
+                   oninput="updateMultiCampo('${c._id}', '${c.direcao === 'entrada' ? 'pagador_documento' : 'documento_beneficiario'}', this.value)">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descrição</label>
+          <input type="text" value="${escapeHtml(c.descricao || '')}" oninput="updateMultiCampo('${c._id}', 'descricao', this.value)">
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  atualizarContadorMulti();
+}
+
+function toggleMultiLancar(id, checked) {
+  if (!_multiContexto) return;
+  const c = _multiContexto.comprovantes.find(x => x._id === id);
+  if (!c) return;
+  c._lancar = !!checked;
+  // Atualiza só a classe do card (sem re-render completo)
+  const card = document.querySelector(`.multi-card[data-id="${id}"]`);
+  if (card) {
+    card.classList.toggle('multi-card-active', c._lancar);
+    card.classList.toggle('multi-card-skip', !c._lancar);
+  }
+  atualizarContadorMulti();
+}
+
+function updateMultiCampo(id, campo, valor) {
+  if (!_multiContexto) return;
+  const c = _multiContexto.comprovantes.find(x => x._id === id);
+  if (!c) return;
+  c[campo] = valor;
+  // Se mudou o bloco, precisa re-renderizar as categorias daquele card
+  if (campo === 'bloco') renderMultiCards();
+}
+
+function atualizarContadorMulti() {
+  if (!_multiContexto) return;
+  const total = _multiContexto.comprovantes.filter(c => c._lancar).length;
+  const el = $('multi-marcados');
+  if (el) el.textContent = total;
+}
+
+async function confirmarMultiComprovantes() {
+  if (!_multiContexto) return;
+  const { file, comprovantes } = _multiContexto;
+  const aLancar = comprovantes.filter(c => c._lancar);
+
+  if (aLancar.length === 0) {
+    showAlert('boleto-alert', 'Nenhum documento marcado pra lançar.');
+    return;
+  }
+
+  const valido = aLancar.every(c => {
+    const v = parseFloat(c.valor);
+    return v && v > 0;
+  });
+  if (!valido) {
+    showAlert('boleto-alert', 'Todos os documentos marcados precisam ter valor > 0.');
+    return;
+  }
+
+  const btn = $('btn-confirmar-multi');
+  btn.disabled = true; btn.textContent = 'Lançando…';
+
+  // Cria os lançamentos
+  const lancIds = [];
+  for (const c of aLancar) {
+    const lancId = cryptoRandomId();
+    const bloco = c.bloco;
+    const categoria = mapearCategoria(c.categoria_sugerida, bloco);
+    const descricao = c.descricao || LANC_CATEGORIA_LABEL[categoria] || categoria;
+
+    _balanceteLancamentos.push({
+      id: lancId,
+      bloco,
+      categoria,
+      descricao,
+      valor: parseFloat(c.valor) || 0,
+      comprovantePath: null,
+      comprovanteNome: null,
+      // Metadados Gemini multi
+      boletoVencimento: c.vencimento || null,
+      boletoCompetencia: c.competencia || null,
+      boletoBeneficiario: c.beneficiario || c.pagador_nome || null,
+      boletoDocBeneficiario: c.documento_beneficiario || c.pagador_documento || null,
+      boletoLinhaDigitavel: c.linha_digitavel || null,
+      tipoDocumento: c.tipo_documento || null,
+      metodoPagamento: c.metodo || null,
+      dataPagamento: c.data_pagamento || null,
+      iaConfidence: c.confidence_score || null,
+    });
+    lancIds.push(lancId);
+  }
+
+  // Faz upload de UMA cópia do arquivo, vinculada a TODOS os lançamentos
+  // (todos compartilham o mesmo comprovante físico)
+  const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
+  try {
+    const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `balancetes/${balanceteId}/comprovantes/multi_${Date.now()}_${cleanName}`;
+    const ref = storageTenantRef().child(path);
+    await ref.put(file, { contentType: file.type });
+    // Vincula o mesmo arquivo a todos os lançamentos criados
+    lancIds.forEach(id => {
+      const idx = _balanceteLancamentos.findIndex(l => l.id === id);
+      if (idx !== -1) {
+        _balanceteLancamentos[idx].comprovantePath = path;
+        _balanceteLancamentos[idx].comprovanteNome = file.name;
+      }
+    });
+  } catch (err) {
+    console.warn('Falha ao anexar arquivo (lançamentos criados mesmo assim):', err);
+  }
+
+  btn.disabled = false; btn.textContent = '✓ Lançar selecionados';
+  closeBoletoRevisao();
+  renderLancamentos();
+  recalcBalancete();
+  showAlert('balancete-alert', `✓ ${aLancar.length} lançamento(s) criado(s) a partir do arquivo.`, 'success');
 }
 
 async function confirmarBoletoExtraido() {

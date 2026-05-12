@@ -35,6 +35,7 @@ const ALLOWED_ORIGINS = [
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
+// Prompt LEGADO (mantido pra compat com chamadas antigas que usem prompt explícito):
 const PROMPT_BOLETO = `Você está analisando um boleto bancário, fatura, recibo ou conta a pagar (condomínio, IPTU, água, luz, gás, manutenção, etc.).
 
 Extraia as informações abaixo e responda APENAS com JSON válido, sem markdown nem texto fora do JSON:
@@ -52,6 +53,65 @@ Extraia as informações abaixo e responda APENAS com JSON válido, sem markdown
 
 Se algum campo não for legível ou não estiver no documento, retorne null.
 NÃO inclua explicações. Resposta deve ser apenas JSON puro.`;
+
+// Prompt MULTI-COMPROVANTE (v2 — usado quando body.modo === 'multi'):
+// Detecta múltiplos documentos em UM arquivo, diferencia NF/recibo vs comprovante,
+// classifica entrada/saída, retorna confidence por campo.
+const PROMPT_MULTI = `Você é um assistente especialista em documentos financeiros de imobiliárias.
+
+Analise o arquivo enviado (que pode ser PDF multi-página, imagem ou foto) e identifique TODOS os documentos financeiros presentes. UM ARQUIVO PODE CONTER VÁRIOS DOCUMENTOS — você deve detectar e separar cada um.
+
+REGRAS IMPORTANTES sobre tipos de documento:
+
+1. **Nota Fiscal (NF)** / **Cupom Fiscal** = APENAS comprova o que foi comprado/serviço prestado. NÃO É pagamento. eh_pagamento_efetivado = false.
+
+2. **Recibo** = analise contexto. Se for "recibo de pagamento" com data e meio (PIX/TED/dinheiro), eh_pagamento_efetivado = true. Se for "recibo provisório" ou só descritivo, false.
+
+3. **Comprovante de PIX / TED / Transferência / Depósito** = É pagamento efetivado. eh_pagamento_efetivado = true.
+
+4. **Boleto bancário com autenticação/protocolo de pagamento** = pagamento efetivado. true.
+
+5. **Boleto sem comprovação de pagamento** = é só conta a pagar. false.
+
+DIREÇÃO do fluxo (do ponto de vista da imobiliária):
+- "entrada" = imobiliária RECEBEU dinheiro (aluguel, taxa, etc.)
+- "saida" = imobiliária PAGOU algo (condomínio, IPTU, manutenção, repasse ao locador, etc.)
+- "ambiguo" = não dá pra saber pelo documento
+
+CONFIANÇA:
+- Use confidence_score entre 0 e 1 (0=incerto, 1=muito confiante) para CADA documento detectado.
+- Para campos individuais duvidosos, liste-os em "campos_duvidosos".
+
+Responda APENAS com JSON VÁLIDO, sem markdown:
+
+{
+  "comprovantes": [
+    {
+      "tipo_documento": "comprovante_pagamento" | "boleto_a_pagar" | "nota_fiscal" | "cupom_fiscal" | "recibo" | "outro",
+      "eh_pagamento_efetivado": true | false,
+      "direcao": "entrada" | "saida" | "ambiguo",
+      "valor": <número decimal em reais, ex: 2500.00>,
+      "data_pagamento": <"YYYY-MM-DD" ou null>,
+      "vencimento": <"YYYY-MM-DD" ou null — só para boletos>,
+      "competencia": <"YYYY-MM" ou null — mês de referência>,
+      "pagador_nome": <string ou null — quem pagou (no caso de entradas)>,
+      "pagador_documento": <CPF/CNPJ formatado ou null>,
+      "beneficiario": <string ou null — quem recebeu (no caso de saídas)>,
+      "documento_beneficiario": <CPF/CNPJ formatado ou null>,
+      "metodo": "pix" | "ted" | "doc" | "boleto" | "dinheiro" | "cartao" | null,
+      "linha_digitavel": <string ou null>,
+      "categoria_sugerida": "aluguel" | "iptu" | "condominio" | "agua" | "luz" | "gas" | "internet" | "manutencao" | "seguro" | "taxa_administracao" | "repasse_locador" | "deposito_caucao" | "multa_atraso" | "outros",
+      "descricao": <string curta descrevendo o documento>,
+      "confidence_score": <número entre 0 e 1>,
+      "campos_duvidosos": [<lista de strings com nomes dos campos com baixa confiança>]
+    }
+  ],
+  "observacoes_gerais": <string ou null — observações relevantes sobre o conjunto, ex: "NF sem comprovante anexado">
+}
+
+Se NENHUM documento financeiro for identificado, retorne {"comprovantes": [], "observacoes_gerais": "Nenhum documento financeiro detectado."}.
+
+NÃO inclua explicações fora do JSON.`;
 
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -95,7 +155,7 @@ export default {
       });
     }
 
-    const { fileBase64, mimeType, prompt } = payload;
+    const { fileBase64, mimeType, prompt, modo } = payload;
     if (!fileBase64 || !mimeType) {
       return new Response(JSON.stringify({ error: 'Faltam campos: fileBase64, mimeType' }), {
         status: 400,
@@ -112,11 +172,17 @@ export default {
       });
     }
 
+    // Escolhe o prompt:
+    // - prompt customizado vindo do cliente → usa ele
+    // - modo === 'multi' → usa PROMPT_MULTI (novo formato, com array de comprovantes)
+    // - default → PROMPT_BOLETO (legado, 1 boleto por vez)
+    const promptFinal = prompt || (modo === 'multi' ? PROMPT_MULTI : PROMPT_BOLETO);
+
     const requestBody = {
       contents: [{
         role: 'user',
         parts: [
-          { text: prompt || PROMPT_BOLETO },
+          { text: promptFinal },
           { inline_data: { mime_type: mimeType, data: fileBase64 } },
         ],
       }],

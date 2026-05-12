@@ -1707,6 +1707,132 @@ label.required::after {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* =============================================================
+   APURAÇÃO EM TEMPO REAL — card no topo do balancete
+   ============================================================= */
+.apuracao-card {
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border: 1px solid #cbd5e1;
+}
+
+.apuracao-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.apuracao-item {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apuracao-item.entrada { border-left: 3px solid #16a34a; }
+.apuracao-item.saida { border-left: 3px solid #dc2626; }
+.apuracao-item.taxa { border-left: 3px solid #8b5cf6; }
+.apuracao-item.liquido {
+  border-left: 3px solid #f59e0b;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+}
+
+.apuracao-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.apuracao-item strong {
+  font-size: 17px;
+  color: var(--text);
+}
+
+.apuracao-item.liquido strong {
+  font-size: 20px;
+  color: #92400e;
+}
+
+/* =============================================================
+   MULTI-COMPROVANTE — cards detectados pelo Gemini
+   ============================================================= */
+.multi-card {
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #fff;
+  transition: all 0.18s ease;
+}
+
+.multi-card-active {
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(71, 85, 105, 0.1);
+}
+
+.multi-card-skip {
+  background: #f8fafc;
+  opacity: 0.7;
+}
+
+.multi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.badge-tipo-doc {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.multi-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.multi-card-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.multi-card .form-row {
+  margin-bottom: 8px;
+}
+
+.multi-card .form-group {
+  margin-bottom: 0;
+}
+
+.multi-card .form-group label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.multi-card input, .multi-card select {
+  font-size: 13px;
+}
+
 @media (max-width: 600px) {
   .portais-grid {
     grid-template-columns: 1fr;
