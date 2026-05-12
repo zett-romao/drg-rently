@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512n">
+  <link rel="stylesheet" href="styles.css?v=20260512o">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -845,7 +845,24 @@
             <div class="section-header">
               <div>
                 <h3>📡 Portais imobiliários</h3>
-                <p class="muted">Anuncie seus imóveis nos principais portais do Brasil. Integração via XML feed em desenvolvimento.</p>
+                <p class="muted">Anuncie seus imóveis nos principais portais do Brasil. <strong style="color:var(--success);">Feed XML disponível!</strong></p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadPortaisStatus()">🔄 Atualizar status</button>
+            </div>
+
+            <!-- Status do Feed -->
+            <div class="card" id="feed-status-card" style="background:linear-gradient(135deg, #d1fae5, #a7f3d0); border:1px solid #86efac; padding:18px; margin-bottom:20px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div>
+                  <h4 style="margin:0 0 4px; color:#065f46;">✅ Feed XML ativo</h4>
+                  <p style="margin:0; font-size:13px; color:var(--text);">
+                    <span id="feed-status-count">—</span> imóveis publicados estão sendo expostos aos portais.
+                    URLs do feed prontas pra colar no painel de cada portal.
+                  </p>
+                </div>
+                <div>
+                  <button class="btn btn-secondary btn-sm" onclick="previewFeedXml()">👁 Visualizar XML</button>
+                </div>
               </div>
             </div>
 
@@ -856,241 +873,22 @@
                 <li><strong>Contrate um plano profissional</strong> no portal escolhido (cada um cobra uma mensalidade).</li>
                 <li><strong>Receba do portal um endereço (URL)</strong> onde ele vai buscar seus imóveis automaticamente.</li>
                 <li><strong>Cadastre seus imóveis aqui no DRG-Rently</strong> com fotos, descrição e valores.</li>
-                <li><strong>Cole a URL do feed XML</strong> (que o DRG-Rently vai gerar) no painel do portal.</li>
-                <li><strong>Em algumas horas seus imóveis aparecem publicados</strong> e atualizam automaticamente a cada mudança.</li>
+                <li><strong>Copie a URL do feed XML</strong> (botão "📋 Copiar URL" em cada card abaixo) e cole no painel do portal.</li>
+                <li><strong>Em algumas horas seus imóveis aparecem publicados</strong> e atualizam automaticamente (cache 10 min).</li>
               </ol>
-              <p class="muted" style="font-size:12px; margin:12px 0 0;">
-                🚧 <strong>A geração automática do XML feed está em desenvolvimento</strong> e estará disponível em breve. Por enquanto, esta tela serve como guia das opções disponíveis no mercado.
-              </p>
             </div>
 
-            <!-- Grid de cards de portais -->
-            <div class="portais-grid">
-
-              <!-- ZAP Imóveis -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #ff6b35, #f7931e);">🏠</div>
-                  <div>
-                    <h4>ZAP Imóveis</h4>
-                    <span class="portal-card-tag">Líder de mercado</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Maior portal imobiliário do Brasil. Altíssima visibilidade urbana e nacional. Mesmo grupo do Viva Real (publicação compartilhada).</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 500–2.500</strong></div>
-                  <div><span class="portal-meta-label">Formato aceito</span><strong>XML Zap 1.0</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.zapimoveis.com.br/anuncie" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- Viva Real -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #00a868, #0bbf6a);">🏘</div>
-                  <div>
-                    <h4>Viva Real</h4>
-                    <span class="portal-card-tag">Líder de mercado</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Um dos maiores do Brasil, mesmo grupo do ZAP. Geralmente, ao contratar Zap+Viva você publica nos dois com um único XML.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 500–2.500</strong></div>
-                  <div><span class="portal-meta-label">Formato aceito</span><strong>XML Zap/Viva 1.0</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.vivareal.com.br/anuncie/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- Imovelweb -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #ff5722, #ff7043);">🏢</div>
-                  <div>
-                    <h4>Imovelweb</h4>
-                    <span class="portal-card-tag">Top 3 nacional</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Forte presença em todo Brasil. Pertence ao mesmo grupo do OLX. Excelente custo-benefício pra imobiliárias médias.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 200–800</strong></div>
-                  <div><span class="portal-meta-label">Formato aceito</span><strong>XML Imovelweb</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.imovelweb.com.br/anuncie-seu-imovel-sp.html" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- OLX Imóveis -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #6e3cbc, #8e44ad);">🔍</div>
-                  <div>
-                    <h4>OLX Imóveis</h4>
-                    <span class="portal-card-tag">Alto tráfego</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Conhecido pelo giro rápido de imóveis e alto tráfego de visitantes. Bom canal para captação de leads em volume.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 200–700</strong></div>
-                  <div><span class="portal-meta-label">Formato aceito</span><strong>XML OLX</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://imobiliarias.olx.com.br/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- Chaves na Mão -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #d4a017, #f1c40f);">🔑</div>
-                  <div>
-                    <h4>Chaves na Mão</h4>
-                    <span class="portal-card-tag">Tradicional</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Muito utilizado por corretores e imobiliárias tradicionais. Aceita o padrão Wimoveis (mesmo formato de outros portais).</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 100–300</strong></div>
-                  <div><span class="portal-meta-label">Formato aceito</span><strong>XML Wimoveis</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.chavesnamao.com.br/anuncie-conosco/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- Loft -->
-              <div class="portal-card portal-card-unavailable">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #2c3e50, #34495e);">🏙</div>
-                  <div>
-                    <h4>Loft</h4>
-                    <span class="portal-card-tag">Captação direta</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Plataforma digital completa. Trabalha com captação direta e curadoria, <strong>não aceita XML de terceiros</strong>. Para anunciar, é preciso cadastrar imóvel a imóvel no painel deles.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Modelo</span><strong>Cadastro manual</strong></div>
-                  <div><span class="portal-meta-label">Integração XML</span><strong>Não disponível</strong></div>
-                </div>
-                <div class="portal-card-status status-unavailable">⚠ Sem integração automática</div>
-                <a href="https://loft.com.br/anuncie" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="width:100%;">Acessar Loft →</a>
-              </div>
-
-              <!-- Mercado Livre Imóveis -->
-              <div class="portal-card portal-card-unavailable">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #999, #bbb);">🛒</div>
-                  <div>
-                    <h4>Mercado Livre Imóveis</h4>
-                    <span class="portal-card-tag">Descontinuado</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">A categoria de Imóveis do Mercado Livre foi <strong>descontinuada em 2022</strong>. O Mercado Livre não opera mais nesse segmento. Recomendamos focar nos portais especializados acima.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Status</span><strong>Inativo desde 2022</strong></div>
-                  <div><span class="portal-meta-label">Alternativa</span><strong>ZAP / OLX</strong></div>
-                </div>
-                <div class="portal-card-status status-unavailable">❌ Categoria descontinuada</div>
-                <button class="btn btn-secondary btn-sm" disabled style="width:100%; opacity:0.5; cursor:not-allowed;">Indisponível</button>
-              </div>
-
-              <!-- Órulo -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #e74c3c, #c0392b);">🏗</div>
-                  <div>
-                    <h4>Órulo</h4>
-                    <span class="portal-card-tag">Lançamentos</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Especializado em lançamentos de imóveis novos. Trabalha principalmente com construtoras e incorporadoras. Para imobiliárias com carteira de novos, é vitrine essencial.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>Sob consulta</strong></div>
-                  <div><span class="portal-meta-label">Foco</span><strong>Lançamentos novos</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.orulo.com.br/contato" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Falar com Órulo →</a>
-              </div>
-
-              <!-- DF Imóveis -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #1abc9c, #16a085);">🏛</div>
-                  <div>
-                    <h4>DF Imóveis</h4>
-                    <span class="portal-card-tag">Regional DF</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Portal de referência no Distrito Federal. Indispensável para imobiliárias que atuam em Brasília, Águas Claras, Sudoeste, Lago Sul e regiões.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 150–500</strong></div>
-                  <div><span class="portal-meta-label">Cobertura</span><strong>DF + Entorno</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.dfimoveis.com.br/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- SP Imóvel -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #3498db, #2980b9);">🌆</div>
-                  <div>
-                    <h4>SP Imóvel</h4>
-                    <span class="portal-card-tag">Regional SP</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Focado na região metropolitana de São Paulo. Forte para imobiliárias paulistanas e do ABC. Bom complemento aos portais nacionais.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 150–400</strong></div>
-                  <div><span class="portal-meta-label">Cobertura</span><strong>Grande SP</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.spimovel.com.br/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
-              <!-- DWV -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #9b59b6, #8e44ad);">🏗</div>
-                  <div>
-                    <h4>DWV</h4>
-                    <span class="portal-card-tag">Construtoras</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Plataforma especializada em construtoras e lançamentos. Usado por incorporadoras e imobiliárias parceiras para escoar estoque de novos.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>Sob consulta</strong></div>
-                  <div><span class="portal-meta-label">Foco</span><strong>Construtoras</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://dwv.com.br/contato" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Falar com DWV →</a>
-              </div>
-
-              <!-- Casa Mineira -->
-              <div class="portal-card">
-                <div class="portal-card-header">
-                  <div class="portal-card-icon" style="background:linear-gradient(135deg, #e67e22, #d35400);">⛰</div>
-                  <div>
-                    <h4>Casa Mineira</h4>
-                    <span class="portal-card-tag">Regional MG</span>
-                  </div>
-                </div>
-                <p class="portal-card-desc">Principal portal imobiliário de Minas Gerais. Essencial para imobiliárias que atuam em Belo Horizonte, Contagem, Betim e região metropolitana.</p>
-                <div class="portal-card-meta">
-                  <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>R$ 150–500</strong></div>
-                  <div><span class="portal-meta-label">Cobertura</span><strong>MG / BH</strong></div>
-                </div>
-                <div class="portal-card-status status-soon">🚧 Integração XML em breve</div>
-                <a href="https://www.casamineira.com.br/" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="width:100%;">Contratar plano →</a>
-              </div>
-
+            <!-- Grid de cards de portais (renderizado dinamicamente) -->
+            <div class="portais-grid" id="portais-grid-container">
+              <p class="muted" style="grid-column: 1 / -1;">Carregando portais…</p>
             </div>
 
             <!-- Roadmap / próximos passos -->
             <div class="card" style="background:#fef9e7; border:1px solid #fcd34d; padding:18px; margin-top:24px;">
               <h4 style="margin:0 0 10px; color:#92400e;">🗺 Roadmap de integração</h4>
               <ul style="margin:0; padding-left:20px; color:var(--text); line-height:1.7; font-size:13px;">
-                <li><strong>Fase 1 (atual):</strong> Tela informativa com guia dos principais portais ✅</li>
-                <li><strong>Fase 2 (em desenvolvimento):</strong> Geração automática de XML feed em URL pública por tenant — o portal busca sozinho os imóveis a cada poucas horas</li>
+                <li><strong>Fase 1 ✅:</strong> Tela informativa com guia dos principais portais</li>
+                <li><strong>Fase 2 ✅:</strong> Geração automática de XML feed em URL pública por tenant — o portal busca sozinho os imóveis a cada poucas horas (cache 10 min)</li>
                 <li><strong>Fase 3 (planejado):</strong> Painel de monitoramento com status de cada portal (última sincronização, erros, imóveis publicados) + envio de leads dos portais direto pro CRM</li>
                 <li><strong>Fase 4 (planejado):</strong> Importação reversa — receber leads dos portais e criar negociações automaticamente</li>
               </ul>
@@ -1305,6 +1103,14 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <label>URL do Worker (Cloudflare proxy do Gemini)</label>
               <input type="url" id="cfg-worker-gemini-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-gemini.SEU-USUARIO.workers.dev">
               <span class="muted" style="font-size:11px;">Endpoint do Worker que extrai dados de boletos via Gemini Vision. Veja instruções em <code>cloudflare-worker-gemini.js</code> no repo.</span>
+            </div>
+
+            <h4 class="form-section-title">📡 XML Feed para portais imobiliários</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare gerador de XML feed)</label>
+              <input type="url" id="cfg-worker-feed-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-feed.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint que expõe seus imóveis publicados em XML para ZAP/Viva/OLX/etc. Veja instruções em <code>cloudflare-worker-feed.js</code> no repo.</span>
             </div>
 
             <div class="form-group">
@@ -3245,6 +3051,42 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
                 </label>
               </div>
             </div>
+
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+              <strong style="font-size:13px;">📡 Conteúdo extra para portais imobiliários</strong>
+              <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
+                Campos opcionais usados pelos portais (ZAP, Viva, OLX, etc.) via XML feed.
+                Quanto mais completo, melhor o anúncio.
+              </p>
+
+              <div class="form-group">
+                <label>Descrição longa</label>
+                <textarea id="imovel-descricao-longa" rows="4" placeholder="Texto detalhado do imóvel: características, comércio próximo, transporte, escolas, diferenciais… (usado nos portais e na página pública)"></textarea>
+                <p class="muted" style="font-size:10px; margin-top:2px;">
+                  ✨ Dica: 4-8 linhas é ideal. Mencione referências e diferenciais.
+                </p>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>🎥 URL do vídeo (YouTube/Vimeo)</label>
+                  <input type="url" id="imovel-video-url" placeholder="https://www.youtube.com/watch?v=…">
+                </div>
+                <div class="form-group">
+                  <label>🌐 Tour virtual 360° (Matterport, etc.)</label>
+                  <input type="url" id="imovel-tour-url" placeholder="https://my.matterport.com/show/?m=…">
+                </div>
+              </div>
+
+              <label class="toggle-row" style="font-size:13px; margin-top:8px;">
+                <input type="checkbox" id="imovel-vitrine-feed" checked>
+                <span>📤 Incluir este imóvel no XML feed dos portais (ZAP/Viva/OLX, etc.)</span>
+              </label>
+              <p class="muted" style="font-size:11px; margin-top:4px;">
+                Desligue se quiser publicar só na sua vitrine própria, sem distribuir pros portais.
+                Requer também que "Publicar este imóvel" esteja ativo.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -3491,6 +3333,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512n"></script>
+  <script src="app.js?v=20260512o"></script>
 </body>
 </html>

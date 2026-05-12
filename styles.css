@@ -1565,6 +1565,29 @@ label.required::after {
   border: 1px solid #86efac;
 }
 
+.feed-url-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.feed-url-input {
+  flex: 1;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f8fafc;
+  color: var(--text-muted);
+}
+
+.feed-url-row .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 @media (max-width: 600px) {
   .portais-grid {
     grid-template-columns: 1fr;

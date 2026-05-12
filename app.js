@@ -653,6 +653,10 @@ function showSection(name) {
   if (name === 'auditoria' && State.tenant) {
     loadAuditoria();
   }
+  if (name === 'portais' && State.tenant) {
+    renderPortais();
+    loadPortaisStatus();
+  }
 }
 
 // =============================================================
@@ -4708,7 +4712,11 @@ async function openImovelModal(id) {
    'imovel-area-util', 'imovel-area-total', 'imovel-andar',
    'imovel-matricula', 'imovel-iptu',
    'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
-   'imovel-obs'].forEach(f => $(f).value = '');
+   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url'].forEach(f => {
+     const el = $(f); if (el) el.value = '';
+   });
+  // Toggle do feed XML (default ON)
+  const vfeedDefault = $('imovel-vitrine-feed'); if (vfeedDefault) vfeedDefault.checked = true;
   $('imovel-status').value = 'disponivel';
   $('imovel-tipo').value = 'residencial';
   $('imovel-subtipo').value = '';
@@ -4776,6 +4784,12 @@ async function openImovelModal(id) {
         $('pub-mostrar-bairro').checked  = pub.mostrarBairro  !== false;
         $('pub-mostrar-area').checked    = pub.mostrarArea    !== false;
         $('pub-mostrar-comodos').checked = pub.mostrarComodos !== false;
+
+        // Conteúdo extra pros portais
+        if ($('imovel-descricao-longa')) $('imovel-descricao-longa').value = im.descricaoLonga || '';
+        if ($('imovel-video-url')) $('imovel-video-url').value = im.videoUrl || '';
+        if ($('imovel-tour-url')) $('imovel-tour-url').value = im.tourUrl || '';
+        if ($('imovel-vitrine-feed')) $('imovel-vitrine-feed').checked = im.vitrineFeed !== false;
       }
     } catch (err) {
       console.error('Erro ao carregar imóvel:', err);
@@ -4865,6 +4879,11 @@ async function saveImovel() {
       mostrarComodos: $('pub-mostrar-comodos').checked,
     },
     obs: $('imovel-obs').value.trim() || null,
+    // Conteúdo extra pros portais (XML feed)
+    descricaoLonga: $('imovel-descricao-longa')?.value.trim() || null,
+    videoUrl: $('imovel-video-url')?.value.trim() || null,
+    tourUrl: $('imovel-tour-url')?.value.trim() || null,
+    vitrineFeed: $('imovel-vitrine-feed')?.checked !== false,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -5302,6 +5321,8 @@ async function loadConfigImobiliaria() {
     $('cfg-balancete-rodape').value = cfg.balanceteRodape || '';
     $('cfg-worker-url').value = cfg.workerUrl || '';
     $('cfg-worker-gemini-url').value = cfg.workerGeminiUrl || '';
+    const feedEl = $('cfg-worker-feed-url');
+    if (feedEl) feedEl.value = cfg.workerFeedUrl || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
@@ -5313,6 +5334,8 @@ async function loadConfigImobiliaria() {
     $('cfg-balancete-rodape').value = '';
     $('cfg-worker-url').value = '';
     $('cfg-worker-gemini-url').value = '';
+    const feedEl = $('cfg-worker-feed-url');
+    if (feedEl) feedEl.value = '';
     $('cfg-email-from').value = 'onboarding@resend.dev';
     $('cfg-email-template').value = '';
   }
@@ -5363,10 +5386,13 @@ async function saveConfigImobiliaria() {
         balanceteRodape: $('cfg-balancete-rodape').value,
         workerUrl: $('cfg-worker-url').value.trim(),
         workerGeminiUrl: $('cfg-worker-gemini-url').value.trim(),
+        workerFeedUrl: $('cfg-worker-feed-url')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
+      // Invalida cache local (usado por renderPortais)
+      State._configCache = null;
 
       showAlert('cfg-alert', 'Configuração salva.', 'success');
     } catch (err) {
@@ -5390,6 +5416,320 @@ function copyVitrineUrl() {
 function openVitrinePublica() {
   if (!State.tenant) return;
   window.open(vitrineUrl(State.tenant.slug || State.tenant.id), '_blank');
+}
+
+// =============================================================
+// PORTAIS IMOBILIÁRIOS — Feed XML (Fase 2)
+// =============================================================
+
+// Lista de portais (renderizado dinamicamente nos cards)
+const PORTAIS_LIST = [
+  {
+    id: 'zap',
+    nome: 'ZAP Imóveis',
+    icone: '🏠',
+    gradiente: '#ff6b35, #f7931e',
+    tag: 'Líder de mercado',
+    desc: 'Maior portal imobiliário do Brasil. Altíssima visibilidade urbana e nacional. Mesmo grupo do Viva Real (publicação compartilhada).',
+    mensalidade: 'R$ 500–2.500',
+    formato: 'XML Zap 1.0',
+    feedFormat: 'zap',
+    siteUrl: 'https://www.zapimoveis.com.br/anuncie',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'vivareal',
+    nome: 'Viva Real',
+    icone: '🏘',
+    gradiente: '#00a868, #0bbf6a',
+    tag: 'Líder de mercado',
+    desc: 'Um dos maiores do Brasil, mesmo grupo do ZAP. Use o MESMO XML do Zap — ele publica nos dois portais.',
+    mensalidade: 'R$ 500–2.500',
+    formato: 'XML Zap/Viva 1.0',
+    feedFormat: 'zap',
+    siteUrl: 'https://www.vivareal.com.br/anuncie/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'imovelweb',
+    nome: 'Imovelweb',
+    icone: '🏢',
+    gradiente: '#ff5722, #ff7043',
+    tag: 'Top 3 nacional',
+    desc: 'Forte presença em todo Brasil. Pertence ao mesmo grupo do OLX. Excelente custo-benefício pra imobiliárias médias.',
+    mensalidade: 'R$ 200–800',
+    formato: 'XML Imovelweb',
+    feedFormat: 'imovelweb',
+    siteUrl: 'https://www.imovelweb.com.br/anuncie-seu-imovel-sp.html',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'olx',
+    nome: 'OLX Imóveis',
+    icone: '🔍',
+    gradiente: '#6e3cbc, #8e44ad',
+    tag: 'Alto tráfego',
+    desc: 'Conhecido pelo giro rápido de imóveis e alto tráfego. Bom canal pra captação de leads em volume.',
+    mensalidade: 'R$ 200–700',
+    formato: 'XML OLX',
+    feedFormat: 'olx',
+    siteUrl: 'https://imobiliarias.olx.com.br/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'chavesnamao',
+    nome: 'Chaves na Mão',
+    icone: '🔑',
+    gradiente: '#d4a017, #f1c40f',
+    tag: 'Tradicional',
+    desc: 'Muito utilizado por corretores e imobiliárias tradicionais. Aceita o padrão Wimoveis (formato genérico).',
+    mensalidade: 'R$ 100–300',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://www.chavesnamao.com.br/anuncie-conosco/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'orulo',
+    nome: 'Órulo',
+    icone: '🏗',
+    gradiente: '#e74c3c, #c0392b',
+    tag: 'Lançamentos',
+    desc: 'Especializado em lançamentos de imóveis novos. Trabalha com construtoras e incorporadoras.',
+    mensalidade: 'Sob consulta',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://www.orulo.com.br/contato',
+    siteLabel: 'Falar com Órulo',
+  },
+  {
+    id: 'dfimoveis',
+    nome: 'DF Imóveis',
+    icone: '🏛',
+    gradiente: '#1abc9c, #16a085',
+    tag: 'Regional DF',
+    desc: 'Portal de referência no Distrito Federal. Indispensável para imobiliárias que atuam em Brasília, Águas Claras e região.',
+    mensalidade: 'R$ 150–500',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://www.dfimoveis.com.br/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'spimovel',
+    nome: 'SP Imóvel',
+    icone: '🌆',
+    gradiente: '#3498db, #2980b9',
+    tag: 'Regional SP',
+    desc: 'Focado na região metropolitana de São Paulo. Forte para imobiliárias paulistanas e do ABC.',
+    mensalidade: 'R$ 150–400',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://www.spimovel.com.br/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'dwv',
+    nome: 'DWV',
+    icone: '🏗',
+    gradiente: '#9b59b6, #8e44ad',
+    tag: 'Construtoras',
+    desc: 'Plataforma especializada em construtoras e lançamentos. Usado por incorporadoras pra escoar estoque de novos.',
+    mensalidade: 'Sob consulta',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://dwv.com.br/contato',
+    siteLabel: 'Falar com DWV',
+  },
+  {
+    id: 'casamineira',
+    nome: 'Casa Mineira',
+    icone: '⛰',
+    gradiente: '#e67e22, #d35400',
+    tag: 'Regional MG',
+    desc: 'Principal portal imobiliário de Minas Gerais. Essencial para imobiliárias de BH, Contagem e região.',
+    mensalidade: 'R$ 150–500',
+    formato: 'XML Wimoveis',
+    feedFormat: 'wimoveis',
+    siteUrl: 'https://www.casamineira.com.br/',
+    siteLabel: 'Contratar plano',
+  },
+  {
+    id: 'loft',
+    nome: 'Loft',
+    icone: '🏙',
+    gradiente: '#2c3e50, #34495e',
+    tag: 'Captação direta',
+    desc: 'Plataforma digital completa. Trabalha com captação direta e curadoria — <strong>não aceita XML de terceiros</strong>. Cadastro manual no painel.',
+    mensalidade: 'Cadastro manual',
+    formato: 'Não aceita XML',
+    feedFormat: null,
+    siteUrl: 'https://loft.com.br/anuncie',
+    siteLabel: 'Acessar Loft',
+    unavailable: true,
+  },
+  {
+    id: 'mercadolivre',
+    nome: 'Mercado Livre Imóveis',
+    icone: '🛒',
+    gradiente: '#999, #bbb',
+    tag: 'Descontinuado',
+    desc: 'A categoria de Imóveis do Mercado Livre foi <strong>descontinuada em 2022</strong>. Recomendamos focar nos portais especializados.',
+    mensalidade: 'Inativo desde 2022',
+    formato: 'Categoria fechada',
+    feedFormat: null,
+    siteUrl: null,
+    siteLabel: 'Indisponível',
+    unavailable: true,
+  },
+];
+
+// Constrói a URL do feed pra um portal específico
+function buildFeedUrl(feedFormat) {
+  const tenantSlugOrId = State.tenant?.slug || State.tenant?.id;
+  if (!tenantSlugOrId) return '';
+  // Worker URL configurado em Configurações
+  const workerUrl = (State._configCache?.workerFeedUrl || '').trim();
+  if (!workerUrl) return '';
+  const u = workerUrl.replace(/\/+$/, '');
+  return `${u}/?tenant=${encodeURIComponent(tenantSlugOrId)}&format=${feedFormat}`;
+}
+
+// Cache da config pra evitar leituras repetidas
+async function ensureConfigCache() {
+  if (State._configCache) return State._configCache;
+  try {
+    const snap = await tenantPath().collection('config').doc('site').get();
+    State._configCache = snap.exists ? snap.data() : {};
+  } catch (_) {
+    State._configCache = {};
+  }
+  return State._configCache;
+}
+
+async function renderPortais() {
+  await ensureConfigCache();
+  const container = $('portais-grid-container');
+  if (!container) return;
+
+  const workerConfigured = !!(State._configCache?.workerFeedUrl || '').trim();
+
+  container.innerHTML = PORTAIS_LIST.map(p => {
+    const feedUrl = p.feedFormat ? buildFeedUrl(p.feedFormat) : null;
+
+    // Bloco de status / botão de copiar
+    let statusBlock;
+    if (p.unavailable) {
+      statusBlock = `<div class="portal-card-status status-unavailable">⚠ ${p.id === 'mercadolivre' ? '❌ Categoria descontinuada' : 'Sem integração automática'}</div>`;
+    } else if (!workerConfigured) {
+      statusBlock = `<div class="portal-card-status status-soon">⚙ Configure o Worker em Configurações</div>`;
+    } else if (feedUrl) {
+      statusBlock = `
+        <div class="portal-card-status status-active">✅ Feed XML pronto</div>
+        <div class="feed-url-row">
+          <input type="text" class="feed-url-input" value="${feedUrl}" readonly id="feed-url-${p.id}">
+          <button class="btn btn-primary btn-sm" onclick="copyFeedUrl('${p.id}')" title="Copiar URL">📋 Copiar</button>
+        </div>
+      `;
+    } else {
+      statusBlock = `<div class="portal-card-status status-soon">🚧 Em breve</div>`;
+    }
+
+    const ctaButton = p.siteUrl
+      ? `<a href="${p.siteUrl}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="width:100%;">${p.siteLabel} →</a>`
+      : `<button class="btn btn-secondary btn-sm" disabled style="width:100%; opacity:0.5; cursor:not-allowed;">${p.siteLabel}</button>`;
+
+    return `
+      <div class="portal-card ${p.unavailable ? 'portal-card-unavailable' : ''}">
+        <div class="portal-card-header">
+          <div class="portal-card-icon" style="background:linear-gradient(135deg, ${p.gradiente});">${p.icone}</div>
+          <div>
+            <h4>${p.nome}</h4>
+            <span class="portal-card-tag">${p.tag}</span>
+          </div>
+        </div>
+        <p class="portal-card-desc">${p.desc}</p>
+        <div class="portal-card-meta">
+          <div><span class="portal-meta-label">Mensalidade aprox.</span><strong>${p.mensalidade}</strong></div>
+          <div><span class="portal-meta-label">Formato aceito</span><strong>${p.formato}</strong></div>
+        </div>
+        ${statusBlock}
+        ${ctaButton}
+      </div>
+    `;
+  }).join('');
+}
+
+async function copyFeedUrl(portalId) {
+  const input = $(`feed-url-${portalId}`);
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    const btn = input.nextElementSibling;
+    const original = btn.textContent;
+    btn.textContent = '✓ Copiado!';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  } catch (_) {
+    input.select();
+    document.execCommand('copy');
+    alert('URL copiada!');
+  }
+}
+
+async function loadPortaisStatus() {
+  if (!State.tenant) return;
+  const countEl = $('feed-status-count');
+  if (!countEl) return;
+  countEl.textContent = '…';
+  try {
+    // Conta imóveis publicados + com vitrineFeed (default true)
+    const snap = await tenantPath().collection('imoveis').where('linkPublico', '==', true).get();
+    const total = snap.docs.filter(d => {
+      const im = d.data();
+      return im.vitrineFeed !== false;
+    }).length;
+    countEl.textContent = String(total);
+
+    // Atualiza status card conforme
+    const card = $('feed-status-card');
+    if (!card) return;
+
+    await ensureConfigCache();
+    const workerConfigured = !!(State._configCache?.workerFeedUrl || '').trim();
+
+    if (!workerConfigured) {
+      card.style.background = 'linear-gradient(135deg, #fef3c7, #fde68a)';
+      card.style.borderColor = '#fcd34d';
+      card.querySelector('h4').innerHTML = '⚙ Worker do feed XML ainda não configurado';
+      card.querySelector('h4').style.color = '#92400e';
+      card.querySelector('p').innerHTML = `Para publicar nos portais, vá em <strong>Configurações → XML Feed para portais</strong> e cole a URL do Worker Cloudflare. Veja <code>cloudflare-worker-feed.js</code> no repo pro código a publicar no Cloudflare.`;
+    } else if (total === 0) {
+      card.style.background = 'linear-gradient(135deg, #fef3c7, #fde68a)';
+      card.style.borderColor = '#fcd34d';
+      card.querySelector('h4').innerHTML = '⚠ Nenhum imóvel no feed';
+      card.querySelector('h4').style.color = '#92400e';
+      card.querySelector('p').innerHTML = `Nenhum imóvel marcado como "publicar no feed". Marque em <strong>Imóveis → editar → Publicação pública → 📤 Incluir no XML feed</strong>.`;
+    } else {
+      card.style.background = 'linear-gradient(135deg, #d1fae5, #a7f3d0)';
+      card.style.borderColor = '#86efac';
+      card.querySelector('h4').innerHTML = '✅ Feed XML ativo';
+      card.querySelector('h4').style.color = '#065f46';
+      card.querySelector('p').innerHTML = `<span id="feed-status-count">${total}</span> imóveis publicados estão sendo expostos aos portais. URLs prontas pra colar no painel de cada portal.`;
+    }
+  } catch (err) {
+    countEl.textContent = '—';
+    console.warn('Erro ao carregar status do feed:', err);
+  }
+}
+
+function previewFeedXml() {
+  const url = buildFeedUrl('wimoveis');
+  if (!url) {
+    alert('Configure a URL do Worker em Configurações → XML Feed primeiro.');
+    return;
+  }
+  window.open(url, '_blank');
 }
 
 // ---------- Upload da logo do tenant ----------

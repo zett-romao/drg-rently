@@ -281,6 +281,39 @@ Teal (`#00897B`) — deliberadamente diferente do DRG-Kronos (azul `#1565C0`) pr
 - Extrai: valor, vencimento, beneficiário, linha digitável
 - Operador confirma antes de gravar
 
+### Portais imobiliários — XML Feed (Fase 2 do submódulo)
+**Status**: implementado em 2026-05-12.
+
+Worker `drg-rently-feed` (código em `cloudflare-worker-feed.js`) expõe endpoint público que retorna o XML feed dos imóveis publicados de um tenant em 4 formatos (Wimoveis, Zap, OLX, Imovelweb).
+
+**Deploy no Cloudflare:**
+1. Acesse https://dash.cloudflare.com/ → Workers & Pages → Create
+2. Nome: `drg-rently-feed`
+3. Cole o conteúdo de `cloudflare-worker-feed.js`
+4. **Variables**:
+   - `PROJECT_ID` = `drg-rently` (texto plano)
+5. **Secrets**:
+   - `FIREBASE_API_KEY` = a mesma do `firebase-config.js` (é pública por design Firebase)
+6. Deploy. URL final ficará tipo `https://drg-rently-feed.zett-romao.workers.dev`
+7. No app: vá em **Configurações → XML Feed para portais** e cole essa URL
+8. Em **Portais** os cards mostrarão "✅ Feed XML pronto" + botão "📋 Copiar URL"
+
+**Endpoints suportados:**
+- `?tenant=<id|slug>&format=wimoveis` (default) — Chaves na Mão, regionais, DF/SP/Casa Mineira, Órulo, DWV
+- `?tenant=<id|slug>&format=zap` — ZAP Imóveis + Viva Real
+- `?tenant=<id|slug>&format=olx` — OLX Imóveis
+- `?tenant=<id|slug>&format=imovelweb` — Imovelweb
+
+**Filtros aplicados:**
+- Imóvel com `linkPublico === true`
+- Imóvel com `vitrineFeed !== false` (toggle do operador no modal)
+- Máximo 500 imóveis por tenant, 30 fotos por imóvel
+- Cache CDN: 10 minutos
+
+**Próximos passos (Fase 3 do submódulo):**
+- Painel de monitoramento (última sincronização por portal)
+- Webhooks de recebimento de leads dos portais → criar negociações no CRM
+
 ### Fase 4 — Pix
 - Integração com PSP (Banco do Brasil, Itaú, Sicredi, Asaas, Efí, Cora — a definir)
 - Transferência do líquido ao locador via chave Pix cadastrada
