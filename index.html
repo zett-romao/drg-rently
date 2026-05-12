@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260511g">
+  <link rel="stylesheet" href="styles.css?v=20260511h">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -199,6 +199,13 @@
               <div class="stat-card-body">
                 <div class="stat-card-value" id="stat-imoveis-disponiveis">—</div>
                 <div class="stat-card-label">Imóveis disponíveis</div>
+              </div>
+            </div>
+            <div class="stat-card" onclick="showSection('imoveis')" title="Ver imóveis à venda">
+              <div class="stat-card-icon stat-icon-amber">🏷</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-imoveis-venda">—</div>
+                <div class="stat-card-label">Imóveis à venda</div>
               </div>
             </div>
             <div class="stat-card" onclick="showSection('contratos')" title="Ver contratos vigentes">
@@ -1659,11 +1666,37 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-gerar-contrato" onclick="gerarContratoLocacao()" style="display:none;">📄 Gerar contrato</button>
         <button class="btn btn-primary" id="btn-save-contrato" onclick="saveContrato()">Salvar</button>
       </div>
     </div>
   </div>
 
-  <script src="app.js?v=20260511g"></script>
+  <!-- ============================================ -->
+  <!-- MODAL: Preview do Contrato (gerado) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-contrato-preview" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Preview do contrato</h3>
+        <button class="modal-close" onclick="closeContratoPreview()">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:12px; margin-bottom:14px;">
+          Preview com os dados preenchidos. Você pode imprimir, baixar em Word
+          para editar ou copiar o texto puro.
+        </p>
+        <div id="contrato-preview-content" class="contrato-preview"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeContratoPreview()">Fechar</button>
+        <button class="btn btn-secondary" onclick="copyContratoTexto()">📋 Copiar texto</button>
+        <button class="btn btn-secondary" onclick="downloadContratoWord()">📝 Baixar Word</button>
+        <button class="btn btn-primary" onclick="printContrato()">📄 Imprimir / PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260511h"></script>
 </body>
 </html>

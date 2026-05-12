@@ -897,3 +897,87 @@ label.required::after {
 
 .foto-item:hover .foto-del { opacity: 1; }
 .foto-item .foto-del:hover { background: var(--danger); }
+
+/* ----- Preview do contrato (modal) ----- */
+.contrato-preview {
+  background: white;
+  padding: 32px 48px;
+  font-family: 'Times New Roman', Georgia, serif;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.contrato-preview .contrato-header {
+  text-align: center;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #ddd;
+}
+
+.contrato-preview .contrato-header h1 {
+  font-size: 18px;
+  font-weight: bold;
+  margin: 0 0 6px;
+  color: #000;
+}
+
+.contrato-preview .contrato-empresa {
+  font-weight: bold;
+  margin: 0;
+}
+
+.contrato-preview .contrato-empresa-sub {
+  font-size: 11px;
+  color: #555;
+  margin-top: 2px;
+}
+
+.contrato-preview .contrato-conteudo {
+  margin-bottom: 18px;
+}
+
+.contrato-preview .contrato-conteudo h3 {
+  font-size: 14px;
+  margin: 18px 0 8px;
+  color: #000;
+}
+
+.contrato-preview .contrato-conteudo p {
+  margin: 8px 0;
+  text-align: justify;
+}
+
+.contrato-preview .contrato-rodape {
+  margin-top: 30px;
+}
+
+.contrato-preview .contrato-assinaturas {
+  display: flex;
+  gap: 32px;
+  margin: 30px 0 16px;
+}
+
+.contrato-preview .assinatura {
+  flex: 1;
+  text-align: center;
+}
+
+.contrato-preview .assinatura-linha {
+  border-top: 1px solid #000;
+  margin: 28px 8px 6px;
+}
+
+.contrato-preview .assinatura strong { display: block; }
+.contrato-preview .assinatura span {
+  font-size: 11px;
+  color: #555;
+}
+
+.contrato-preview .contrato-testemunhas {
+  margin-top: 22px;
+  font-size: 12px;
+}

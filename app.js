@@ -505,7 +505,8 @@ async function toggleTenantStatus(tenantId, ativo) {
 
 async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
-               'stat-imoveis-disponiveis', 'stat-contratos-vigentes', 'stat-garantias-ativas'];
+               'stat-imoveis-disponiveis', 'stat-imoveis-venda',
+               'stat-contratos-vigentes', 'stat-garantias-ativas'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
@@ -521,6 +522,10 @@ async function loadDashboard() {
 
     const imoveisAlugados = imoveisSnap.docs.filter(d => d.data().status === 'alugado').length;
     const imoveisDisponiveis = imoveisSnap.docs.filter(d => d.data().status === 'disponivel').length;
+    const imoveisVenda = imoveisSnap.docs.filter(d => {
+      const f = d.data().finalidade || 'locacao';
+      return f === 'venda' || f === 'ambos';
+    }).length;
     const contratosVigentes = contratosSnap.docs.filter(d => d.data().status === 'vigente').length;
     const garantiasAtivas = garantiasSnap.docs.filter(d => (d.data().status || 'ativa') === 'ativa').length;
 
@@ -528,6 +533,7 @@ async function loadDashboard() {
     $('stat-locatarios').textContent = locatariosSnap.size;
     $('stat-imoveis-alugados').textContent = imoveisAlugados;
     $('stat-imoveis-disponiveis').textContent = imoveisDisponiveis;
+    $('stat-imoveis-venda').textContent = imoveisVenda;
     $('stat-contratos-vigentes').textContent = contratosVigentes;
     $('stat-garantias-ativas').textContent = garantiasAtivas;
   } catch (err) {
@@ -2864,6 +2870,7 @@ async function openContratoModal(id) {
   $('contrato-id').value = id || '';
   $('modal-contrato-title').textContent = id ? 'Editar Contrato' : 'Novo Contrato';
   $('btn-delete-contrato').style.display = id ? 'inline-block' : 'none';
+  $('btn-gerar-contrato').style.display = id ? 'inline-block' : 'none';
 
   // Limpar
   ['contrato-inicio', 'contrato-fim', 'contrato-aluguel', 'contrato-multa',
@@ -3149,6 +3156,304 @@ async function deleteContratoDoc(contratoId, filename) {
     console.error('Erro ao excluir doc:', err);
     showAlert('contrato-alert', 'Erro: ' + err.message);
   }
+}
+
+// =============================================================
+// GERADOR DE CONTRATO (locação) — mescla template + dados
+// =============================================================
+
+function fmtDataExtenso(d) {
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho',
+                 'julho','agosto','setembro','outubro','novembro','dezembro'];
+  const dt = d instanceof Date ? d : new Date();
+  return `${dt.getDate()} de ${meses[dt.getMonth()]} de ${dt.getFullYear()}`;
+}
+
+function formatEnderecoCompleto(end) {
+  if (!end) return '—';
+  const parts = [];
+  if (end.logradouro) parts.push(end.logradouro);
+  if (end.numero) parts.push('nº ' + end.numero);
+  if (end.complemento) parts.push(end.complemento);
+  if (end.bairro) parts.push('Bairro ' + end.bairro);
+  if (end.cidade && end.uf) parts.push(end.cidade + '/' + end.uf);
+  if (end.cep) parts.push('CEP ' + maskCEP(end.cep));
+  return parts.length ? parts.join(', ') : '—';
+}
+
+function descricaoGarantia(g) {
+  if (!g || !g.tipo) return 'Sem garantia';
+  if (g.tipo === 'fiador' && g.fiador) {
+    return `Fiador: ${g.fiador.nome || '—'} (CPF ${g.fiador.cpf ? maskCPF(g.fiador.cpf) : '—'})`;
+  }
+  if (g.tipo === 'caucao' && g.caucao) {
+    return `Caução em ${g.caucao.modalidade} no valor de ${fmtBRL(g.caucao.valor)}`;
+  }
+  if (g.tipo === 'seguro_fianca' && g.seguro) {
+    return `Seguro fiança ${g.seguro.seguradora}, apólice ${g.seguro.apolice}, cobertura de ${fmtBRL(g.seguro.cobertura)}`;
+  }
+  return 'Não especificada';
+}
+
+// Substitui {{var.subvar}} no template usando o objeto de dados.
+// Se a chave não existe, mantém o {{...}} pra revelar o problema ao usuário.
+function mergeTemplate(template, dados) {
+  return (template || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (m, path) => {
+    const parts = path.split('.');
+    let val = dados;
+    for (const p of parts) {
+      if (val == null) return m;
+      val = val[p];
+    }
+    return (val == null) ? m : String(val);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+// Converte texto puro com quebras de linha em HTML formatado (parágrafos)
+function textToHtml(text) {
+  if (!text) return '';
+  const safe = escapeHtml(text);
+  return safe.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+let _contratoHtmlCache = '';
+
+async function gerarContratoLocacao() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) {
+    showAlert('contrato-alert', 'Salve o contrato antes de gerar.');
+    return;
+  }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) { showAlert('contrato-alert', 'Contrato não encontrado.'); return; }
+    const c = cSnap.data();
+
+    const [locadorSnap, locatarioSnap, imovelSnap, garantiaSnap, configSnap] = await Promise.all([
+      c.locadorId   ? tenantPath().collection('locadores').doc(c.locadorId).get()   : Promise.resolve(null),
+      c.locatarioId ? tenantPath().collection('locatarios').doc(c.locatarioId).get() : Promise.resolve(null),
+      c.imovelId    ? tenantPath().collection('imoveis').doc(c.imovelId).get()    : Promise.resolve(null),
+      c.garantiaId  ? tenantPath().collection('garantias').doc(c.garantiaId).get()  : Promise.resolve(null),
+      tenantPath().collection('config').doc('site').get(),
+    ]);
+
+    const locador = (locadorSnap && locadorSnap.exists) ? locadorSnap.data() : {};
+    const locatario = (locatarioSnap && locatarioSnap.exists) ? locatarioSnap.data() : {};
+    const imovel = (imovelSnap && imovelSnap.exists) ? imovelSnap.data() : {};
+    const garantia = (garantiaSnap && garantiaSnap.exists) ? garantiaSnap.data() : {};
+    const cfg = configSnap.exists ? configSnap.data() : {};
+
+    const template = cfg.templateLocacao || '(Configure o template em Configurações)';
+
+    const dados = {
+      tenant: { nome: State.tenant.nome, cnpj: State.tenant.cnpj ? maskCNPJ(State.tenant.cnpj) : '—', creci: State.tenant.creci || '—' },
+      locador: {
+        nome: locador.nome || '—',
+        documento: locador.documento ? (locador.tipo === 'PJ' ? maskCNPJ(locador.documento) : maskCPF(locador.documento)) : '—',
+        rg: locador.rg || '—',
+        nascimento: locador.nascimento ? fmtDataBR(locador.nascimento) : '—',
+        estadoCivil: locador.estadoCivil || '—',
+        profissao: locador.profissao || '—',
+        nacionalidade: locador.nacionalidade || '—',
+        email: locador.email || '—',
+        telefone: locador.telefone ? maskTelefone(locador.telefone) : '—',
+        enderecoCompleto: formatEnderecoCompleto(locador.endereco),
+      },
+      locatario: {
+        nome: locatario.nome || '—',
+        documento: locatario.documento ? (locatario.tipo === 'PJ' ? maskCNPJ(locatario.documento) : maskCPF(locatario.documento)) : '—',
+        rg: locatario.rg || '—',
+        nascimento: locatario.nascimento ? fmtDataBR(locatario.nascimento) : '—',
+        estadoCivil: locatario.estadoCivil || '—',
+        profissao: locatario.profissao || '—',
+        nacionalidade: locatario.nacionalidade || '—',
+        email: locatario.email || '—',
+        telefone: locatario.telefone ? maskTelefone(locatario.telefone) : '—',
+        enderecoCompleto: formatEnderecoCompleto(locatario.endereco),
+        renda: fmtBRL(locatario.renda),
+      },
+      imovel: {
+        apelido: imovel.apelido || '—',
+        tipo: imovel.tipo || '—',
+        subtipo: imovel.subtipo || '—',
+        matricula: imovel.matricula || '—',
+        iptu: imovel.iptu || '—',
+        areaUtil: imovel.areaUtil ? imovel.areaUtil + ' m²' : '—',
+        areaTotal: imovel.areaTotal ? imovel.areaTotal + ' m²' : '—',
+        enderecoCompleto: formatEnderecoCompleto(imovel.endereco),
+      },
+      contrato: {
+        aluguel: fmtBRL(c.aluguel),
+        prazo: c.prazoMeses,
+        inicio: c.inicio ? fmtDataBR(c.inicio) : '—',
+        fim: c.fim ? fmtDataBR(c.fim) : '—',
+        diaVencimento: c.diaVencimento,
+        taxaAdm: (c.taxaAdm ?? '—') + '%',
+        multa: fmtBRL(c.multaRescisoria),
+        reajusteIndice: ({ ipca: 'IPCA', igpm: 'IGP-M', inpc: 'INPC', sem: 'sem reajuste' }[c.reajusteIndice] || '—'),
+        reajustePeriodicidade: ({ anual: 'anual', bienal: 'bienal', sem: 'sem reajuste' }[c.reajustePeriodicidade] || '—'),
+      },
+      garantia: { descricao: descricaoGarantia(garantia) },
+    };
+
+    const conteudoMerged = mergeTemplate(template, dados);
+    const html = buildContratoHtml('LOCAÇÃO DE IMÓVEL', dados, conteudoMerged, c.clausulas, locador.nome, locatario.nome);
+
+    _contratoHtmlCache = html;
+    $('contrato-preview-content').innerHTML = html;
+    $('modal-contrato-preview').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao gerar contrato:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+function buildContratoHtml(titulo, dados, conteudoMerged, clausulasExtras, parteA, parteB) {
+  const tenant = dados.tenant || {};
+  const cidadeImovel = (dados.imovel.enderecoCompleto || '').split(',').slice(-2, -1).join(',').trim() || '—';
+
+  return `
+    <div class="contrato-header">
+      <h1>CONTRATO DE ${titulo.toUpperCase()}</h1>
+      <p class="contrato-empresa">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+      ${tenant.cnpj && tenant.cnpj !== '—' ? `<p class="contrato-empresa-sub">CNPJ ${escapeHtml(tenant.cnpj)}${tenant.creci && tenant.creci !== '—' ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}</p>` : ''}
+    </div>
+
+    <div class="contrato-conteudo">
+      ${textToHtml(conteudoMerged)}
+    </div>
+
+    ${clausulasExtras ? `
+      <div class="contrato-conteudo">
+        <h3>CLÁUSULAS PARTICULARES</h3>
+        ${textToHtml(clausulasExtras)}
+      </div>
+    ` : ''}
+
+    <div class="contrato-rodape">
+      <p>${escapeHtml(cidadeImovel)}, ${fmtDataExtenso()}.</p>
+      <div class="contrato-assinaturas">
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(parteA || '—')}</strong><br>
+          <span>${escapeHtml(titulo === 'LOCAÇÃO DE IMÓVEL' ? 'LOCADOR' : 'VENDEDOR')}</span>
+        </div>
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(parteB || '—')}</strong><br>
+          <span>${escapeHtml(titulo === 'LOCAÇÃO DE IMÓVEL' ? 'LOCATÁRIO' : 'COMPRADOR')}</span>
+        </div>
+      </div>
+      <div class="contrato-testemunhas">
+        <p><strong>Testemunhas:</strong></p>
+        <div class="contrato-assinaturas">
+          <div class="assinatura">
+            <div class="assinatura-linha"></div>
+            <span>Nome / CPF</span>
+          </div>
+          <div class="assinatura">
+            <div class="assinatura-linha"></div>
+            <span>Nome / CPF</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function closeContratoPreview() {
+  $('modal-contrato-preview').style.display = 'none';
+}
+
+function printContrato() {
+  const win = window.open('', '_blank', 'width=900,height=900');
+  if (!win) { alert('Bloqueador de popup impediu a impressão. Permita popups para este site.'); return; }
+  win.document.write(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Contrato</title>
+  <style>
+    body { font-family: 'Times New Roman', Georgia, serif; font-size: 12pt; line-height: 1.7; color: #000; max-width: 210mm; margin: 0 auto; padding: 20mm; }
+    .contrato-header { text-align: center; margin-bottom: 30pt; }
+    .contrato-header h1 { font-size: 16pt; margin-bottom: 8pt; }
+    .contrato-empresa { font-weight: bold; margin: 0; }
+    .contrato-empresa-sub { font-size: 10pt; margin-top: 2pt; }
+    .contrato-conteudo { margin-bottom: 20pt; }
+    .contrato-conteudo h3 { font-size: 13pt; margin: 20pt 0 10pt; }
+    .contrato-conteudo p { margin: 8pt 0; text-align: justify; }
+    .contrato-rodape { margin-top: 40pt; }
+    .contrato-assinaturas { display: flex; gap: 40pt; margin: 50pt 0 30pt; }
+    .assinatura { flex: 1; text-align: center; }
+    .assinatura-linha { border-top: 1pt solid #000; margin-bottom: 6pt; }
+    .assinatura strong { display: block; }
+    .assinatura span { font-size: 10pt; color: #555; }
+    .contrato-testemunhas { margin-top: 30pt; }
+    .contrato-testemunhas p { margin-bottom: 0; }
+    @page { margin: 20mm; }
+  </style>
+</head>
+<body>${_contratoHtmlCache}</body>
+</html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
+}
+
+function downloadContratoWord() {
+  const filename = `Contrato_${new Date().toISOString().slice(0,10)}.doc`;
+  const html = `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office'
+      xmlns:w='urn:schemas-microsoft-com:office:word'
+      xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>Contrato</title>
+  <!--[if gte mso 9]>
+  <xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
+  <![endif]-->
+  <style>
+    body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.7; }
+    h1 { text-align: center; font-size: 16pt; }
+    h3 { font-size: 13pt; }
+    .contrato-header { text-align: center; margin-bottom: 24pt; }
+    .contrato-assinaturas { margin-top: 40pt; }
+    .assinatura { text-align: center; margin: 20pt 0; }
+    .assinatura-linha { border-top: 1pt solid #000; margin-bottom: 4pt; width: 60%; margin-left: 20%; }
+    p { text-align: justify; }
+  </style>
+</head>
+<body>${_contratoHtmlCache}</body>
+</html>`;
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function copyContratoTexto() {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = _contratoHtmlCache;
+  const text = (tmp.textContent || tmp.innerText || '').replace(/\n{3,}/g, '\n\n').trim();
+  navigator.clipboard.writeText(text).then(() => {
+    showAlert('contrato-alert', 'Texto do contrato copiado!', 'success');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showAlert('contrato-alert', 'Texto do contrato copiado!', 'success');
+  });
 }
 
 // =============================================================
