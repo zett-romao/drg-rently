@@ -525,8 +525,31 @@ function userDRGPodeVerArea(area) {
   return false;
 }
 
+// Define a marca exibida no canto superior esquerdo do sidebar.
+// Lógica:
+// - Equipe DRG navegando seções administrativas do SaaS (superadmin) → "DRG-Systems / DevOps"
+// - Equipe DRG sem tenant ativo ainda → "DRG-Systems / DevOps"
+// - Em qualquer outro caso (tenant normal OU equipe DRG atuando como tenant) → "DRG-Rently / nome do tenant"
+function aplicarMarcaContexto() {
+  const brandTitle = $('brand-title');
+  const brandSub = $('brand-tenant-name');
+  if (!brandTitle || !brandSub) return;
+
+  const navegandoPainelSaaS = State.isSuperAdmin && !State.tenantOriginal && State.currentSection === 'superadmin';
+  const semTenantAtivo = State.isSuperAdmin && !State.tenantOriginal && !State.tenant;
+  const modoSaaS = navegandoPainelSaaS || semTenantAtivo;
+
+  if (modoSaaS) {
+    brandTitle.textContent = 'DRG-Systems';
+    brandSub.textContent = 'DevOps';
+  } else {
+    brandTitle.textContent = 'DRG-Rently';
+    brandSub.textContent = State.tenant ? State.tenant.nome : (State.isSuperAdmin ? 'Super Admin' : '—');
+  }
+}
+
 function renderApp() {
-  $('brand-tenant-name').textContent = State.tenant ? State.tenant.nome : (State.isSuperAdmin ? 'Super Admin' : '—');
+  aplicarMarcaContexto();
   $('user-name').textContent = State.userDoc?.nome || State.user?.email || '—';
   $('footer-version').textContent = `v${APP_VERSION}`;
 
@@ -577,6 +600,10 @@ function showSection(name) {
     configuracoes: 'Configurações',
   };
   $('topbar-title').textContent = titles[name] || name;
+
+  // Marca + logo mudam conforme contexto: painel SaaS (Super Admin) vs tenant
+  aplicarMarcaContexto();
+  aplicarLogoTenant();
 
   if (name === 'dashboard' && State.tenant) {
     loadDashboard();
@@ -5424,8 +5451,13 @@ async function removerLogoTenant() {
 }
 
 function aplicarLogoTenant() {
-  // Atualiza todas as imagens com class brand-logo no app interno
-  const url = State.tenant?.logoUrl || 'logo.png';
+  // No modo SaaS (equipe DRG no painel Super Admin sem atuar como tenant),
+  // sempre exibe a logo D.R. Global padrão — não a logo customizada do tenant.
+  const navegandoPainelSaaS = State.isSuperAdmin && !State.tenantOriginal && State.currentSection === 'superadmin';
+  const semTenantAtivo = State.isSuperAdmin && !State.tenantOriginal && !State.tenant;
+  const modoSaaS = navegandoPainelSaaS || semTenantAtivo;
+
+  const url = modoSaaS ? 'logo.png' : (State.tenant?.logoUrl || 'logo.png');
   document.querySelectorAll('.brand-logo, .auth-logo').forEach(img => { img.src = url; });
 }
 
