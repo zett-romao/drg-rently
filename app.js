@@ -710,8 +710,35 @@ function renderApp() {
 // =============================================================
 // Navegação entre seções
 // =============================================================
+// =============================================================
+// Mobile: sidebar drawer
+// =============================================================
+function toggleSidebarMobile() {
+  const sidebar = $('sidebar-main');
+  const overlay = $('sidebar-overlay');
+  if (!sidebar || !overlay) return;
+  const open = sidebar.classList.toggle('sidebar-open');
+  overlay.classList.toggle('sidebar-overlay-active', open);
+  // Bloqueia scroll do body quando aberto
+  document.body.style.overflow = open ? 'hidden' : '';
+}
+
+function fecharSidebarMobile() {
+  const sidebar = $('sidebar-main');
+  const overlay = $('sidebar-overlay');
+  if (!sidebar || !overlay) return;
+  sidebar.classList.remove('sidebar-open');
+  overlay.classList.remove('sidebar-overlay-active');
+  document.body.style.overflow = '';
+}
+
+window.toggleSidebarMobile = toggleSidebarMobile;
+window.fecharSidebarMobile = fecharSidebarMobile;
+
 function showSection(name) {
   State.currentSection = name;
+  // Fecha sidebar mobile ao trocar de seção
+  fecharSidebarMobile();
 
   document.querySelectorAll('.nav-link').forEach(el => {
     el.classList.toggle('active', el.dataset.section === name);
@@ -9715,7 +9742,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   document.querySelectorAll('.nav-link').forEach(el => {
-    el.addEventListener('click', () => showSection(el.dataset.section));
+    el.addEventListener('click', () => {
+      // Se nav-link tem data-section, navega. Se tem onclick inline (ex: vitrine pública), só fecha o menu.
+      if (el.dataset.section) {
+        showSection(el.dataset.section);
+      } else {
+        fecharSidebarMobile();
+      }
+    });
   });
 
   ['login-email', 'login-senha'].forEach(id => {

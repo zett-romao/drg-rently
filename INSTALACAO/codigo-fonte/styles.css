@@ -2031,8 +2031,258 @@ label.required::after {
   }
 }
 
-/* Ajustes mobile gerais */
-@media (max-width: 600px) {
+/* =============================================================
+   RESPONSIVE — Mobile (< 900px)
+   Sidebar vira drawer + dashboard ocupa toda largura
+   ============================================================= */
+
+/* Botão hamburger — escondido no desktop */
+.btn-menu-mobile {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.btn-menu-mobile:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+
+/* Overlay — escondido por padrão (só aparece em mobile com sidebar aberta) */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: 998;
+  animation: fadeIn 0.18s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  /* Sidebar vira drawer fixo à esquerda, fora da tela por padrão */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    z-index: 999;
+    transform: translateX(-105%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay.sidebar-overlay-active {
+    display: block;
+  }
+
+  /* Botão hamburger aparece */
+  .btn-menu-mobile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Topbar — ajusta pra mobile */
+  .topbar {
+    padding: 0 12px;
+    height: 56px;
+  }
+
+  .topbar-title {
+    font-size: 15px;
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-user-name {
+    display: none; /* esconde nome do usuário em mobile, fica só botão Sair */
+  }
+
+  .topbar-user {
+    gap: 6px;
+  }
+
+  /* Banner "Atuando como" */
+  .banner-atuando {
+    padding: 8px 12px;
+    font-size: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  /* Main + content: padding menor */
+  .main {
+    width: 100%;
+  }
+
+  .content {
+    padding: 12px !important;
+  }
+
+  /* Dashboard — 1 coluna */
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+
+  /* Cards de stat menores */
+  .stat-card {
+    padding: 14px;
+  }
+
+  .stat-card-value {
+    font-size: 22px;
+  }
+
+  /* Section header — empilha botões */
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .section-header > div + div,
+  .section-header button {
+    width: 100%;
+  }
+
+  /* Cards genéricos */
+  .card {
+    padding: 14px !important;
+  }
+
+  /* Form rows: empilha em 1 coluna */
+  .form-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px;
+  }
+
+  /* Filtros: empilha */
+  .form-row[style*="max-width"] {
+    max-width: 100% !important;
+  }
+
+  /* Tabelas: scroll horizontal */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table {
+    font-size: 12px;
+    min-width: 600px; /* garante que tabela cabe e usuário rola lateralmente */
+  }
+
+  .table th, .table td {
+    padding: 8px 6px;
+    white-space: nowrap;
+  }
+
+  /* Modais — full screen no mobile */
+  .modal-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .modal, .modal-lg {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0;
+  }
+
+  .modal-body {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+  }
+
+  .modal-footer {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .modal-footer .btn {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin: 2px 0;
+  }
+
+  /* Botões em geral menores */
+  .btn {
+    font-size: 13px;
+  }
+
+  /* Lançamentos do balancete: empilha */
+  .lanc-row {
+    flex-wrap: wrap;
+  }
+
+  /* Vitrine pública e portais */
+  .portais-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Multi-card no balancete */
+  .multi-card .form-row {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Apuração em tempo real: 2 colunas (cabe melhor) */
+  .apuracao-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .apuracao-item strong {
+    font-size: 15px;
+  }
+  .apuracao-item.liquido strong {
+    font-size: 17px;
+  }
+
+  /* Tipo pessoa tabs PF/PJ no signup */
+  .tipo-pessoa-btn {
+    padding: 12px 8px;
+    font-size: 13px;
+  }
+
+  /* Auth card (login/signup) */
+  .auth-card {
+    padding: 20px 16px !important;
+    margin: 12px;
+  }
+  .auth-card h1 {
+    font-size: 22px;
+  }
+
+  /* PWA banner ajustes */
   .pwa-install-banner {
     bottom: 8px;
     left: 8px;
@@ -2042,6 +2292,14 @@ label.required::after {
   .pwa-banner-icon { width: 40px; height: 40px; }
   .pwa-banner-text strong { font-size: 13px; }
   .pwa-banner-text span { font-size: 11px; }
+}
+
+/* Muito pequeno: ajustes adicionais */
+@media (max-width: 380px) {
+  .topbar-title { font-size: 14px; }
+  .btn { padding: 6px 10px; font-size: 12px; }
+  .topbar { padding: 0 8px; }
+  .btn-menu-mobile { width: 36px; height: 36px; font-size: 20px; margin-right: 6px; }
 }
 
 @media (max-width: 600px) {
