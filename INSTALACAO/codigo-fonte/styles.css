@@ -1931,6 +1931,119 @@ label.required::after {
   color: #1e40af;
 }
 
+/* =============================================================
+   PWA — Banner instalar + Banner atualização disponível
+   ============================================================= */
+.pwa-install-banner {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, #ffffff, #f8fafc);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.08);
+  z-index: 9999;
+  animation: pwaSlideUp 0.4s ease-out;
+}
+
+@keyframes pwaSlideUp {
+  from { transform: translateY(120%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.pwa-banner-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+.pwa-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pwa-banner-text strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.pwa-banner-text span {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.pwa-banner-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.pwa-banner-actions .btn-secondary {
+  padding: 4px 10px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pwa-update-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(71, 85, 105, 0.4);
+  z-index: 9998;
+  animation: pwaSlideDown 0.4s ease-out;
+}
+
+@keyframes pwaSlideDown {
+  from { transform: translate(-50%, -200%); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+/* Mobile: PWA standalone mode — ajustes finos */
+@media (display-mode: standalone) {
+  body {
+    /* Espaço extra pro notch do iPhone */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Ajustes mobile gerais */
+@media (max-width: 600px) {
+  .pwa-install-banner {
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    padding: 10px 12px;
+  }
+  .pwa-banner-icon { width: 40px; height: 40px; }
+  .pwa-banner-text strong { font-size: 13px; }
+  .pwa-banner-text span { font-size: 11px; }
+}
+
 @media (max-width: 600px) {
   .portais-grid {
     grid-template-columns: 1fr;

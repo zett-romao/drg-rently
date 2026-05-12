@@ -8848,6 +8848,87 @@ async function deleteDRGPerfil() {
 // Init
 // =============================================================
 document.addEventListener('DOMContentLoaded', () => {
+  // =============================================================
+  // PWA — Registra Service Worker + handler de instalação
+  // =============================================================
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js?v=20260513f', { scope: './' })
+        .then(reg => {
+          // Detecta nova versão e oferece atualizar
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                // Mostra banner discreto pedindo refresh
+                mostrarBannerAtualizacao();
+              }
+            });
+          });
+        })
+        .catch(err => console.warn('[SW] Falha ao registrar:', err));
+    });
+  }
+
+  // Captura evento de instalação (Android Chrome / Edge)
+  let _deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    _deferredInstallPrompt = e;
+    // Mostra botão "Instalar" só se ainda não está instalado
+    if (!window.matchMedia('(display-mode: standalone)').matches) {
+      setTimeout(() => mostrarBannerInstalar(), 2000); // espera 2s pra não atrapalhar login
+    }
+  });
+  window.addEventListener('appinstalled', () => {
+    _deferredInstallPrompt = null;
+    const banner = $('pwa-install-banner');
+    if (banner) banner.style.display = 'none';
+  });
+  // Expor pra onclick do banner conseguir disparar
+  window.acionarInstalacaoPWA = async function() {
+    if (!_deferredInstallPrompt) return;
+    _deferredInstallPrompt.prompt();
+    try { await _deferredInstallPrompt.userChoice; } catch (_) {}
+    _deferredInstallPrompt = null;
+    const banner = $('pwa-install-banner');
+    if (banner) banner.style.display = 'none';
+  };
+  window.fecharBannerInstalar = function() {
+    const banner = $('pwa-install-banner');
+    if (banner) banner.style.display = 'none';
+    // Lembra escolha por 7 dias
+    try { localStorage.setItem('drg_install_dismissed', String(Date.now())); } catch (_) {}
+  };
+
+  function mostrarBannerInstalar() {
+    // Não mostra se dismissed nos últimos 7 dias
+    try {
+      const last = parseInt(localStorage.getItem('drg_install_dismissed') || '0', 10);
+      if (Date.now() - last < 7 * 24 * 60 * 60 * 1000) return;
+    } catch (_) {}
+    const banner = $('pwa-install-banner');
+    if (banner && _deferredInstallPrompt) banner.style.display = 'flex';
+  }
+
+  function mostrarBannerAtualizacao() {
+    // Banner discreto avisando que tem versão nova (recarregar pra pegar)
+    const existing = $('pwa-update-banner');
+    if (existing) return; // já mostrado
+    const div = document.createElement('div');
+    div.id = 'pwa-update-banner';
+    div.className = 'pwa-update-banner';
+    div.innerHTML = `
+      <span>🔄 Nova versão disponível!</span>
+      <button onclick="location.reload()" class="btn btn-sm" style="background:#fff;color:var(--primary-dark);">Atualizar</button>
+    `;
+    document.body.appendChild(div);
+  }
+
+  // =============================================================
+  // Listeners normais
+  // =============================================================
   $('btn-login').addEventListener('click', doLogin);
   $('btn-signup').addEventListener('click', doSignupTenant);
   $('btn-logout').addEventListener('click', doLogout);

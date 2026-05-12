@@ -1,0 +1,50 @@
+{
+  "name": "DRG-Rently — Gestão de Locações",
+  "short_name": "DRG-Rently",
+  "description": "Sistema completo de gestão de locações e vendas de imóveis residenciais e comerciais. Para imobiliárias e corretores autônomos.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#475569",
+  "lang": "pt-BR",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    {
+      "src": "logo.png?v=20260513a",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "logo.png?v=20260513a",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Acesso rápido ao painel",
+      "url": "./?section=dashboard",
+      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+    },
+    {
+      "name": "Novo imóvel",
+      "short_name": "Imóvel",
+      "description": "Cadastrar novo imóvel",
+      "url": "./?section=imoveis",
+      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+    },
+    {
+      "name": "Vitrine pública",
+      "short_name": "Vitrine",
+      "description": "Abrir vitrine",
+      "url": "./imoveis.html",
+      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+    }
+  ]
+}
