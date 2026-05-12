@@ -2108,6 +2108,8 @@ async function openBalanceteModal(id) {
   }
 
   let selectedContratoId = null;
+  $('btn-gerar-balancete').style.display = id ? 'inline-block' : 'none';
+
   if (id) {
     try {
       const snap = await tenantPath().collection('balancetes').doc(id).get();
@@ -2428,6 +2430,159 @@ async function saveBalancete() {
   } finally {
     btn.disabled = false; btn.textContent = 'Salvar';
   }
+}
+
+async function gerarBalancete() {
+  const id = $('balancete-id').value;
+  if (!id) { showAlert('balancete-alert', 'Salve o balancete antes de gerar.'); return; }
+
+  try {
+    const bSnap = await tenantPath().collection('balancetes').doc(id).get();
+    if (!bSnap.exists) { showAlert('balancete-alert', 'Balancete não encontrado.'); return; }
+    const b = bSnap.data();
+
+    const [contratoSnap, locadorSnap, locatarioSnap, imovelSnap, configSnap] = await Promise.all([
+      b.contratoId  ? tenantPath().collection('contratos').doc(b.contratoId).get()  : Promise.resolve(null),
+      b.locadorId   ? tenantPath().collection('locadores').doc(b.locadorId).get()   : Promise.resolve(null),
+      b.locatarioId ? tenantPath().collection('locatarios').doc(b.locatarioId).get() : Promise.resolve(null),
+      b.imovelId    ? tenantPath().collection('imoveis').doc(b.imovelId).get()    : Promise.resolve(null),
+      tenantPath().collection('config').doc('site').get(),
+    ]);
+
+    const contrato  = (contratoSnap  && contratoSnap.exists)  ? contratoSnap.data()  : {};
+    const locador   = (locadorSnap   && locadorSnap.exists)   ? locadorSnap.data()   : {};
+    const locatario = (locatarioSnap && locatarioSnap.exists) ? locatarioSnap.data() : {};
+    const imovel    = (imovelSnap    && imovelSnap.exists)    ? imovelSnap.data()    : {};
+    const cfg = configSnap.exists ? configSnap.data() : {};
+
+    const dadosCab = {
+      tenant: { nome: State.tenant.nome, cnpj: State.tenant.cnpj ? maskCNPJ(State.tenant.cnpj) : '—', creci: State.tenant.creci || '—' },
+    };
+    const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', dadosCab);
+    const rodape = mergeTemplate(cfg.balanceteRodape || '', dadosCab);
+
+    const html = buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, rodape);
+
+    _contratoHtmlCache = html;
+    $('contrato-preview-content').innerHTML = html;
+    $('modal-contrato-preview-title').textContent = `Balancete · ${fmtMesAno(b.mes, b.ano)}`;
+    $('modal-contrato-preview').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao gerar balancete:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  }
+}
+
+function buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, rodape) {
+  const tenant = State.tenant || {};
+  const mesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const periodoTxt = `${mesNomes[b.mes - 1]} de ${b.ano}`;
+
+  // Linhas por bloco
+  const rowsBloco = (bloco, mostrarComprovante = true) => {
+    const linhas = (b.lancamentos || []).filter(l => l.bloco === bloco);
+    if (linhas.length === 0) return '<tr><td colspan="' + (mostrarComprovante ? 4 : 3) + '" style="text-align:center; color:#888;">— sem lançamentos —</td></tr>';
+    return linhas.map(l => `
+      <tr>
+        <td>${escapeHtml(LANC_CATEGORIA_LABEL[l.categoria] || l.categoria || '—')}</td>
+        <td>${escapeHtml(l.descricao || '—')}</td>
+        <td class="valor">${fmtBRL(l.valor)}</td>
+        ${mostrarComprovante ? `<td>${l.comprovanteNome ? '📎' : ''}</td>` : ''}
+      </tr>
+    `).join('');
+  };
+
+  const totalRow = (label, valor, cols) => `
+    <tr class="total-row">
+      <td colspan="${cols - 1}">${label}</td>
+      <td class="valor">${fmtBRL(valor)}</td>
+    </tr>
+  `;
+
+  // Lista de anexos
+  const anexos = (b.lancamentos || []).filter(l => l.comprovanteNome);
+
+  return `
+    <div class="contrato-header">
+      <h1>BALANCETE DE LOCAÇÃO — ${escapeHtml(periodoTxt)}</h1>
+      <p class="contrato-empresa">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+      ${tenant.cnpj ? `<p class="contrato-empresa-sub">CNPJ ${escapeHtml(maskCNPJ(tenant.cnpj))}${tenant.creci ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}</p>` : ''}
+    </div>
+
+    ${cabecalho ? `<div class="contrato-conteudo">${textToHtml(cabecalho)}</div>` : ''}
+
+    <div class="balancete-info-grid">
+      <span class="lbl">Locador:</span>      <span>${escapeHtml(locador.nome || '—')} — ${locador.documento ? escapeHtml(locador.tipo === 'PJ' ? maskCNPJ(locador.documento) : maskCPF(locador.documento)) : '—'}</span>
+      <span class="lbl">Locatário:</span>    <span>${escapeHtml(locatario.nome || '—')} — ${locatario.documento ? escapeHtml(locatario.tipo === 'PJ' ? maskCNPJ(locatario.documento) : maskCPF(locatario.documento)) : '—'}</span>
+      <span class="lbl">Imóvel:</span>       <span>${escapeHtml(imovel.apelido || '—')}</span>
+      <span class="lbl">Endereço:</span>     <span>${escapeHtml(formatEnderecoCompleto(imovel.endereco))}</span>
+      <span class="lbl">Contrato:</span>     <span>${contrato.prazoMeses ? contrato.prazoMeses + ' meses' : '—'} · Início ${contrato.inicio ? fmtDataBR(contrato.inicio) : '—'} · Vencimento dia ${contrato.diaVencimento ?? '—'}</span>
+    </div>
+
+    <table class="balancete-table">
+      <caption>⬆ Entradas (recebidas pela imobiliária)</caption>
+      <thead><tr><th>Categoria</th><th>Descrição</th><th class="valor">Valor</th><th>Comp.</th></tr></thead>
+      <tbody>
+        ${rowsBloco('entrada')}
+        ${totalRow('Total entradas', b.totalEntradas || 0, 4)}
+      </tbody>
+    </table>
+
+    <table class="balancete-table">
+      <caption>⬇ Despesas do locador (descontadas do repasse)</caption>
+      <thead><tr><th>Categoria</th><th>Descrição</th><th class="valor">Valor</th><th>Comp.</th></tr></thead>
+      <tbody>
+        ${rowsBloco('despesa_locador')}
+        ${totalRow('Total despesas do locador', b.totalDespesasLocador || 0, 4)}
+      </tbody>
+    </table>
+
+    ${(b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario').length > 0 ? `
+    <table class="balancete-table">
+      <caption>⬇ Despesas do locatário (pagas pela imobiliária — informativo)</caption>
+      <thead><tr><th>Categoria</th><th>Descrição</th><th class="valor">Valor</th><th>Comp.</th></tr></thead>
+      <tbody>
+        ${rowsBloco('despesa_locatario')}
+        ${totalRow('Total despesas do locatário', b.totalDespesasLocatario || 0, 4)}
+      </tbody>
+    </table>
+    ` : ''}
+
+    <div class="balancete-resumo-print">
+      <div class="linha"><span>Total de entradas</span><strong>${fmtBRL(b.totalEntradas)}</strong></div>
+      <div class="linha"><span>(−) Despesas do locador</span><strong>${fmtBRL(b.totalDespesasLocador)}</strong></div>
+      <div class="linha"><span>(−) Taxa de administração (${b.taxaAdm}% sobre ${fmtBRL(b.aluguelBase)})</span><strong>${fmtBRL(b.taxaAdmValor)}</strong></div>
+      <div class="linha final"><span>LÍQUIDO A REPASSAR AO LOCADOR</span><strong>${fmtBRL(b.liquidoLocador)}</strong></div>
+    </div>
+
+    ${b.obs ? `<div class="contrato-conteudo"><h3>Observações</h3>${textToHtml(b.obs)}</div>` : ''}
+
+    ${anexos.length > 0 ? `
+      <div class="balancete-anexos">
+        <strong>Comprovantes anexados:</strong>
+        <ul>${anexos.map(a => `<li>${escapeHtml(LANC_CATEGORIA_LABEL[a.categoria] || a.categoria)} — ${escapeHtml(a.descricao || '—')} — ${escapeHtml(a.comprovanteNome)}</li>`).join('')}</ul>
+      </div>
+    ` : ''}
+
+    ${rodape ? `<div class="contrato-conteudo" style="margin-top:30px;">${textToHtml(rodape)}</div>` : ''}
+
+    <div class="contrato-rodape">
+      <p style="margin-top:30px;">${escapeHtml(imovel.endereco?.cidade || '—')}, ${fmtDataExtenso()}.</p>
+      <div class="contrato-assinaturas">
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(tenant.nome || 'DRG-Rently')}</strong><br>
+          <span>Imobiliária</span>
+        </div>
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(locador.nome || '—')}</strong><br>
+          <span>Locador (ciência)</span>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 async function deleteBalancete() {
@@ -3237,6 +3392,7 @@ async function gerarContratoVenda() {
 
     _contratoHtmlCache = html;
     $('contrato-preview-content').innerHTML = html;
+    $('modal-contrato-preview-title').textContent = 'Preview do contrato de compra e venda';
     $('modal-contrato-preview').style.display = 'flex';
   } catch (err) {
     console.error('Erro ao gerar contrato de venda:', err);
@@ -3929,11 +4085,15 @@ async function loadConfigImobiliaria() {
     $('cfg-watermark-default').checked = cfg.watermarkDefault !== false; // default true
     $('cfg-template-locacao').value = cfg.templateLocacao || '';
     $('cfg-template-venda').value = cfg.templateVenda || '';
+    $('cfg-balancete-cabecalho').value = cfg.balanceteCabecalho || '';
+    $('cfg-balancete-rodape').value = cfg.balanceteRodape || '';
   } catch (err) {
     console.warn('Sem config de site ainda:', err);
     $('cfg-watermark-default').checked = true;
     $('cfg-template-locacao').value = '';
     $('cfg-template-venda').value = '';
+    $('cfg-balancete-cabecalho').value = '';
+    $('cfg-balancete-rodape').value = '';
   }
 }
 
@@ -3959,6 +4119,8 @@ async function saveConfigImobiliaria() {
         watermarkDefault: $('cfg-watermark-default').checked,
         templateLocacao: $('cfg-template-locacao').value,
         templateVenda: $('cfg-template-venda').value,
+        balanceteCabecalho: $('cfg-balancete-cabecalho').value,
+        balanceteRodape: $('cfg-balancete-rodape').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
@@ -4619,6 +4781,7 @@ async function gerarContratoLocacao() {
 
     _contratoHtmlCache = html;
     $('contrato-preview-content').innerHTML = html;
+    $('modal-contrato-preview-title').textContent = 'Preview do contrato de locação';
     $('modal-contrato-preview').style.display = 'flex';
   } catch (err) {
     console.error('Erro ao gerar contrato:', err);
