@@ -2101,6 +2101,7 @@ const LANC_CATEGORIA_LABEL = {
 
 // State local do balancete em edição
 let _balanceteLancamentos = []; // { id, bloco, categoria, descricao, valor, comprovantePath, comprovanteNome }
+let _balanceteLocadorInfo = null; // cache de { nome, pix, banco } pra montar texto do Pix
 
 function balanceteId(ano, mes, contratoId) {
   return `${ano}_${String(mes).padStart(2, '0')}_${contratoId}`;
@@ -2207,12 +2208,15 @@ async function openBalanceteModal(id) {
   $('btn-delete-balancete').style.display = id ? 'inline-block' : 'none';
 
   _balanceteLancamentos = [];
+  _balanceteLocadorInfo = null;
   $('balancete-aluguel-base').value = '';
   $('balancete-taxa-adm').value = '';
   $('balancete-taxa-valor').value = '';
   $('balancete-obs').value = '';
   $('balancete-status').value = 'aberto';
   $('balancete-contrato-info').style.display = 'none';
+  $('resumo-pix').style.display = 'none';
+  $('resumo-pix-aviso').style.display = 'none';
 
   const hoje = new Date();
   if (!id) {
@@ -2249,11 +2253,85 @@ async function openBalanceteModal(id) {
   await populateBalanceteContratos(selectedContratoId);
   if (selectedContratoId) $('balancete-contrato').value = selectedContratoId;
   await refreshBalanceteContratoInfo();
+  await refreshBalancetePixInfo();
 
   renderLancamentos();
   recalcBalancete();
   aplicarStatusBalancete();
   $('modal-balancete').style.display = 'flex';
+}
+
+async function refreshBalancetePixInfo() {
+  // Busca o locador via contrato selecionado pra pegar a chave Pix
+  const contratoId = $('balancete-contrato').value;
+  const pixBox = $('resumo-pix');
+  const avisoBox = $('resumo-pix-aviso');
+  pixBox.style.display = 'none';
+  avisoBox.style.display = 'none';
+  _balanceteLocadorInfo = null;
+  if (!contratoId) return;
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) return;
+    const c = cSnap.data();
+    if (!c.locadorId) return;
+
+    const locSnap = await tenantPath().collection('locadores').doc(c.locadorId).get();
+    if (!locSnap.exists) return;
+    const loc = locSnap.data();
+
+    _balanceteLocadorInfo = {
+      nome: loc.nome || '',
+      pix: loc.pix || null,
+      banco: loc.banco || null,
+    };
+
+    if (loc.pix) {
+      $('resumo-pix-chave').textContent = loc.pix;
+      pixBox.style.display = 'flex';
+    } else {
+      avisoBox.style.display = 'block';
+    }
+  } catch (err) {
+    console.warn('Não foi possível carregar Pix do locador:', err);
+  }
+}
+
+function copiarPixLocador() {
+  if (!_balanceteLocadorInfo || !_balanceteLocadorInfo.pix) {
+    showAlert('balancete-alert', 'Locador não tem chave Pix cadastrada.');
+    return;
+  }
+
+  const liquidoText = $('resumo-liquido').textContent;
+  const mes = parseInt($('balancete-mes').value, 10);
+  const ano = parseInt($('balancete-ano').value, 10);
+  const contratoSelect = $('balancete-contrato');
+  const contratoLabel = contratoSelect.options[contratoSelect.selectedIndex]?.text || '';
+  const imovelApelido = contratoLabel.split(' · ')[0] || 'Imóvel';
+
+  const texto = [
+    `Pagamento — Balancete ${fmtMesAno(mes, ano)}`,
+    `Imóvel: ${imovelApelido}`,
+    `Locador: ${_balanceteLocadorInfo.nome}`,
+    `Valor: ${liquidoText}`,
+    `Chave Pix: ${_balanceteLocadorInfo.pix}`,
+    _balanceteLocadorInfo.banco ? `Banco/Agência/Conta: ${_balanceteLocadorInfo.banco}` : '',
+  ].filter(Boolean).join('\n');
+
+  navigator.clipboard.writeText(texto).then(() => {
+    showAlert('balancete-alert', '✓ Dados copiados! Cole no app do banco para fazer o Pix.', 'success');
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showAlert('balancete-alert', '✓ Dados copiados!', 'success');
+  });
 }
 
 function closeBalanceteModal() { $('modal-balancete').style.display = 'none'; }
@@ -2264,6 +2342,7 @@ function cryptoRandomId() {
 
 async function onBalanceteContratoChange() {
   await refreshBalanceteContratoInfo();
+  await refreshBalancetePixInfo();
 }
 
 async function refreshBalanceteContratoInfo() {

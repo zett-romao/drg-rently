@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512b">
+  <link rel="stylesheet" href="styles.css?v=20260512c">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1193,6 +1193,18 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="resumo-linha resumo-final">
             <span>💰 LÍQUIDO A REPASSAR AO LOCADOR</span>
             <strong id="resumo-liquido">R$ 0,00</strong>
+          </div>
+
+          <div class="resumo-pix" id="resumo-pix" style="display:none;">
+            <div class="resumo-pix-info">
+              <span>Chave Pix do locador</span>
+              <strong id="resumo-pix-chave">—</strong>
+            </div>
+            <button class="btn btn-pix" type="button" onclick="copiarPixLocador()">📋 Copiar dados para pagamento</button>
+          </div>
+
+          <div class="resumo-pix-aviso" id="resumo-pix-aviso" style="display:none;">
+            ⚠ Locador sem chave Pix cadastrada. Cadastre em <strong>🏠 Locadores</strong> para habilitar este atalho.
           </div>
         </div>
 
@@ -2391,6 +2403,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512b"></script>
+  <script src="app.js?v=20260512c"></script>
 </body>
 </html>

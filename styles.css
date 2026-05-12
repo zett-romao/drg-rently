@@ -1185,6 +1185,68 @@ label.required::after {
   font-size: 22px;
 }
 
+.resumo-pix {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.20);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.resumo-pix-info {
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+}
+
+.resumo-pix-info span {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.resumo-pix-info strong {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+  color: white;
+  word-break: break-all;
+}
+
+.btn-pix {
+  background: white;
+  color: var(--primary-dark);
+  font-weight: 600;
+  padding: 9px 14px;
+  font-size: 13px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.btn-pix:hover {
+  background: var(--primary-light);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.20);
+}
+
+.btn-pix:active { transform: translateY(0); }
+
+.resumo-pix-aviso {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(255,193,7,0.18);
+  border: 1px solid rgba(255,193,7,0.40);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: white;
+}
+
 @media (max-width: 720px) {
   .lanc-row {
     grid-template-columns: 1fr 1fr;
