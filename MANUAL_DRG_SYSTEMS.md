@@ -429,6 +429,8 @@ Cliente deletado = perde TUDO (locadores, contratos, balancetes, fotos).
 
 ### Tabela de preços sugerida
 
+**Pessoa Jurídica (Imobiliária):**
+
 | Pacote | Mensal | Trimestral | Anual |
 |---|---|---|---|
 | 🏠 Locação | R$ 150 | R$ 400 (R$ 133/mês) | R$ 1.500 (R$ 125/mês) |
@@ -437,7 +439,23 @@ Cliente deletado = perde TUDO (locadores, contratos, balancetes, fotos).
 | ⚙️ Customizado | A combinar | A combinar | A combinar |
 | 🏗 Self-hosted | R$ 8.000 setup + R$ 500/mês manutenção | | |
 
+**Pessoa Física (Corretor Autônomo):** ✨ NOVO
+
+| Pacote | Mensal | Trimestral | Anual |
+|---|---|---|---|
+| 👤 Corretor Completo | **R$ 79** | R$ 210 (R$ 70/mês) | R$ 800 (R$ 67/mês) |
+| 👤 Corretor + Portais | R$ 119 | R$ 320 (R$ 107/mês) | R$ 1.200 (R$ 100/mês) |
+
+> 💡 **Estratégia:** o pacote PF de R$ 79 funciona como **isca de entrada**.
+> Corretor autônomo entra barato, escala carteira e quando virar imobiliária
+> migra pro pacote PJ Completo (R$ 300). LTV potencial: R$ 7.200 em 24 meses.
+
 ### Argumentos pra fechar venda
+
+**Pra corretor autônomo (PF):** ✨
+- "Por R$ 79/mês você tem o mesmo sistema das grandes imobiliárias"
+- "Cadastra seus 5-20 imóveis, gera vitrine pública, publica no ZAP/Viva automaticamente"
+- "Sai mais barato que o Imovelweb sozinho, e você ganha gestão completa de contratos"
 
 **Pra imobiliária pequena (1-10 imóveis):**
 - "Por R$ 150 você economiza 5h/mês fazendo balancete na planilha"

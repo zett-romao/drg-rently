@@ -414,21 +414,135 @@ async function doLogin() {
 // =============================================================
 // Signup de novo tenant
 // =============================================================
+// Alterna entre PJ (imobiliária) e PF (corretor autônomo) no signup
+function setTipoPessoaSignup(tipo) {
+  $('signup-tipo-pessoa').value = tipo;
+
+  // Atualiza botões ativos
+  document.querySelectorAll('.tipo-pessoa-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tipo === tipo);
+  });
+
+  if (tipo === 'PF') {
+    $('signup-title').textContent = 'Cadastro de Corretor Autônomo';
+    $('signup-subtitle').textContent = 'Crie sua conta no DRG-Rently como pessoa física';
+    $('signup-bloco-titulo').textContent = 'Seus dados profissionais';
+    $('label-razao').textContent = 'Nome completo';
+    $('signup-razao').placeholder = 'Ex: João da Silva Santos';
+    $('label-doc').textContent = 'CPF';
+    $('signup-cnpj').placeholder = '000.000.000-00';
+    $('signup-cnpj').maxLength = 14;
+  } else {
+    $('signup-title').textContent = 'Cadastrar imobiliária';
+    $('signup-subtitle').textContent = 'Crie a conta da sua empresa no DRG-Rently';
+    $('signup-bloco-titulo').textContent = 'Dados da imobiliária';
+    $('label-razao').textContent = 'Razão social';
+    $('signup-razao').placeholder = 'Ex: Imobiliária Exemplo Ltda';
+    $('label-doc').textContent = 'CNPJ';
+    $('signup-cnpj').placeholder = '00.000.000/0000-00';
+    $('signup-cnpj').maxLength = 18;
+  }
+
+  // Limpa o campo do documento ao trocar
+  $('signup-cnpj').value = '';
+}
+
+function validaCPF(cpf) {
+  cpf = String(cpf).replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+  let soma = 0, resto;
+  for (let i = 1; i <= 9; i++) soma += parseInt(cpf.charAt(i - 1)) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf.charAt(9))) return false;
+  soma = 0;
+  for (let i = 1; i <= 10; i++) soma += parseInt(cpf.charAt(i - 1)) * (12 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  return resto === parseInt(cpf.charAt(10));
+}
+
+function validaCNPJ(cnpj) {
+  cnpj = String(cnpj).replace(/\D/g, '');
+  if (cnpj.length !== 14 || /^(\d)\1+$/.test(cnpj)) return false;
+  let tamanho = cnpj.length - 2;
+  let numeros = cnpj.substring(0, tamanho);
+  const digitos = cnpj.substring(tamanho);
+  let soma = 0, pos = tamanho - 7;
+  for (let i = tamanho; i >= 1; i--) {
+    soma += numeros.charAt(tamanho - i) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  let resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
+  if (resultado !== parseInt(digitos.charAt(0))) return false;
+  tamanho = tamanho + 1;
+  numeros = cnpj.substring(0, tamanho);
+  soma = 0; pos = tamanho - 7;
+  for (let i = tamanho; i >= 1; i--) {
+    soma += numeros.charAt(tamanho - i) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  resultado = soma % 11 < 2 ? 0 : 11 - soma % 11;
+  return resultado === parseInt(digitos.charAt(1));
+}
+
+function formataCPF(v) {
+  v = String(v).replace(/\D/g, '').slice(0, 11);
+  return v.replace(/(\d{3})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+function formataCNPJ(v) {
+  v = String(v).replace(/\D/g, '').slice(0, 14);
+  return v.replace(/(\d{2})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d)/, '$1/$2')
+          .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+}
+
 async function doSignupTenant() {
   clearAlert('signup-alert');
 
+  const tipoPessoa = $('signup-tipo-pessoa').value || 'PJ';
   const razao = $('signup-razao').value.trim();
-  const cnpj = $('signup-cnpj').value.trim();
+  const docNum = $('signup-cnpj').value.trim();
   const creci = $('signup-creci').value.trim();
   const nome = $('signup-nome').value.trim();
   const email = $('signup-email').value.trim();
   const senha = $('signup-senha').value;
   const senha2 = $('signup-senha2').value;
 
-  if (!razao || !cnpj || !nome || !email || !senha) {
+  const docLabel = tipoPessoa === 'PF' ? 'CPF' : 'CNPJ';
+  const razaoLabel = tipoPessoa === 'PF' ? 'Nome completo' : 'Razão social';
+
+  if (!razao || !docNum || !nome || !email || !senha) {
     showAlert('signup-alert', 'Preencha todos os campos obrigatórios.');
     return;
   }
+
+  // Valida CPF ou CNPJ
+  const docDigits = docNum.replace(/\D/g, '');
+  if (tipoPessoa === 'PF') {
+    if (docDigits.length !== 11) {
+      showAlert('signup-alert', 'CPF deve ter 11 dígitos.');
+      return;
+    }
+    if (!validaCPF(docDigits)) {
+      showAlert('signup-alert', 'CPF inválido. Confira os números.');
+      return;
+    }
+  } else {
+    if (docDigits.length !== 14) {
+      showAlert('signup-alert', 'CNPJ deve ter 14 dígitos.');
+      return;
+    }
+    if (!validaCNPJ(docDigits)) {
+      showAlert('signup-alert', 'CNPJ inválido. Confira os números.');
+      return;
+    }
+  }
+
   if (senha !== senha2) {
     showAlert('signup-alert', 'As senhas não coincidem.');
     return;
@@ -452,16 +566,25 @@ async function doSignupTenant() {
     const tenantRef = db.collection('tenants').doc();
     const tenantId = tenantRef.id;
 
-    const batch = db.batch();
-    batch.set(tenantRef, {
+    const docFormatado = tipoPessoa === 'PF' ? formataCPF(docDigits) : formataCNPJ(docDigits);
+
+    const tenantData = {
       nome: razao,
-      cnpj,
+      tipoPessoa,           // 'PF' ou 'PJ'
       creci: creci || null,
       plano: 'trial',
       ativo: true,
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       criadoPor: createdUid,
-    });
+    };
+    if (tipoPessoa === 'PF') {
+      tenantData.cpf = docFormatado;
+    } else {
+      tenantData.cnpj = docFormatado;
+    }
+
+    const batch = db.batch();
+    batch.set(tenantRef, tenantData);
     batch.set(db.collection('users').doc(createdUid), {
       nome,
       email,
@@ -486,6 +609,9 @@ async function doSignupTenant() {
     btn.textContent = 'Criar conta';
   }
 }
+
+// Exposição global pra onclick do botão funcionar
+window.setTipoPessoaSignup = setTipoPessoaSignup;
 
 // =============================================================
 // Logout
@@ -736,18 +862,25 @@ function renderTenantsTable() {
   const tbody = $('tbody-tenants');
   const filtroStatus = $('filtro-tenant-status').value;
   const filtroPlano = $('filtro-tenant-plano').value;
+  const filtroTipo = $('filtro-tenant-tipo')?.value || '';
   const filtroBusca = $('filtro-tenant-busca').value.trim().toLowerCase();
 
   let lista = _tenantsCarregados;
   if (filtroPlano) lista = lista.filter(t => t.plano === filtroPlano);
   if (filtroStatus) lista = lista.filter(t => tenantSituacao(t) === filtroStatus);
+  if (filtroTipo) {
+    lista = lista.filter(t => {
+      const tp = t.tipoPessoa || (t.cpf ? 'PF' : 'PJ');
+      return tp === filtroTipo;
+    });
+  }
   if (filtroBusca) lista = lista.filter(t => {
-    const txt = (t.nome || '') + ' ' + (t.cnpj || '');
+    const txt = (t.nome || '') + ' ' + (t.cnpj || '') + ' ' + (t.cpf || '');
     return txt.toLowerCase().includes(filtroBusca);
   });
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum tenant corresponde aos filtros.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum tenant corresponde aos filtros.</td></tr>`;
     return;
   }
 
@@ -764,9 +897,15 @@ function renderTenantsTable() {
     const vencTxt = t.proximoVencimento
       ? `${fmtDataBR(t.proximoVencimento)}${vencDias < 0 ? ` <span style="color:var(--danger);font-size:11px;">(${Math.abs(vencDias)}d atraso)</span>` : (vencDias <= 7 && vencDias >= 0 ? ` <span style="color:var(--warning);font-size:11px;">(em ${vencDias}d)</span>` : '')}`
       : '—';
+    const tipoPessoa = t.tipoPessoa || (t.cpf ? 'PF' : 'PJ');
+    const tipoBadge = tipoPessoa === 'PF'
+      ? '<span class="badge-status" style="background:#dbeafe;color:#1e40af;">👤 Corretor</span>'
+      : '<span class="badge-status" style="background:#fef3c7;color:#92400e;">🏢 Imobiliária</span>';
+    const documento = tipoPessoa === 'PF' ? (t.cpf || '—') : (t.cnpj || '—');
     return `
       <tr>
-        <td><strong>${t.nome || '—'}</strong><br><span class="muted" style="font-size:11px;">${t.cnpj || '—'}</span></td>
+        <td><strong>${t.nome || '—'}</strong><br><span class="muted" style="font-size:11px;">${documento}</span></td>
+        <td>${tipoBadge}</td>
         <td>${PLANO_LABEL[t.plano] || t.plano || '—'}</td>
         <td>${fmtBRL(t.valorMensalidade)}</td>
         <td>${vencTxt}</td>
@@ -790,9 +929,11 @@ async function openTenantModal(tenantId) {
     if (!tSnap.exists) { showAlert('tenant-alert', 'Tenant não encontrado.'); return; }
     const t = tSnap.data();
 
-    $('modal-tenant-title').textContent = `Gestão · ${t.nome || tenantId}`;
+    const tipoPessoa = t.tipoPessoa || (t.cpf ? 'PF' : 'PJ');
+    const tipoLabel = tipoPessoa === 'PF' ? '👤 Corretor Autônomo (PF)' : '🏢 Imobiliária (PJ)';
+    $('modal-tenant-title').textContent = `Gestão · ${t.nome || tenantId} — ${tipoLabel}`;
     $('tenant-nome').value = t.nome || '';
-    $('tenant-cnpj').value = t.cnpj || '';
+    $('tenant-cnpj').value = tipoPessoa === 'PF' ? (t.cpf || '') : (t.cnpj || '');
     $('tenant-plano').value = t.plano || 'trial';
     $('tenant-valor').value = t.valorMensalidade ?? '';
     $('tenant-proximo-venc').value = t.proximoVencimento || '';
@@ -5300,8 +5441,17 @@ function onSlugInput() {
 
 async function loadConfigImobiliaria() {
   if (!State.tenant) return;
+  const tipoPessoa = State.tenant.tipoPessoa || 'PJ';
+  // Tenants legados sem tipoPessoa: presume PJ se tem CNPJ, PF se tem CPF
+  const ehPF = tipoPessoa === 'PF' || (!State.tenant.cnpj && State.tenant.cpf);
+
+  // Ajusta labels conforme tipo
+  if ($('cfg-razao-label')) $('cfg-razao-label').textContent = ehPF ? 'Nome completo' : 'Razão social';
+  if ($('cfg-doc-label')) $('cfg-doc-label').textContent = ehPF ? 'CPF' : 'CNPJ';
+  if ($('cfg-tipo-pessoa')) $('cfg-tipo-pessoa').value = ehPF ? 'Pessoa Física' : 'Pessoa Jurídica';
+
   $('cfg-razao').value = State.tenant.nome || '';
-  $('cfg-cnpj').value = State.tenant.cnpj || '';
+  $('cfg-cnpj').value = ehPF ? (State.tenant.cpf || '') : (State.tenant.cnpj || '');
   $('cfg-creci').value = State.tenant.creci || '';
   $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
   $('cfg-email-contato').value = State.tenant.emailContato || '';
@@ -8200,6 +8350,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('signup') === '1' || urlParams.get('cadastro') === '1') {
     showScreen('screen-signup');
+  }
+  // Tipo via query (?tipo=PF ou ?tipo=PJ) — útil pra landing pages segmentadas
+  const tipoParam = urlParams.get('tipo');
+  if (tipoParam === 'PF' || tipoParam === 'PJ') {
+    setTipoPessoaSignup(tipoParam);
+  }
+
+  // Auto-formatação CPF/CNPJ no signup conforme tipo selecionado
+  const signupDoc = $('signup-cnpj');
+  if (signupDoc) {
+    signupDoc.addEventListener('input', () => {
+      const tipo = $('signup-tipo-pessoa').value || 'PJ';
+      signupDoc.value = tipo === 'PF' ? formataCPF(signupDoc.value) : formataCNPJ(signupDoc.value);
+    });
   }
 
   document.querySelectorAll('.nav-link').forEach(el => {

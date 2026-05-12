@@ -1,8 +1,8 @@
 # DRG-Rently — Prompt do Projeto
 
-**Última atualização:** 2026-05-12
-**Versão atual:** 0.2.0
-**Estado:** ✅ SaaS funcional em produção — multi-tenant + portais imobiliários (Fase 2)
+**Última atualização:** 2026-05-13
+**Versão atual:** 0.3.0
+**Estado:** ✅ SaaS funcional em produção — multi-tenant + portais + telemetria + PF/PJ
 
 > Documento serve como ponto de partida pra qualquer pessoa (ou IA) que vai
 > retomar o projeto. Cole no início de uma conversa nova ou leia antes de
@@ -77,11 +77,14 @@ Mesmo codebase atende três modos:
   - `drgPerfilId` — perfil customizado DRG (operador_drg)
   - `ativo` (bool)
 
-- **`tenants/{tenantId}`** — uma imobiliária
-  - `nome`, `cnpj`, `creci`, `slug`, `telefone`, `emailContato`
+- **`tenants/{tenantId}`** — uma imobiliária OU corretor autônomo
+  - `nome` (razão social se PJ, nome completo se PF)
+  - `tipoPessoa` (`PJ` ou `PF`) ✨ **NOVO**
+  - `cnpj` (se PJ) OU `cpf` (se PF) ✨ **NOVO** — só um dos dois preenchido
+  - `creci`, `slug`, `telefone`, `emailContato`
   - `plano` (`trial` / `basic` / `pro`), `valorMensalidade`, `proximoVencimento`
-  - `pacote` (`locacao` / `venda` / `completo` / `custom`) **← NOVO**
-  - `modulosHabilitados` (array de strings) **← NOVO**
+  - `pacote` (`locacao` / `venda` / `completo` / `custom`)
+  - `modulosHabilitados` (array de strings)
   - `logoUrl` (logo customizada do tenant)
   - `ativo` (bool)
 

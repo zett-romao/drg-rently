@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" href="logo.png?v=20260513a">
-  <link rel="stylesheet" href="styles.css?v=20260512r">
+  <link rel="stylesheet" href="styles.css?v=20260513c">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -52,23 +52,39 @@
   <div id="screen-signup" class="screen">
     <div class="auth-card">
       <img src="logo.png?v=20260513a" alt="D.R. Global" class="auth-logo">
-      <h1>Cadastrar imobiliária</h1>
-      <p class="subtitle">Crie a conta da sua empresa no DRG-Rently</p>
+      <h1 id="signup-title">Criar conta no DRG-Rently</h1>
+      <p class="subtitle" id="signup-subtitle">Cadastre sua imobiliária ou comece como corretor autônomo</p>
 
       <div id="signup-alert" class="alert alert-error" style="display:none;"></div>
 
-      <div class="card" style="background:var(--primary-light); border:none; padding:14px; margin-bottom:18px;">
-        <strong style="color:var(--primary-dark); font-size:13px;">Dados da imobiliária</strong>
+      <!-- Toggle PF/PJ -->
+      <div class="form-group">
+        <label>Tipo de conta</label>
+        <div class="tipo-pessoa-tabs">
+          <button type="button" class="tipo-pessoa-btn active" data-tipo="PJ" onclick="setTipoPessoaSignup('PJ')">
+            🏢 Imobiliária<br><small>Pessoa Jurídica</small>
+          </button>
+          <button type="button" class="tipo-pessoa-btn" data-tipo="PF" onclick="setTipoPessoaSignup('PF')">
+            👤 Corretor<br><small>Pessoa Física</small>
+          </button>
+        </div>
       </div>
 
+      <div class="card" style="background:var(--primary-light); border:none; padding:14px; margin-bottom:18px;">
+        <strong style="color:var(--primary-dark); font-size:13px;" id="signup-bloco-titulo">Dados da imobiliária</strong>
+      </div>
+
+      <input type="hidden" id="signup-tipo-pessoa" value="PJ">
+
+      <!-- Campo razão social (PJ) ou nome completo (PF) -->
       <div class="form-group">
-        <label for="signup-razao">Razão social</label>
+        <label for="signup-razao" id="label-razao">Razão social</label>
         <input type="text" id="signup-razao" placeholder="Ex: Imobiliária Exemplo Ltda">
       </div>
 
       <div class="form-row">
         <div class="form-group">
-          <label for="signup-cnpj">CNPJ</label>
+          <label for="signup-cnpj" id="label-doc">CNPJ</label>
           <input type="text" id="signup-cnpj" placeholder="00.000.000/0000-00">
         </div>
         <div class="form-group">
@@ -568,8 +584,16 @@
                 </select>
               </div>
               <div class="form-group">
+                <label>Tipo</label>
+                <select id="filtro-tenant-tipo" onchange="renderTenantsTable()">
+                  <option value="">Todos</option>
+                  <option value="PJ">🏢 Imobiliária (PJ)</option>
+                  <option value="PF">👤 Corretor (PF)</option>
+                </select>
+              </div>
+              <div class="form-group">
                 <label>Buscar</label>
-                <input type="text" id="filtro-tenant-busca" placeholder="Nome ou CNPJ" oninput="renderTenantsTable()">
+                <input type="text" id="filtro-tenant-busca" placeholder="Nome, CPF ou CNPJ" oninput="renderTenantsTable()">
               </div>
             </div>
 
@@ -577,7 +601,8 @@
               <table class="table" id="table-tenants">
                 <thead>
                   <tr>
-                    <th>Razão social</th>
+                    <th>Cliente</th>
+                    <th>Tipo</th>
                     <th>Plano</th>
                     <th>Mensalidade</th>
                     <th>Próximo venc.</th>
@@ -586,7 +611,7 @@
                   </tr>
                 </thead>
                 <tbody id="tbody-tenants">
-                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -970,17 +995,21 @@
 
             <h4 class="form-section-title">Dados cadastrais</h4>
             <div class="form-group">
-              <label>Razão social</label>
+              <label id="cfg-razao-label">Razão social</label>
               <input type="text" id="cfg-razao" disabled>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label>CNPJ</label>
+                <label id="cfg-doc-label">CNPJ</label>
                 <input type="text" id="cfg-cnpj" disabled>
               </div>
               <div class="form-group">
                 <label>CRECI</label>
                 <input type="text" id="cfg-creci" disabled>
+              </div>
+              <div class="form-group">
+                <label>Tipo de pessoa</label>
+                <input type="text" id="cfg-tipo-pessoa" disabled value="Pessoa Jurídica">
               </div>
             </div>
 
@@ -1755,7 +1784,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <input type="text" id="tenant-nome" disabled>
           </div>
           <div class="form-group">
-            <label>CNPJ</label>
+            <label>CPF / CNPJ</label>
             <input type="text" id="tenant-cnpj" disabled>
           </div>
           <div class="form-group">
@@ -3372,6 +3401,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513b"></script>
+  <script src="app.js?v=20260513c"></script>
 </body>
 </html>

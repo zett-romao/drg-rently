@@ -1,8 +1,12 @@
-# 📘 Manual da Imobiliária — DRG-Rently
+# 📘 Manual de Operação — DRG-Rently
 
-**Versão:** 1.0
-**Atualizado em:** 2026-05-12
-**Para quem:** Administradores e operadores de imobiliárias clientes da D.R. Global
+**Versão:** 1.1
+**Atualizado em:** 2026-05-13
+**Para quem:** Imobiliárias (PJ) e Corretores Autônomos (PF) clientes da D.R. Global
+
+> 💡 O DRG-Rently atende **tanto Pessoa Jurídica** (imobiliárias) **quanto
+> Pessoa Física** (corretores autônomos com CRECI). Os fluxos são os mesmos —
+> apenas o cadastro inicial muda.
 
 ---
 
@@ -41,18 +45,41 @@ recebe um **e-mail** com:
 **Importante:** troque a senha no primeiro acesso pelo botão "Esqueci minha senha"
 da tela de login.
 
-### Você criou a conta da imobiliária
+### Você criou a conta
 
-1. Acesse `https://zett-romao.github.io/drg-rently/`
-2. Clique em **"Criar conta"** (link no rodapé do login)
-3. Preencha os dados da imobiliária:
+1. Acesse `https://zett-romao.github.io/drg-rently/?signup=1` (link direto)
+2. **Escolha o tipo de conta:**
+   - 🏢 **Imobiliária** (Pessoa Jurídica) — com CNPJ
+   - 👤 **Corretor** (Pessoa Física) — com CPF
+3. Preencha os dados conforme o tipo:
+
+   **Se for PJ (Imobiliária):**
    - Razão social
-   - CNPJ (autopreenche os dados pela Receita Federal)
-   - CRECI
-   - Seus dados (nome, e-mail, senha)
-4. Clique em **"Criar conta"**
+   - CNPJ (autopreenche pela Receita Federal via BrasilAPI)
+   - CRECI (opcional)
 
-🎉 Pronto! Sua imobiliária está cadastrada com plano **Trial** (gratuito por 14 dias).
+   **Se for PF (Corretor autônomo):**
+   - Nome completo
+   - CPF
+   - CRECI (opcional — recomendado)
+
+4. Preencha seus dados de administrador:
+   - Nome
+   - E-mail (será seu login)
+   - Senha (mín 6 caracteres)
+5. Clique em **"Criar conta"**
+
+🎉 Pronto! Sua conta está cadastrada com plano **Trial** (gratuito por 14 dias).
+
+### 💼 Tabela de planos
+
+| Perfil | Pacote | Mensalidade |
+|---|---|---|
+| 👤 Corretor PF (autônomo) | Completo | R$ 79/mês |
+| 🏢 Imobiliária PJ pequena | Locação OU Venda | R$ 150/mês |
+| 🏢 Imobiliária PJ média | Locação OU Venda | R$ 200/mês |
+| 🏢 Imobiliária PJ grande | Completo | R$ 300/mês |
+| 🏗 Construtora | Venda + Portais | R$ 500/mês |
 
 ---
 
