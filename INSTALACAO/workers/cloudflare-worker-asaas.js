@@ -46,6 +46,19 @@ function asaasBase(env) {
     : 'https://api.asaas.com/v3';
 }
 
+// Helper que faz fetch pro Asaas com headers obrigatórios
+// (Asaas exige User-Agent em todas as requisições)
+async function asaasFetch(url, env, method = 'GET', body = null) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'User-Agent': 'DRG-Rently/1.0 (Cloudflare-Worker)',
+    'access_token': env.ASAAS_API_KEY,
+  };
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(url, opts);
+}
+
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
@@ -150,23 +163,14 @@ async function criarCustomer(request, env, origin) {
   };
   Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
 
-  const res = await fetch(`${asaasBase(env)}/customers`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'access_token': env.ASAAS_API_KEY,
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/customers`, env, 'POST', body);
   const data = await res.json();
   if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
   return jsonResponse({ success: true, customer: data }, 200, origin);
 }
 
 async function buscarCustomer(customerId, env, origin) {
-  const res = await fetch(`${asaasBase(env)}/customers/${customerId}`, {
-    headers: { 'access_token': env.ASAAS_API_KEY },
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/customers/${customerId}`, env);
   const data = await res.json();
   if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description, details: data }, res.status, origin);
   return jsonResponse({ success: true, customer: data }, 200, origin);
@@ -199,33 +203,21 @@ async function criarSubscription(request, env, origin) {
   };
   Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
 
-  const res = await fetch(`${asaasBase(env)}/subscriptions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'access_token': env.ASAAS_API_KEY,
-    },
-    body: JSON.stringify(body),
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/subscriptions`, env, 'POST', body);
   const data = await res.json();
   if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
   return jsonResponse({ success: true, subscription: data }, 200, origin);
 }
 
 async function buscarSubscription(subId, env, origin) {
-  const res = await fetch(`${asaasBase(env)}/subscriptions/${subId}`, {
-    headers: { 'access_token': env.ASAAS_API_KEY },
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/subscriptions/${subId}`, env);
   const data = await res.json();
   if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description, details: data }, res.status, origin);
   return jsonResponse({ success: true, subscription: data }, 200, origin);
 }
 
 async function cancelarSubscription(subId, env, origin) {
-  const res = await fetch(`${asaasBase(env)}/subscriptions/${subId}`, {
-    method: 'DELETE',
-    headers: { 'access_token': env.ASAAS_API_KEY },
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/subscriptions/${subId}`, env, 'DELETE');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
@@ -238,9 +230,7 @@ async function cancelarSubscription(subId, env, origin) {
 // =============================================================
 
 async function listarPagamentos(subId, env, origin) {
-  const res = await fetch(`${asaasBase(env)}/payments?subscription=${subId}&limit=100`, {
-    headers: { 'access_token': env.ASAAS_API_KEY },
-  });
+  const res = await asaasFetch(`${asaasBase(env)}/payments?subscription=${subId}&limit=100`, env);
   const data = await res.json();
   if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description, details: data }, res.status, origin);
   return jsonResponse({ success: true, payments: data.data || [], total: data.totalCount || 0 }, 200, origin);
