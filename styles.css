@@ -1247,6 +1247,61 @@ label.required::after {
   color: white;
 }
 
+/* ----- Alertas (cards agrupados por severidade) ----- */
+.alerta-grupo {
+  margin-bottom: 22px;
+}
+
+.alerta-grupo-titulo {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--border);
+}
+
+.alerta-grupo-critico .alerta-grupo-titulo { color: var(--danger); border-bottom-color: var(--danger); }
+.alerta-grupo-atencao .alerta-grupo-titulo { color: var(--warning); border-bottom-color: var(--warning); }
+.alerta-grupo-info .alerta-grupo-titulo { color: var(--primary); border-bottom-color: var(--primary); }
+
+.alerta-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.alerta-card:hover {
+  transform: translateX(2px);
+  box-shadow: var(--shadow);
+}
+
+.alerta-card.critico { border-left-color: var(--danger); }
+.alerta-card.atencao { border-left-color: var(--warning); }
+.alerta-card.info    { border-left-color: var(--primary); }
+
+.alerta-icone { font-size: 20px; flex-shrink: 0; width: 28px; text-align: center; }
+.alerta-conteudo { flex: 1; min-width: 0; }
+.alerta-titulo { font-weight: 600; color: var(--text); font-size: 14px; }
+.alerta-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.alerta-vazio {
+  padding: 30px;
+  text-align: center;
+  color: var(--text-light);
+  font-style: italic;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+}
+
 @media (max-width: 720px) {
   .lanc-row {
     grid-template-columns: 1fr 1fr;

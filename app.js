@@ -428,6 +428,13 @@ function showSection(name) {
   if (name === 'dashboard' && State.tenant) {
     loadDashboard();
   }
+  if (name === 'alertas' && State.tenant) {
+    loadAlertas();
+  }
+  if (name === 'relatorios' && State.tenant) {
+    initRelatorioFiltros();
+    loadRelatorio();
+  }
   if (name === 'superadmin' && State.isSuperAdmin) {
     loadTenantsTable();
   }
@@ -5651,6 +5658,389 @@ function copyContratoTexto() {
     document.body.removeChild(ta);
     showAlert('contrato-alert', 'Texto do contrato copiado!', 'success');
   });
+}
+
+// =============================================================
+// ALERTAS — pendências e situações que exigem atenção
+// =============================================================
+
+function diasEntre(d1, d2) {
+  return Math.floor((d2.getTime() - d1.getTime()) / 86400000);
+}
+
+async function loadAlertas() {
+  const container = $('alertas-container');
+  if (!container || !State.tenant) return;
+  container.innerHTML = '<p class="muted">Carregando alertas…</p>';
+
+  try {
+    const hoje = new Date();
+    const mesAtual = hoje.getMonth() + 1;
+    const anoAtual = hoje.getFullYear();
+
+    const [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, fotosByImovel] = await Promise.all([
+      tenantPath().collection('contratos').get(),
+      tenantPath().collection('locatarios').get(),
+      tenantPath().collection('imoveis').get(),
+      tenantPath().collection('negociacoes').get(),
+      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
+      // contagem de fotos por imóvel publicado
+      (async () => {
+        const imSnap = await tenantPath().collection('imoveis').where('linkPublico', '==', true).get();
+        const result = {};
+        for (const d of imSnap.docs) {
+          try {
+            const fSnap = await tenantPath().collection('imoveis').doc(d.id).collection('fotos').limit(1).get();
+            result[d.id] = !fSnap.empty;
+          } catch (_) { result[d.id] = false; }
+        }
+        return result;
+      })(),
+    ]);
+
+    const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido]));
+
+    // CRÍTICOS
+    const criticos = [];
+
+    // Contratos vencendo em <= 30 dias
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.fim) return;
+      const fimDt = new Date(c.fim + 'T00:00:00');
+      const dias = diasEntre(hoje, fimDt);
+      if (dias < 0) {
+        criticos.push({ icone: '⏰', titulo: `Contrato VENCIDO há ${Math.abs(dias)} dias`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos', id: d.id });
+      } else if (dias <= 30) {
+        criticos.push({ icone: '⏳', titulo: `Contrato vence em ${dias} dias`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos', id: d.id });
+      }
+    });
+
+    // ATENÇÃO
+    const atencao = [];
+
+    // Contratos vencendo em 31-90 dias
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.fim) return;
+      const fimDt = new Date(c.fim + 'T00:00:00');
+      const dias = diasEntre(hoje, fimDt);
+      if (dias > 30 && dias <= 90) {
+        atencao.push({ icone: '📅', titulo: `Contrato vence em ${dias} dias`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos', id: d.id });
+      }
+    });
+
+    // Locatários pendentes
+    locatariosSnap.docs.forEach(d => {
+      const l = d.data();
+      if (l.status !== 'pendente_analise') return;
+      const criado = l.criadoEm?.toDate ? l.criadoEm.toDate() : null;
+      const dias = criado ? diasEntre(criado, hoje) : 0;
+      if (dias >= 5) {
+        atencao.push({ icone: '⏳', titulo: `Locatário pendente de análise há ${dias} dias`, sub: l.nome || '—', secao: 'locatarios', id: d.id });
+      }
+    });
+
+    // Negociações em aberto há mais de 15 dias
+    negociacoesSnap.docs.forEach(d => {
+      const n = d.data();
+      if (n.status !== 'em_negociacao' && n.status !== 'aceita') return;
+      const criado = n.criadoEm?.toDate ? n.criadoEm.toDate() : null;
+      const dias = criado ? diasEntre(criado, hoje) : 0;
+      if (dias >= 15) {
+        atencao.push({ icone: '🤝', titulo: `Negociação aberta há ${dias} dias`, sub: imovelMap[n.imovelId] || '—', secao: 'negociacoes', id: d.id });
+      }
+    });
+
+    // INFORMATIVO
+    const info = [];
+
+    // Imóveis publicados sem fotos
+    Object.entries(fotosByImovel).forEach(([imId, temFoto]) => {
+      if (!temFoto) {
+        info.push({ icone: '📷', titulo: 'Imóvel publicado sem fotos', sub: imovelMap[imId] || '—', secao: 'imoveis', id: imId });
+      }
+    });
+
+    // Contratos vigentes sem balancete no mês corrente
+    const balancetesPorContrato = new Set(balancetesMesSnap.docs.map(d => d.data().contratoId));
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente') return;
+      if (!balancetesPorContrato.has(d.id)) {
+        info.push({ icone: '💰', titulo: 'Sem balancete deste mês', sub: imovelMap[c.imovelId] || '—', secao: 'balancetes', id: null });
+      }
+    });
+
+    // Render
+    container.innerHTML = renderGrupoAlertas('Críticos', 'critico', criticos)
+      + renderGrupoAlertas('Atenção', 'atencao', atencao)
+      + renderGrupoAlertas('Informativo', 'info', info);
+
+  } catch (err) {
+    console.error('Erro ao carregar alertas:', err);
+    container.innerHTML = `<p style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+function renderGrupoAlertas(titulo, tipo, lista) {
+  if (lista.length === 0) {
+    return `<div class="alerta-grupo alerta-grupo-${tipo}">
+      <div class="alerta-grupo-titulo">${titulo} (0)</div>
+      <div class="alerta-vazio">Nenhum alerta nesta categoria.</div>
+    </div>`;
+  }
+  return `<div class="alerta-grupo alerta-grupo-${tipo}">
+    <div class="alerta-grupo-titulo">${titulo} (${lista.length})</div>
+    ${lista.map(a => `
+      <div class="alerta-card ${tipo}" onclick="showSection('${a.secao}')">
+        <span class="alerta-icone">${a.icone}</span>
+        <div class="alerta-conteudo">
+          <div class="alerta-titulo">${a.titulo}</div>
+          <div class="alerta-sub">${a.sub}</div>
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
+}
+
+// =============================================================
+// RELATÓRIOS — análises e exportações CSV
+// =============================================================
+
+let _relatorioDados = null; // pra export CSV
+
+function initRelatorioFiltros() {
+  const hoje = new Date();
+  if (!$('relatorio-mes').value) $('relatorio-mes').value = hoje.getMonth() + 1;
+  if (!$('relatorio-ano').value) $('relatorio-ano').value = hoje.getFullYear();
+}
+
+async function loadRelatorio() {
+  const tipo = $('relatorio-tipo').value;
+  const thead = $('thead-relatorio');
+  const tbody = $('tbody-relatorio');
+  const resumo = $('relatorio-resumo');
+  resumo.style.display = 'none';
+  thead.innerHTML = ''; tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+
+  // Mostra/esconde filtro de imóvel só pra histórico
+  $('relatorio-imovel-grupo').style.display = (tipo === 'historico_imovel') ? 'block' : 'none';
+  if (tipo === 'historico_imovel') {
+    await populateRelatorioImovel();
+  }
+
+  try {
+    if (tipo === 'faturamento') await relatorioFaturamento();
+    else if (tipo === 'receita_imobiliaria') await relatorioReceitaImobiliaria();
+    else if (tipo === 'balancetes_pendentes') await relatorioBalancetesPendentes();
+    else if (tipo === 'contratos_vigentes') await relatorioContratosVigentes();
+    else if (tipo === 'locatarios_status') await relatorioLocatariosStatus();
+    else if (tipo === 'imoveis_status') await relatorioImoveisStatus();
+    else if (tipo === 'historico_imovel') await relatorioHistoricoImovel();
+  } catch (err) {
+    console.error('Erro no relatório:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function populateRelatorioImovel() {
+  const sel = $('relatorio-imovel');
+  if (sel.options.length > 0) return;
+  const imoveis = await ensureImoveisCache();
+  sel.innerHTML = '<option value="">— Selecione —</option>' +
+    imoveis.map(i => `<option value="${i.id}">${i.apelido}</option>`).join('');
+}
+
+async function relatorioFaturamento() {
+  const mes = parseInt($('relatorio-mes').value, 10);
+  const ano = parseInt($('relatorio-ano').value, 10);
+  const [snap, imoveis, locadores] = await Promise.all([
+    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    ensureImoveisCache(),
+    ensureLocadoresCache(),
+  ]);
+  const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+  const locMap = Object.fromEntries(locadores.map(l => [l.id, l.nome]));
+
+  const linhas = snap.docs.map(d => {
+    const b = d.data();
+    return {
+      imovel: imMap[b.imovelId] || '—',
+      locador: locMap[b.locadorId] || '—',
+      aluguel: b.aluguelBase || 0,
+      entradas: b.totalEntradas || 0,
+      despesas: b.totalDespesasLocador || 0,
+      taxaAdm: b.taxaAdmValor || 0,
+      liquido: b.liquidoLocador || 0,
+      status: BALANCETE_STATUS_LABEL[b.status] || b.status,
+    };
+  });
+  const totalLiquido = linhas.reduce((acc, l) => acc + l.liquido, 0);
+  const totalTaxa = linhas.reduce((acc, l) => acc + l.taxaAdm, 0);
+
+  $('thead-relatorio').innerHTML = `<tr>
+    <th>Imóvel</th><th>Locador</th><th class="valor">Aluguel</th>
+    <th class="valor">Entradas</th><th class="valor">Despesas</th>
+    <th class="valor">Taxa Adm</th><th class="valor">Líquido</th><th>Status</th>
+  </tr>`;
+  $('tbody-relatorio').innerHTML = linhas.length === 0
+    ? '<tr><td colspan="8" class="empty">Sem balancetes neste período.</td></tr>'
+    : linhas.map(l => `<tr>
+        <td>${l.imovel}</td><td>${l.locador}</td>
+        <td class="valor">${fmtBRL(l.aluguel)}</td>
+        <td class="valor">${fmtBRL(l.entradas)}</td>
+        <td class="valor">${fmtBRL(l.despesas)}</td>
+        <td class="valor">${fmtBRL(l.taxaAdm)}</td>
+        <td class="valor"><strong>${fmtBRL(l.liquido)}</strong></td>
+        <td>${l.status}</td>
+      </tr>`).join('');
+
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `
+    <div class="linha"><span>Total repassado aos locadores</span><strong>${fmtBRL(totalLiquido)}</strong></div>
+    <div class="linha"><span>Total de taxa de administração</span><strong>${fmtBRL(totalTaxa)}</strong></div>
+    <div class="linha final"><span>${linhas.length} balancete(s) no período</span><strong>${fmtBRL(totalLiquido + totalTaxa)} movimentado</strong></div>
+  `;
+
+  _relatorioDados = { titulo: `Faturamento ${fmtMesAno(mes, ano)}`, cabecalho: ['Imóvel','Locador','Aluguel','Entradas','Despesas','Taxa Adm','Líquido','Status'], linhas: linhas.map(l => [l.imovel, l.locador, l.aluguel, l.entradas, l.despesas, l.taxaAdm, l.liquido, l.status]) };
+}
+
+async function relatorioReceitaImobiliaria() {
+  const mes = parseInt($('relatorio-mes').value, 10);
+  const ano = parseInt($('relatorio-ano').value, 10);
+  const [snap, imoveis] = await Promise.all([
+    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    ensureImoveisCache(),
+  ]);
+  const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+  const linhas = snap.docs.map(d => {
+    const b = d.data();
+    return { imovel: imMap[b.imovelId] || '—', aluguel: b.aluguelBase || 0, taxaPercent: b.taxaAdm || 0, taxaValor: b.taxaAdmValor || 0 };
+  });
+  const total = linhas.reduce((acc, l) => acc + l.taxaValor, 0);
+  $('thead-relatorio').innerHTML = '<tr><th>Imóvel</th><th class="valor">Aluguel base</th><th class="valor">Taxa %</th><th class="valor">Receita imobiliária</th></tr>';
+  $('tbody-relatorio').innerHTML = linhas.length === 0
+    ? '<tr><td colspan="4" class="empty">Sem balancetes neste período.</td></tr>'
+    : linhas.map(l => `<tr><td>${l.imovel}</td><td class="valor">${fmtBRL(l.aluguel)}</td><td class="valor">${l.taxaPercent}%</td><td class="valor"><strong>${fmtBRL(l.taxaValor)}</strong></td></tr>`).join('');
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `<div class="linha final"><span>Receita total da imobiliária no período</span><strong>${fmtBRL(total)}</strong></div>`;
+  _relatorioDados = { titulo: `Receita Imobiliaria ${fmtMesAno(mes, ano)}`, cabecalho: ['Imóvel','Aluguel base','Taxa %','Receita'], linhas: linhas.map(l => [l.imovel, l.aluguel, l.taxaPercent, l.taxaValor]) };
+}
+
+async function relatorioBalancetesPendentes() {
+  const mes = parseInt($('relatorio-mes').value, 10);
+  const ano = parseInt($('relatorio-ano').value, 10);
+  const [snap, imoveis] = await Promise.all([
+    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    ensureImoveisCache(),
+  ]);
+  const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+  const linhas = snap.docs.filter(d => d.data().status !== 'enviado').map(d => {
+    const b = d.data();
+    return { imovel: imMap[b.imovelId] || '—', status: BALANCETE_STATUS_LABEL[b.status] || b.status, liquido: b.liquidoLocador || 0 };
+  });
+  $('thead-relatorio').innerHTML = '<tr><th>Imóvel</th><th>Status</th><th class="valor">Líquido</th></tr>';
+  $('tbody-relatorio').innerHTML = linhas.length === 0
+    ? '<tr><td colspan="3" class="empty">Todos os balancetes foram enviados. 🎉</td></tr>'
+    : linhas.map(l => `<tr><td>${l.imovel}</td><td>${l.status}</td><td class="valor">${fmtBRL(l.liquido)}</td></tr>`).join('');
+  _relatorioDados = { titulo: `Balancetes Pendentes ${fmtMesAno(mes, ano)}`, cabecalho: ['Imóvel','Status','Líquido'], linhas: linhas.map(l => [l.imovel, l.status, l.liquido]) };
+}
+
+async function relatorioContratosVigentes() {
+  const [snap, imoveis, locatarios] = await Promise.all([
+    tenantPath().collection('contratos').where('status', '==', 'vigente').get(),
+    ensureImoveisCache(),
+    ensureLocatariosCache(),
+  ]);
+  const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+  const locMap = Object.fromEntries(locatarios.map(l => [l.id, l.nome]));
+  const linhas = snap.docs.map(d => {
+    const c = d.data();
+    return {
+      imovel: imMap[c.imovelId] || '—',
+      locatario: locMap[c.locatarioId] || '—',
+      inicio: c.inicio ? fmtDataBR(c.inicio) : '—',
+      fim: c.fim ? fmtDataBR(c.fim) : '—',
+      aluguel: c.aluguel || 0,
+    };
+  });
+  const totalAluguel = linhas.reduce((acc, l) => acc + l.aluguel, 0);
+  $('thead-relatorio').innerHTML = '<tr><th>Imóvel</th><th>Locatário</th><th>Início</th><th>Fim</th><th class="valor">Aluguel</th></tr>';
+  $('tbody-relatorio').innerHTML = linhas.length === 0
+    ? '<tr><td colspan="5" class="empty">Nenhum contrato vigente.</td></tr>'
+    : linhas.map(l => `<tr><td>${l.imovel}</td><td>${l.locatario}</td><td>${l.inicio}</td><td>${l.fim}</td><td class="valor">${fmtBRL(l.aluguel)}</td></tr>`).join('');
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `<div class="linha final"><span>${linhas.length} contrato(s) vigentes · Faturamento mensal total</span><strong>${fmtBRL(totalAluguel)}</strong></div>`;
+  _relatorioDados = { titulo: 'Contratos Vigentes', cabecalho: ['Imóvel','Locatário','Início','Fim','Aluguel'], linhas: linhas.map(l => [l.imovel, l.locatario, l.inicio, l.fim, l.aluguel]) };
+}
+
+async function relatorioLocatariosStatus() {
+  const snap = await tenantPath().collection('locatarios').get();
+  const grupos = { aprovado: 0, reprovado: 0, pendente_analise: 0 };
+  const linhas = snap.docs.map(d => { const l = d.data(); grupos[l.status] = (grupos[l.status] || 0) + 1; return l; });
+  $('thead-relatorio').innerHTML = '<tr><th>Status</th><th class="valor">Quantidade</th></tr>';
+  $('tbody-relatorio').innerHTML = Object.entries(grupos).map(([s, q]) => `<tr><td>${LOCATARIO_STATUS_LABEL[s] || s}</td><td class="valor">${q}</td></tr>`).join('');
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `<div class="linha final"><span>Total de locatários cadastrados</span><strong>${linhas.length}</strong></div>`;
+  _relatorioDados = { titulo: 'Locatários por Status', cabecalho: ['Status','Quantidade'], linhas: Object.entries(grupos).map(([s, q]) => [LOCATARIO_STATUS_LABEL[s] || s, q]) };
+}
+
+async function relatorioImoveisStatus() {
+  const snap = await tenantPath().collection('imoveis').get();
+  const grupos = {};
+  snap.docs.forEach(d => { const s = d.data().status || 'disponivel'; grupos[s] = (grupos[s] || 0) + 1; });
+  $('thead-relatorio').innerHTML = '<tr><th>Status</th><th class="valor">Quantidade</th></tr>';
+  $('tbody-relatorio').innerHTML = Object.entries(grupos).map(([s, q]) => `<tr><td>${IMOVEL_STATUS_LABEL[s] || s}</td><td class="valor">${q}</td></tr>`).join('');
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `<div class="linha final"><span>Total de imóveis</span><strong>${snap.size}</strong></div>`;
+  _relatorioDados = { titulo: 'Imóveis por Status', cabecalho: ['Status','Quantidade'], linhas: Object.entries(grupos).map(([s, q]) => [IMOVEL_STATUS_LABEL[s] || s, q]) };
+}
+
+async function relatorioHistoricoImovel() {
+  const imovelId = $('relatorio-imovel').value;
+  const thead = $('thead-relatorio');
+  const tbody = $('tbody-relatorio');
+  if (!imovelId) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Selecione um imóvel.</td></tr>';
+    return;
+  }
+  const snap = await tenantPath().collection('balancetes').where('imovelId', '==', imovelId).get();
+  const linhas = snap.docs.map(d => d.data()).sort((a, b) => (b.ano - a.ano) || (b.mes - a.mes));
+  const totalLiquido = linhas.reduce((acc, b) => acc + (b.liquidoLocador || 0), 0);
+  thead.innerHTML = '<tr><th>Mês/Ano</th><th class="valor">Aluguel</th><th class="valor">Despesas</th><th class="valor">Líquido</th><th>Status</th></tr>';
+  tbody.innerHTML = linhas.length === 0
+    ? '<tr><td colspan="5" class="empty">Sem histórico para este imóvel.</td></tr>'
+    : linhas.map(b => `<tr>
+        <td>${fmtMesAno(b.mes, b.ano)}</td>
+        <td class="valor">${fmtBRL(b.aluguelBase)}</td>
+        <td class="valor">${fmtBRL(b.totalDespesasLocador)}</td>
+        <td class="valor"><strong>${fmtBRL(b.liquidoLocador)}</strong></td>
+        <td>${BALANCETE_STATUS_LABEL[b.status] || b.status}</td>
+      </tr>`).join('');
+  $('relatorio-resumo').style.display = 'block';
+  $('relatorio-resumo').innerHTML = `<div class="linha final"><span>${linhas.length} balancete(s) · Total repassado historicamente</span><strong>${fmtBRL(totalLiquido)}</strong></div>`;
+  _relatorioDados = { titulo: 'Histórico de Imóvel', cabecalho: ['Mês/Ano','Aluguel','Despesas','Líquido','Status'], linhas: linhas.map(b => [fmtMesAno(b.mes, b.ano), b.aluguelBase, b.totalDespesasLocador, b.liquidoLocador, BALANCETE_STATUS_LABEL[b.status] || b.status]) };
+}
+
+function exportarRelatorioCsv() {
+  if (!_relatorioDados) { alert('Nenhum relatório carregado.'); return; }
+  const { titulo, cabecalho, linhas } = _relatorioDados;
+  const escape = v => {
+    if (v == null) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const csv = [cabecalho.join(','), ...linhas.map(l => l.map(escape).join(','))].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${titulo.replace(/[^a-zA-Z0-9_-]+/g, '_')}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 // =============================================================

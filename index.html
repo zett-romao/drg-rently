@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512g">
+  <link rel="stylesheet" href="styles.css?v=20260512h">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -129,6 +129,8 @@
         <div class="nav-group">
           <div class="nav-group-title">Visão Geral</div>
           <a class="nav-link active" data-section="dashboard"><span class="nav-ico">📊</span><span>Dashboard</span></a>
+          <a class="nav-link" data-section="alertas"><span class="nav-ico">🔔</span><span>Alertas</span></a>
+          <a class="nav-link" data-section="relatorios"><span class="nav-ico">📈</span><span>Relatórios</span></a>
         </div>
 
         <div class="nav-group">
@@ -542,6 +544,82 @@
                 <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-light);">Carregando…</td></tr>
               </tbody>
             </table>
+          </div>
+        </section>
+
+        <!-- Alertas -->
+        <section class="section" id="section-alertas" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Alertas</h3>
+                <p class="muted">Pendências e situações que merecem atenção.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAlertas()">🔄 Recarregar</button>
+            </div>
+            <div id="alertas-container"></div>
+          </div>
+        </section>
+
+        <!-- Relatórios -->
+        <section class="section" id="section-relatorios" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Relatórios</h3>
+                <p class="muted">Análises e exportações dos dados.</p>
+              </div>
+            </div>
+
+            <div class="form-row" style="max-width:900px;">
+              <div class="form-group">
+                <label>Relatório</label>
+                <select id="relatorio-tipo" onchange="loadRelatorio()">
+                  <option value="faturamento">💰 Faturamento mensal (líquidos repassados)</option>
+                  <option value="receita_imobiliaria">🧾 Receita da imobiliária (taxa de adm)</option>
+                  <option value="balancetes_pendentes">⏳ Balancetes pendentes (não enviados)</option>
+                  <option value="contratos_vigentes">📝 Contratos vigentes</option>
+                  <option value="locatarios_status">👤 Locatários por status</option>
+                  <option value="imoveis_status">🏢 Imóveis por status</option>
+                  <option value="historico_imovel">📜 Histórico por imóvel</option>
+                </select>
+              </div>
+              <div class="form-group" id="relatorio-periodo-grupo">
+                <label>Mês</label>
+                <select id="relatorio-mes" onchange="loadRelatorio()">
+                  <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                  <option value="3">Março</option><option value="4">Abril</option>
+                  <option value="5">Maio</option><option value="6">Junho</option>
+                  <option value="7">Julho</option><option value="8">Agosto</option>
+                  <option value="9">Setembro</option><option value="10">Outubro</option>
+                  <option value="11">Novembro</option><option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group" id="relatorio-ano-grupo">
+                <label>Ano</label>
+                <input type="number" id="relatorio-ano" min="2020" max="2099" onchange="loadRelatorio()">
+              </div>
+              <div class="form-group" id="relatorio-imovel-grupo" style="display:none;">
+                <label>Imóvel</label>
+                <select id="relatorio-imovel" onchange="loadRelatorio()"></select>
+              </div>
+            </div>
+
+            <div id="relatorio-resumo" class="balancete-resumo-print" style="margin: 20px 0; display:none;"></div>
+
+            <div class="table-wrap">
+              <table class="table" id="tabela-relatorio">
+                <thead id="thead-relatorio"></thead>
+                <tbody id="tbody-relatorio">
+                  <tr><td colspan="6" class="empty">Selecione um relatório acima.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="margin-top:14px; display:flex; gap:8px; justify-content:flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="exportarRelatorioCsv()">📥 Exportar CSV</button>
+              <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Imprimir</button>
+            </div>
           </div>
         </section>
 
@@ -2652,6 +2730,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512g"></script>
+  <script src="app.js?v=20260512h"></script>
 </body>
 </html>
