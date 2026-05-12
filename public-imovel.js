@@ -111,6 +111,13 @@ function renderImovel(im, tenant, fotos) {
   $$('footer-empresa').textContent = tenant.nome || 'DRG-Rently';
   $$('ano-rodape').textContent = new Date().getFullYear();
 
+  // Logo customizada do tenant
+  if (tenant.logoUrl) {
+    document.querySelectorAll('.public-logo, .error-logo').forEach(img => { img.src = tenant.logoUrl; });
+    const fav = document.querySelector('link[rel="icon"]');
+    if (fav) fav.href = tenant.logoUrl;
+  }
+
   // Hero
   const finalidadeLabel = finalidade === 'venda' ? 'Venda' :
                           finalidade === 'ambos' ? 'Locação e venda' : 'Locação';

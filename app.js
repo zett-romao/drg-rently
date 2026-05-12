@@ -15,7 +15,35 @@ const State = {
   isSuperAdmin: false,
   currentSection: 'dashboard',
   signingUp: false,    // bloqueia onAuthStateChanged durante criação do tenant
+  userModulos: null,   // array de módulos permitidos (se perfil customizado)
+  tenantOriginal: null, // backup do tenant quando super-admin atua como outro
 };
+
+// Lista de módulos disponíveis pra perfis customizados
+const MODULOS_DISPONIVEIS = [
+  { id: 'dashboard',     label: 'Dashboard',     grupo: 'Visão Geral' },
+  { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral' },
+  { id: 'relatorios',    label: 'Relatórios',    grupo: 'Visão Geral' },
+  { id: 'locadores',     label: 'Locadores',     grupo: 'Cadastros' },
+  { id: 'locatarios',    label: 'Locatários',    grupo: 'Cadastros' },
+  { id: 'compradores',   label: 'Compradores',   grupo: 'Cadastros' },
+  { id: 'garantias',     label: 'Garantias',     grupo: 'Cadastros' },
+  { id: 'imoveis',       label: 'Imóveis',       grupo: 'Cadastros' },
+  { id: 'contratos',     label: 'Contratos',     grupo: 'Operação' },
+  { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
+  { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
+  { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação' },
+  { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração' },
+  { id: 'importacao',    label: 'Importação CSV', grupo: 'Administração' },
+  { id: 'configuracoes', label: 'Configurações', grupo: 'Administração' },
+];
+
+// Default de operadores (sem perfil customizado)
+const OPERADOR_DEFAULT_MODULOS = [
+  'dashboard','alertas','relatorios',
+  'locadores','locatarios','compradores','garantias','imoveis',
+  'contratos','negociacoes','balancetes','vitrine'
+];
 
 // =============================================================
 // Helpers UI
@@ -226,6 +254,17 @@ async function loadProfileAndShow(user) {
         showAlert('login-alert', 'Esta conta está suspensa. Contate o suporte.');
         return;
       }
+
+      // Se o usuário tem perfil customizado, carrega os módulos
+      State.userModulos = null;
+      if (State.userDoc.perfilId) {
+        try {
+          const pSnap = await tenantPath().collection('perfis').doc(State.userDoc.perfilId).get();
+          if (pSnap.exists) {
+            State.userModulos = pSnap.data().modulos || [];
+          }
+        } catch (_) {}
+      }
     } else if (State.isSuperAdmin) {
       // Super-admin sem tenantId atua no primeiro tenant ativo (fallback simples).
       // TODO: adicionar seletor "Atuar como" no painel super-admin pra trocar.
@@ -383,18 +422,38 @@ async function doLogout() {
 // =============================================================
 // Render do app principal
 // =============================================================
+function userPodeVerModulo(modulo) {
+  if (State.isSuperAdmin) return true;
+  if (State.userDoc?.role === 'admin') return true;
+  // Operador com perfil customizado
+  if (State.userModulos && Array.isArray(State.userModulos)) {
+    return State.userModulos.includes(modulo);
+  }
+  // Operador default
+  return OPERADOR_DEFAULT_MODULOS.includes(modulo);
+}
+
 function renderApp() {
   $('brand-tenant-name').textContent = State.tenant ? State.tenant.nome : (State.isSuperAdmin ? 'Super Admin' : '—');
   $('user-name').textContent = State.userDoc?.nome || State.user?.email || '—';
   $('footer-version').textContent = `v${APP_VERSION}`;
 
+  // Logo customizada do tenant (se houver)
+  aplicarLogoTenant();
+
   $('nav-superadmin').style.display = State.isSuperAdmin ? 'flex' : 'none';
 
-  // Operador não vê Configurações, Auditoria nem Importação (admin e super_admin veem)
-  const podeVerConfig = State.isSuperAdmin || State.userDoc?.role === 'admin';
-  $('nav-configuracoes').style.display = podeVerConfig ? 'flex' : 'none';
-  $('nav-auditoria').style.display = podeVerConfig ? 'flex' : 'none';
-  $('nav-importacao').style.display = podeVerConfig ? 'flex' : 'none';
+  // Aplica visibilidade dos itens do sidebar conforme módulos permitidos
+  document.querySelectorAll('.nav-link[data-section]').forEach(el => {
+    const mod = el.dataset.section;
+    if (mod === 'superadmin') return; // já tratado acima
+    el.style.display = userPodeVerModulo(mod) ? 'flex' : 'none';
+  });
+
+  // Se a seção atual não é permitida, manda pro dashboard
+  if (State.currentSection && !userPodeVerModulo(State.currentSection)) {
+    State.currentSection = 'dashboard';
+  }
 
   showSection(State.currentSection || 'dashboard');
 }
@@ -467,6 +526,7 @@ function showSection(name) {
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
     loadUsuariosTenant();
+    loadPerfis();
   }
   if (name === 'auditoria' && State.tenant) {
     loadAuditoria();
@@ -5040,6 +5100,10 @@ async function loadConfigImobiliaria() {
   $('cfg-vitrine-url').value = vitrineUrl(State.tenant.slug || State.tenant.id);
   $('cfg-slug-status').style.display = 'none';
 
+  // Logo
+  $('cfg-logo-img').src = State.tenant.logoUrl || 'logo.png';
+  $('btn-remover-logo').style.display = State.tenant.logoUrl ? 'inline-block' : 'none';
+
   try {
     const snap = await tenantPath().collection('config').doc('site').get();
     const cfg = snap.exists ? snap.data() : {};
@@ -5137,7 +5201,71 @@ function copyVitrineUrl() {
 
 function openVitrinePublica() {
   if (!State.tenant) return;
-  window.open(vitrineUrl(State.tenant.id), '_blank');
+  window.open(vitrineUrl(State.tenant.slug || State.tenant.id), '_blank');
+}
+
+// ---------- Upload da logo do tenant ----------
+
+async function uploadLogoTenant() {
+  const input = $('cfg-logo-input');
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > 1024 * 1024) {
+    showAlert('cfg-alert', 'Arquivo excede 1MB.');
+    return;
+  }
+
+  try {
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+    const path = `tenants/${State.tenant.id}/branding/logo.${ext}`;
+    const ref = storage.ref().child(path);
+    await ref.put(file, { contentType: file.type, customMetadata: { uploadedBy: State.user.uid } });
+    const url = await ref.getDownloadURL();
+
+    await tenantPath().update({ logoUrl: url, logoPath: path });
+    State.tenant.logoUrl = url;
+    State.tenant.logoPath = path;
+
+    // Aplica em toda a UI
+    $('cfg-logo-img').src = url;
+    aplicarLogoTenant();
+    $('btn-remover-logo').style.display = 'inline-block';
+    input.value = '';
+    showAlert('cfg-alert', '✓ Logo atualizada.', 'success');
+    logAuditoria('update', 'config', 'logo', { acao: 'logo_atualizada' });
+  } catch (err) {
+    console.error('Erro upload logo:', err);
+    showAlert('cfg-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function removerLogoTenant() {
+  if (!confirm('Voltar pra logo padrão (D.R. Global)?')) return;
+  try {
+    // Apaga do storage se possível
+    if (State.tenant.logoPath) {
+      try { await storage.ref().child(State.tenant.logoPath).delete(); } catch (_) {}
+    }
+    await tenantPath().update({
+      logoUrl: firebase.firestore.FieldValue.delete(),
+      logoPath: firebase.firestore.FieldValue.delete(),
+    });
+    State.tenant.logoUrl = null;
+    State.tenant.logoPath = null;
+    $('cfg-logo-img').src = 'logo.png';
+    aplicarLogoTenant();
+    $('btn-remover-logo').style.display = 'none';
+    showAlert('cfg-alert', 'Logo padrão restaurada.', 'success');
+    logAuditoria('update', 'config', 'logo', { acao: 'logo_removida' });
+  } catch (err) {
+    showAlert('cfg-alert', 'Erro: ' + err.message);
+  }
+}
+
+function aplicarLogoTenant() {
+  // Atualiza todas as imagens com class brand-logo no app interno
+  const url = State.tenant?.logoUrl || 'logo.png';
+  document.querySelectorAll('.brand-logo, .auth-logo').forEach(img => { img.src = url; });
 }
 
 // =============================================================
@@ -6719,6 +6847,135 @@ function gerarSenhaUsuario() {
   $('usuario-senha').value = gerarSenhaAleatoria(10);
 }
 
+// ----- Perfis customizados -----
+
+async function loadPerfis() {
+  const tbody = $('tbody-perfis');
+  if (!tbody) return;
+  if (!State.tenant) return;
+  tbody.innerHTML = `<tr><td colspan="3" class="empty">Carregando…</td></tr>`;
+  try {
+    const snap = await tenantPath().collection('perfis').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil customizado. Operadores usam o padrão.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = snap.docs.map(d => {
+      const p = d.data();
+      const modsLabel = (p.modulos || []).map(m => MODULOS_DISPONIVEIS.find(x => x.id === m)?.label || m).join(' · ') || '—';
+      return `<tr>
+        <td><strong>${p.nome || '—'}</strong></td>
+        <td style="font-size:11px; color:var(--text-muted);">${modsLabel}</td>
+        <td><button class="btn btn-sm btn-secondary" onclick="openPerfilModal('${d.id}')">Editar</button></td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+function renderPerfilModulosCheckboxes(selecionados = []) {
+  const container = $('perfil-modulos-container');
+  const grupos = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    if (!grupos[m.grupo]) grupos[m.grupo] = [];
+    grupos[m.grupo].push(m);
+  });
+  container.innerHTML = Object.entries(grupos).map(([grupo, mods]) => `
+    <div style="margin-bottom:14px;">
+      <strong style="font-size:12px; text-transform:uppercase; color:var(--primary-dark); letter-spacing:0.5px;">${grupo}</strong>
+      <div style="margin-top:6px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:6px;">
+        ${mods.map(m => `
+          <label class="toggle-row" style="font-size:13px;">
+            <input type="checkbox" data-modulo="${m.id}" ${selecionados.includes(m.id) ? 'checked' : ''}>
+            <span>${m.label}</span>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function openPerfilModal(id) {
+  clearAlert('perfil-alert');
+  $('perfil-id').value = id || '';
+  $('modal-perfil-title').textContent = id ? 'Editar perfil' : 'Novo perfil';
+  $('btn-delete-perfil').style.display = id ? 'inline-block' : 'none';
+  $('perfil-nome').value = '';
+
+  let modulosSelecionados = OPERADOR_DEFAULT_MODULOS;
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('perfis').doc(id).get();
+      if (snap.exists) {
+        const p = snap.data();
+        $('perfil-nome').value = p.nome || '';
+        modulosSelecionados = p.modulos || [];
+      }
+    } catch (_) {}
+  }
+
+  renderPerfilModulosCheckboxes(modulosSelecionados);
+  $('modal-perfil').style.display = 'flex';
+}
+
+function closePerfilModal() { $('modal-perfil').style.display = 'none'; }
+
+async function savePerfil() {
+  clearAlert('perfil-alert');
+  const id = $('perfil-id').value;
+  const nome = $('perfil-nome').value.trim();
+  if (!nome) { showAlert('perfil-alert', 'Nome do perfil é obrigatório.'); return; }
+  const modulos = Array.from(document.querySelectorAll('#perfil-modulos-container input[type="checkbox"]'))
+    .filter(c => c.checked).map(c => c.dataset.modulo);
+
+  try {
+    if (id) {
+      await tenantPath().collection('perfis').doc(id).update({ nome, modulos });
+      logAuditoria('update', 'config', 'perfil:' + id, { nome });
+    } else {
+      const ref = await tenantPath().collection('perfis').add({
+        nome, modulos,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user.uid,
+      });
+      logAuditoria('create', 'config', 'perfil:' + ref.id, { nome });
+    }
+    closePerfilModal();
+    loadPerfis();
+    showAlert('cfg-alert', 'Perfil salvo.', 'success');
+  } catch (err) {
+    showAlert('perfil-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deletePerfil() {
+  const id = $('perfil-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este perfil? Usuários vinculados voltarão ao padrão.')) return;
+  try {
+    await tenantPath().collection('perfis').doc(id).delete();
+    logAuditoria('delete', 'config', 'perfil:' + id);
+    closePerfilModal();
+    loadPerfis();
+  } catch (err) {
+    showAlert('perfil-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function populateUsuarioPerfilSelect() {
+  const sel = $('usuario-perfil');
+  sel.innerHTML = '<option value="">— Padrão (todos os cadastros e operação)</option>';
+  try {
+    const snap = await tenantPath().collection('perfis').get();
+    sel.innerHTML += snap.docs.map(d => `<option value="${d.id}">${d.data().nome}</option>`).join('');
+  } catch (_) {}
+}
+
+function onUsuarioRoleChange() {
+  $('usuario-perfil-group').style.display = $('usuario-role').value === 'operador' ? 'block' : 'none';
+}
+
 async function loadUsuariosTenant() {
   const tbody = $('tbody-usuarios-tenant');
   if (!tbody) return;
@@ -6762,7 +7019,7 @@ async function loadUsuariosTenant() {
   }
 }
 
-function openUsuarioTenantModal() {
+async function openUsuarioTenantModal() {
   clearAlert('usuario-alert');
   $('usuario-uid').value = '';
   $('usuario-nome').value = '';
@@ -6770,6 +7027,9 @@ function openUsuarioTenantModal() {
   $('usuario-role').value = 'operador';
   $('usuario-senha').value = gerarSenhaAleatoria(10);
   $('usuario-enviar-email').checked = true;
+  await populateUsuarioPerfilSelect();
+  $('usuario-perfil').value = '';
+  onUsuarioRoleChange();
   $('modal-usuario-tenant').style.display = 'flex';
 }
 
@@ -6811,11 +7071,13 @@ async function saveUsuarioTenant() {
     const uid = data.localId;
 
     // 2) Cria doc no Firestore vinculando ao tenant atual
+    const perfilId = role === 'operador' ? ($('usuario-perfil').value || null) : null;
     await db.collection('users').doc(uid).set({
       nome,
       email,
       tenantId: State.tenant.id,
       role,
+      perfilId,
       ativo: true,
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       criadoPor: State.user.uid,

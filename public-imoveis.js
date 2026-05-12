@@ -72,6 +72,13 @@ let _allImoveis = []; // cache pra filtros
     $$('footer-empresa').textContent = tenant.nome || 'DRG-Rently';
     $$('ano-rodape').textContent = new Date().getFullYear();
 
+    // Logo customizada do tenant
+    if (tenant.logoUrl) {
+      document.querySelectorAll('.public-logo, .error-logo').forEach(img => { img.src = tenant.logoUrl; });
+      const fav = document.querySelector('link[rel="icon"]');
+      if (fav) fav.href = tenant.logoUrl;
+    }
+
     // SEO
     document.title = `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`;
     $$('meta-desc').setAttribute('content', `Imóveis disponíveis para locação na ${tenant.nome || 'imobiliária'}`);
