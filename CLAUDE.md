@@ -107,6 +107,12 @@ service cloud.firestore {
       return isSignedIn() && userExists() && userDoc().role == 'super_admin';
     }
 
+    function isDRGTeam() {
+      // Equipe DRG (super_admin ou operador_drg) — vê o painel Super Admin
+      return isSignedIn() && userExists()
+             && (userDoc().role == 'super_admin' || userDoc().role == 'operador_drg');
+    }
+
     function belongsToTenant(tenantId) {
       return isSignedIn() && userExists() && userDoc().tenantId == tenantId;
     }
@@ -115,7 +121,7 @@ service cloud.firestore {
     // do isSuperAdmin (que chama get() em doc que pode não existir durante o signup)
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
-      allow read: if isSuperAdmin();
+      allow read: if isDRGTeam();
       // Admin do tenant pode ler/listar usuários do mesmo tenant
       allow read: if isSignedIn() && userExists()
                   && userDoc().role == 'admin'
@@ -125,6 +131,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && userExists()
                     && userDoc().role == 'admin'
                     && request.resource.data.tenantId == userDoc().tenantId;
+      // Super admin pode criar membros da equipe DRG (tenantId == null)
+      allow create: if isSuperAdmin()
+                    && (!('tenantId' in request.resource.data) || request.resource.data.tenantId == null);
       allow update: if isSignedIn() && request.auth.uid == uid;
       allow update: if isSuperAdmin();
       // Admin pode atualizar (desativar/reativar) usuários do mesmo tenant
@@ -132,6 +141,14 @@ service cloud.firestore {
                     && userDoc().role == 'admin'
                     && resource.data.tenantId == userDoc().tenantId;
       allow delete: if isSuperAdmin();
+    }
+
+    // drgPerfis — perfis customizáveis para equipe interna DRG
+    // Leitura: qualquer membro DRG (super_admin OU operador_drg) precisa pra carregar próprio perfil
+    // Escrita: só super_admin
+    match /drgPerfis/{perfilId} {
+      allow read: if isDRGTeam();
+      allow create, update, delete: if isSuperAdmin();
     }
 
     // tenants — leitura pública dos campos públicos (nome, telefone, emailContato)
@@ -143,23 +160,23 @@ service cloud.firestore {
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
-      // subcoleções genéricas (locadores, locatarios, garantias, contratos, config)
+      // subcoleções genéricas (locadores, locatarios, garantias, contratos, config, pagamentos)
       match /{collection}/{docId} {
         allow read, write: if belongsToTenant(tenantId);
-        allow read, write: if isSuperAdmin();
+        allow read, write: if isDRGTeam();
       }
 
       // Imóveis: leitura pública SE linkPublico === true
       match /imoveis/{imovelId} {
         allow read: if resource.data.linkPublico == true;
         allow read, write: if belongsToTenant(tenantId);
-        allow read, write: if isSuperAdmin();
+        allow read, write: if isDRGTeam();
 
         // Fotos do imóvel: leitura sempre pública (galeria)
         match /fotos/{fotoId} {
           allow read;
           allow write: if belongsToTenant(tenantId);
-          allow write: if isSuperAdmin();
+          allow write: if isDRGTeam();
         }
       }
     }

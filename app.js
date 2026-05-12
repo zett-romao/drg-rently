@@ -46,6 +46,65 @@ const OPERADOR_DEFAULT_MODULOS = [
   'contratos','negociacoes','balancetes','vitrine','portais'
 ];
 
+// Pacotes pré-definidos de módulos habilitados pro tenant
+// (define o que o tenant pode acessar — depois filtrado pelo perfil do operador)
+const TENANT_PACOTES = {
+  locacao: {
+    label: '🏠 Locação',
+    desc: 'Apenas o módulo de locação (sem vendas)',
+    modulos: [
+      'dashboard','alertas','relatorios',
+      'locadores','locatarios','garantias','imoveis',
+      'contratos','balancetes',
+      'vitrine','portais',
+      'auditoria','importacao','configuracoes'
+    ],
+  },
+  venda: {
+    label: '💼 Venda',
+    desc: 'Apenas o módulo de venda (sem locações)',
+    modulos: [
+      'dashboard','alertas','relatorios',
+      'compradores','imoveis',
+      'negociacoes',
+      'vitrine','portais',
+      'auditoria','importacao','configuracoes'
+    ],
+  },
+  completo: {
+    label: '🌟 Completo (Locação + Venda)',
+    desc: 'Acesso a todos os módulos do sistema',
+    modulos: [
+      'dashboard','alertas','relatorios',
+      'locadores','locatarios','compradores','garantias','imoveis',
+      'contratos','negociacoes','balancetes',
+      'vitrine','portais',
+      'auditoria','importacao','configuracoes'
+    ],
+  },
+  custom: {
+    label: '⚙️ Customizado',
+    desc: 'Selecione manualmente os módulos abaixo',
+    modulos: null, // marcado manualmente
+  },
+};
+
+// Áreas administrativas DRG (Super Admin / Operador DRG)
+// Usadas pra perfis customizáveis da equipe DRG (D.R. Global)
+const MODULOS_DRG = [
+  { id: 'drg_dashboard',          label: 'Dashboard / KPIs',           grupo: 'Visão Geral' },
+  { id: 'drg_tenants_view',       label: 'Ver imobiliárias clientes',  grupo: 'Imobiliárias' },
+  { id: 'drg_tenants_edit',       label: 'Editar plano e módulos',     grupo: 'Imobiliárias' },
+  { id: 'drg_tenants_pagamentos', label: 'Gerenciar pagamentos',       grupo: 'Imobiliárias' },
+  { id: 'drg_tenants_atuar_como', label: 'Atuar como cliente',         grupo: 'Imobiliárias' },
+  { id: 'drg_equipe',             label: 'Gerenciar equipe DRG',       grupo: 'Administração' },
+];
+
+// Default de operadores DRG sem perfil customizado (só vê e não edita)
+const OPERADOR_DRG_DEFAULT_MODULOS = [
+  'drg_dashboard', 'drg_tenants_view'
+];
+
 // =============================================================
 // Helpers UI
 // =============================================================
@@ -232,13 +291,26 @@ async function loadProfileAndShow(user) {
     }
 
     State.userDoc = userSnap.data();
-    State.isSuperAdmin = State.userDoc.role === 'super_admin';
+    // Equipe DRG (interna): super_admin OU operador_drg
+    State.isSuperAdmin = State.userDoc.role === 'super_admin' || State.userDoc.role === 'operador_drg';
+    State.isDRGMaster = State.userDoc.role === 'super_admin'; // só super_admin pode gerenciar a própria equipe DRG
 
     // Conta desativada (operadores desativados pelo admin)
     if (State.userDoc.ativo === false) {
       await auth.signOut();
       showAlert('login-alert', 'Sua conta foi desativada. Contate o administrador da imobiliária.');
       return;
+    }
+
+    // Carrega perfil DRG (operador_drg com permissões customizáveis)
+    State.userDrgModulos = null;
+    if (State.userDoc.role === 'operador_drg' && State.userDoc.drgPerfilId) {
+      try {
+        const pSnap = await db.collection('drgPerfis').doc(State.userDoc.drgPerfilId).get();
+        if (pSnap.exists) {
+          State.userDrgModulos = pSnap.data().modulos || [];
+        }
+      } catch (_) {}
     }
 
     if (State.userDoc.tenantId) {
@@ -424,14 +496,33 @@ async function doLogout() {
 // Render do app principal
 // =============================================================
 function userPodeVerModulo(modulo) {
+  // Super admin / operador DRG vê tudo (mas tem painel próprio)
   if (State.isSuperAdmin) return true;
+
+  // Filtro 1: o tenant tem esse módulo habilitado no plano?
+  // Se modulosHabilitados não existir (legacy), considera todos habilitados.
+  if (State.tenant?.modulosHabilitados && Array.isArray(State.tenant.modulosHabilitados)) {
+    if (!State.tenant.modulosHabilitados.includes(modulo)) return false;
+  }
+
+  // Filtro 2: o usuário tem permissão pelo seu perfil/role?
   if (State.userDoc?.role === 'admin') return true;
-  // Operador com perfil customizado
   if (State.userModulos && Array.isArray(State.userModulos)) {
     return State.userModulos.includes(modulo);
   }
-  // Operador default
   return OPERADOR_DEFAULT_MODULOS.includes(modulo);
+}
+
+// Permissão pra áreas do Super Admin (equipe DRG interna)
+function userDRGPodeVerArea(area) {
+  if (State.userDoc?.role === 'super_admin') return true;
+  if (State.userDoc?.role === 'operador_drg') {
+    if (State.userDrgModulos && Array.isArray(State.userDrgModulos)) {
+      return State.userDrgModulos.includes(area);
+    }
+    return OPERADOR_DRG_DEFAULT_MODULOS.includes(area);
+  }
+  return false;
 }
 
 function renderApp() {
@@ -498,7 +589,9 @@ function showSection(name) {
     loadRelatorio();
   }
   if (name === 'superadmin' && State.isSuperAdmin) {
-    loadTenantsTable();
+    aplicarPermissoesDRG();
+    if (userDRGPodeVerArea('drg_tenants_view')) loadTenantsTable();
+    if (userDRGPodeVerArea('drg_equipe')) loadEquipeDRG();
   }
   if (name === 'locadores' && State.tenant) {
     loadLocadores();
@@ -674,6 +767,11 @@ async function openTenantModal(tenantId) {
     $('tenant-ativo').value = String(t.ativo !== false);
     $('tenant-notas').value = t.notas || '';
 
+    // Pacote de módulos
+    const pacote = t.pacote || 'completo';
+    $('tenant-pacote').value = pacote;
+    renderTenantModulos(pacote, t.modulosHabilitados);
+
     // Admin do tenant
     const adminSnap = await db.collection('users')
       .where('tenantId', '==', tenantId).where('role', '==', 'admin').limit(1).get();
@@ -700,6 +798,55 @@ async function openTenantModal(tenantId) {
 
 function closeTenantModal() {
   $('modal-tenant').style.display = 'none';
+}
+
+// Renderiza checkboxes dos módulos disponíveis pro tenant
+function renderTenantModulos(pacote, modulosHabilitados) {
+  const container = $('tenant-modulos-container');
+  if (!container) return;
+
+  // Define a lista de módulos marcados:
+  // - Se pacote = custom → usa modulosHabilitados (ou todos como fallback)
+  // - Caso contrário → usa o array fixo do pacote
+  let marcados;
+  if (pacote === 'custom') {
+    marcados = Array.isArray(modulosHabilitados) ? modulosHabilitados : MODULOS_DISPONIVEIS.map(m => m.id);
+  } else {
+    marcados = TENANT_PACOTES[pacote]?.modulos || MODULOS_DISPONIVEIS.map(m => m.id);
+  }
+
+  const grupos = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    if (!grupos[m.grupo]) grupos[m.grupo] = [];
+    grupos[m.grupo].push(m);
+  });
+
+  const isCustom = pacote === 'custom';
+  const desc = TENANT_PACOTES[pacote]?.desc || '';
+
+  container.innerHTML = `
+    ${desc ? `<p class="muted" style="font-size:12px; margin: 0 0 12px;">${desc}</p>` : ''}
+    ${Object.keys(grupos).map(g => `
+      <div style="margin-bottom:12px;">
+        <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px;">${g}</strong>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:6px; margin-top:6px;">
+          ${grupos[g].map(m => `
+            <label style="display:flex; align-items:center; gap:8px; cursor:${isCustom ? 'pointer' : 'default'}; font-size:13px; opacity:${isCustom ? '1' : '0.85'};">
+              <input type="checkbox" name="tenant-mod" value="${m.id}" ${marcados.includes(m.id) ? 'checked' : ''} ${isCustom ? '' : 'disabled'}>
+              ${m.label}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function onTenantPacoteChange() {
+  const pacote = $('tenant-pacote').value;
+  // Lê o estado atual de marcados antes de redesenhar (pra preservar em custom)
+  const marcadosAtuais = Array.from(document.querySelectorAll('input[name="tenant-mod"]:checked')).map(c => c.value);
+  renderTenantModulos(pacote, marcadosAtuais);
 }
 
 async function loadTenantMetricas(tenantId) {
@@ -789,6 +936,16 @@ async function deletePagamento(tenantId, pagId) {
 async function saveTenantManagement() {
   const tenantId = $('tenant-id').value;
   if (!tenantId) return;
+
+  // Pacote + módulos habilitados
+  const pacote = $('tenant-pacote').value;
+  let modulosHabilitados;
+  if (pacote === 'custom') {
+    modulosHabilitados = Array.from(document.querySelectorAll('input[name="tenant-mod"]:checked')).map(c => c.value);
+  } else {
+    modulosHabilitados = TENANT_PACOTES[pacote]?.modulos || [];
+  }
+
   const data = {
     plano: $('tenant-plano').value,
     valorMensalidade: parseFloat($('tenant-valor').value) || null,
@@ -796,6 +953,8 @@ async function saveTenantManagement() {
     trialExpira: $('tenant-trial-expira').value || null,
     ativo: $('tenant-ativo').value === 'true',
     notas: $('tenant-notas').value.trim() || null,
+    pacote,
+    modulosHabilitados,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
   const btn = $('btn-save-tenant');
@@ -7141,6 +7300,386 @@ async function toggleUsuarioAtivo(uid, novoAtivo) {
     loadUsuariosTenant();
   } catch (err) {
     showAlert('cfg-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// EQUIPE DRG — operadores internos da D.R. Global
+// (users sem tenantId, role = super_admin ou operador_drg)
+// =============================================================
+
+// Aplica permissões granulares no painel Super Admin
+function aplicarPermissoesDRG() {
+  // Esconde card de imobiliárias se não pode ver
+  const cardTenants = document.querySelector('#section-superadmin .card:first-of-type');
+  if (cardTenants) {
+    cardTenants.style.display = userDRGPodeVerArea('drg_tenants_view') ? 'block' : 'none';
+  }
+
+  // Esconde card de equipe DRG se não pode ver
+  const cardEquipe = $('card-equipe-drg');
+  if (cardEquipe) {
+    cardEquipe.style.display = userDRGPodeVerArea('drg_equipe') ? 'block' : 'none';
+  }
+
+  // Esconde botões de edição/ação se for só "visualizar"
+  document.querySelectorAll('#section-superadmin button[onclick*="openDRGUsuarioModal"], #section-superadmin button[onclick*="openDRGPerfilModal"]').forEach(btn => {
+    btn.style.display = State.isDRGMaster ? 'inline-block' : 'none';
+  });
+}
+
+async function loadEquipeDRG() {
+  if (!State.isSuperAdmin) return;
+  await Promise.all([
+    loadEquipeDRGUsuarios(),
+    loadEquipeDRGPerfis(),
+  ]);
+}
+
+async function loadEquipeDRGUsuarios() {
+  const tbody = $('tbody-equipe-drg');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+  try {
+    // Busca todos os usuários sem tenantId (equipe DRG)
+    // Firestore não tem operador "is null", então buscamos por role
+    const [snapSA, snapOP] = await Promise.all([
+      db.collection('users').where('role', '==', 'super_admin').get(),
+      db.collection('users').where('role', '==', 'operador_drg').get(),
+    ]);
+    const docs = [...snapSA.docs, ...snapOP.docs];
+    if (docs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum membro cadastrado.</td></tr>`;
+      return;
+    }
+
+    // Carrega nomes de perfis DRG pra exibir
+    const perfisSnap = await db.collection('drgPerfis').get();
+    const perfilNome = {};
+    perfisSnap.docs.forEach(d => { perfilNome[d.id] = d.data().nome || '—'; });
+
+    tbody.innerHTML = docs.map(doc => {
+      const u = doc.data();
+      const isSelf = doc.id === State.user.uid;
+      const ativo = u.ativo !== false;
+      const roleLabel = u.role === 'super_admin'
+        ? '<span class="badge-status ativo" title="Acesso total">👑 Super Admin</span>'
+        : '<span class="badge-status" style="background:#dbeafe; color:#1e40af;">🛠 Operador DRG</span>';
+      const perfilLabel = u.role === 'super_admin' ? '—' : (perfilNome[u.drgPerfilId] || '<span class="muted">Padrão (visualização)</span>');
+      const statusBadge = ativo
+        ? '<span class="badge-status ativo">Ativo</span>'
+        : '<span class="badge-status suspenso">Desativado</span>';
+      const toggleLabel = ativo ? 'Desativar' : 'Reativar';
+      const toggleClass = ativo ? 'btn-danger' : 'btn-primary';
+      return `
+        <tr>
+          <td><strong>${u.nome || '—'}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}</td>
+          <td>${u.email || '—'}</td>
+          <td>${roleLabel}</td>
+          <td style="font-size:12px;">${perfilLabel}</td>
+          <td>${statusBadge}</td>
+          <td>
+            ${isSelf ? '<span class="muted" style="font-size:11px;">—</span>' : `
+              <button class="btn btn-sm ${toggleClass}" onclick="toggleDRGUsuarioAtivo('${doc.id}', ${!ativo})">${toggleLabel}</button>
+            `}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao listar equipe DRG:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function toggleDRGUsuarioAtivo(uid, novoAtivo) {
+  const acao = novoAtivo ? 'reativar' : 'desativar';
+  if (!confirm(`Confirma ${acao} este membro da equipe DRG?`)) return;
+  try {
+    await db.collection('users').doc(uid).update({ ativo: novoAtivo });
+    logAuditoria('toggle_ativo', 'usuario_drg', uid, { ativo: novoAtivo });
+    loadEquipeDRGUsuarios();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+// ----- Modal: criar usuário DRG -----
+
+async function openDRGUsuarioModal() {
+  if (!State.isDRGMaster) {
+    alert('Apenas Super Admin pode criar membros da equipe DRG.');
+    return;
+  }
+  clearAlert('drg-usuario-alert');
+  $('drg-usuario-nome').value = '';
+  $('drg-usuario-email').value = '';
+  $('drg-usuario-role').value = 'operador_drg';
+  $('drg-usuario-senha').value = gerarSenhaAleatoria(12);
+  $('drg-usuario-enviar-email').checked = true;
+  await populateDRGUsuarioPerfilSelect();
+  $('drg-usuario-perfil').value = '';
+  onDRGUsuarioRoleChange();
+  $('modal-drg-usuario').style.display = 'flex';
+}
+
+function closeDRGUsuarioModal() {
+  $('modal-drg-usuario').style.display = 'none';
+}
+
+function gerarSenhaDRG() {
+  $('drg-usuario-senha').value = gerarSenhaAleatoria(12);
+}
+
+function onDRGUsuarioRoleChange() {
+  const role = $('drg-usuario-role').value;
+  // Super Admin não usa perfil — vê tudo
+  $('drg-usuario-perfil-group').style.display = (role === 'operador_drg') ? 'block' : 'none';
+}
+
+async function populateDRGUsuarioPerfilSelect() {
+  const sel = $('drg-usuario-perfil');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Padrão (apenas visualização)</option>';
+  try {
+    const snap = await db.collection('drgPerfis').get();
+    snap.docs.forEach(d => {
+      const p = d.data();
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = p.nome || '(sem nome)';
+      sel.appendChild(opt);
+    });
+  } catch (err) {
+    console.warn('Falha ao listar perfis DRG:', err);
+  }
+}
+
+async function saveDRGUsuario() {
+  clearAlert('drg-usuario-alert');
+
+  const nome = $('drg-usuario-nome').value.trim();
+  const email = $('drg-usuario-email').value.trim().toLowerCase();
+  const role = $('drg-usuario-role').value;
+  const senha = $('drg-usuario-senha').value;
+  const enviarEmail = $('drg-usuario-enviar-email').checked;
+
+  if (!nome) { showAlert('drg-usuario-alert', 'Nome é obrigatório.'); return; }
+  if (!email) { showAlert('drg-usuario-alert', 'E-mail é obrigatório.'); return; }
+  if (!senha || senha.length < 6) { showAlert('drg-usuario-alert', 'Senha deve ter no mínimo 6 caracteres.'); return; }
+
+  const btn = $('btn-save-drg-usuario');
+  btn.disabled = true; btn.textContent = 'Criando…';
+
+  try {
+    const apiKey = firebase.app().options.apiKey;
+    // 1) Cria conta no Auth via REST (não desloga o admin atual)
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      let msg = data?.error?.message || 'Erro ao criar conta';
+      if (msg === 'EMAIL_EXISTS') msg = 'Já existe uma conta com este e-mail.';
+      if (msg === 'WEAK_PASSWORD : Password should be at least 6 characters') msg = 'Senha muito fraca (mín 6 caracteres).';
+      throw new Error(msg);
+    }
+    const uid = data.localId;
+
+    // 2) Cria doc no Firestore SEM tenantId (equipe DRG)
+    const drgPerfilId = role === 'operador_drg' ? ($('drg-usuario-perfil').value || null) : null;
+    await db.collection('users').doc(uid).set({
+      nome,
+      email,
+      tenantId: null,           // EQUIPE DRG: sem tenant
+      role,                     // super_admin ou operador_drg
+      drgPerfilId,              // permissões DRG (só pra operador_drg)
+      ativo: true,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      criadoPor: State.user.uid,
+    });
+
+    // 3) (Opcional) envia e-mail com a senha
+    if (enviarEmail) {
+      try {
+        // Busca config global do tenant ativo (se houver) pra usar Worker
+        let workerUrl = null, emailFrom = null;
+        if (State.tenant) {
+          const cfgSnap = await tenantPath().collection('config').doc('site').get();
+          if (cfgSnap.exists) {
+            workerUrl = cfgSnap.data().workerUrl || null;
+            emailFrom = cfgSnap.data().emailFrom || null;
+          }
+        }
+        if (workerUrl) {
+          const roleLabel = role === 'super_admin' ? 'Super Administrador' : 'Operador DRG';
+          const html = `<html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111;max-width:600px;margin:0 auto;padding:20px;">
+            <h2 style="color:#475569;">Acesso ao DRG-Rently</h2>
+            <p>Olá <strong>${escapeHtml(nome)}</strong>,</p>
+            <p>Você foi adicionado à equipe interna da <strong>D.R. Global</strong> no sistema DRG-Rently como <strong>${roleLabel}</strong>.</p>
+            <p>Seus dados de acesso:</p>
+            <table style="border-collapse:collapse;margin:14px 0;">
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="https://zett-romao.github.io/drg-rently/">https://zett-romao.github.io/drg-rently/</a></td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>E-mail</strong></td><td style="padding:6px 12px;border:1px solid #ccc;">${escapeHtml(email)}</td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Senha inicial</strong></td><td style="padding:6px 12px;border:1px solid #ccc;font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
+            </table>
+            <p style="font-size:12px;color:#666;">Recomendamos trocar a senha no primeiro acesso pelo "Esqueci minha senha".</p>
+            <p style="margin-top:24px;">— D.R. Global</p>
+          </body></html>`;
+          await fetch(workerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: emailFrom || 'onboarding@resend.dev',
+              fromName: 'D.R. Global',
+              to: email,
+              subject: `Acesso ao DRG-Rently — Equipe DRG`,
+              html,
+            }),
+          });
+        }
+      } catch (e) { console.warn('Falha ao enviar e-mail (membro DRG criado mesmo assim):', e); }
+    }
+
+    logAuditoria('create', 'usuario_drg', uid, { nome, email, role });
+    closeDRGUsuarioModal();
+    alert(`✓ Membro ${nome} criado.\nSenha inicial: ${senha}`);
+    loadEquipeDRGUsuarios();
+  } catch (err) {
+    console.error('Erro ao criar membro DRG:', err);
+    showAlert('drg-usuario-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Criar membro';
+  }
+}
+
+// ----- Perfis DRG (coleção global drgPerfis) -----
+
+async function loadEquipeDRGPerfis() {
+  const tbody = $('tbody-drg-perfis');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="3" class="empty">Carregando…</td></tr>`;
+  try {
+    const snap = await db.collection('drgPerfis').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil DRG. Operadores DRG sem perfil veem apenas dashboard e lista de tenants.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = snap.docs.map(d => {
+      const p = d.data();
+      const modsLabel = (p.modulos || []).map(m => MODULOS_DRG.find(x => x.id === m)?.label || m).join(' · ') || '—';
+      return `<tr>
+        <td><strong>${p.nome || '—'}</strong></td>
+        <td style="font-size:11px; color:var(--text-muted);">${modsLabel}</td>
+        <td><button class="btn btn-sm btn-secondary" onclick="openDRGPerfilModal('${d.id}')">Editar</button></td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function openDRGPerfilModal(id) {
+  if (!State.isDRGMaster) {
+    alert('Apenas Super Admin pode editar perfis DRG.');
+    return;
+  }
+  clearAlert('drg-perfil-alert');
+  $('drg-perfil-id').value = id || '';
+  $('drg-perfil-nome').value = '';
+  $('btn-delete-drg-perfil').style.display = id ? 'inline-block' : 'none';
+  $('modal-drg-perfil-title').textContent = id ? 'Editar perfil DRG' : 'Novo perfil DRG';
+
+  let modulosSelecionados = [];
+  if (id) {
+    try {
+      const pSnap = await db.collection('drgPerfis').doc(id).get();
+      if (pSnap.exists) {
+        const p = pSnap.data();
+        $('drg-perfil-nome').value = p.nome || '';
+        modulosSelecionados = p.modulos || [];
+      }
+    } catch (err) { showAlert('drg-perfil-alert', 'Erro ao carregar: ' + err.message); return; }
+  }
+
+  renderDRGPerfilModulosCheckboxes(modulosSelecionados);
+  $('modal-drg-perfil').style.display = 'flex';
+}
+
+function closeDRGPerfilModal() {
+  $('modal-drg-perfil').style.display = 'none';
+}
+
+function renderDRGPerfilModulosCheckboxes(selecionados = []) {
+  const container = $('drg-perfil-modulos-container');
+  const grupos = {};
+  MODULOS_DRG.forEach(m => {
+    if (!grupos[m.grupo]) grupos[m.grupo] = [];
+    grupos[m.grupo].push(m);
+  });
+  container.innerHTML = Object.keys(grupos).map(g => `
+    <div style="margin-bottom:12px;">
+      <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px;">${g}</strong>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:6px; margin-top:6px;">
+        ${grupos[g].map(m => `
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+            <input type="checkbox" name="drg-perfil-mod" value="${m.id}" ${selecionados.includes(m.id) ? 'checked' : ''}>
+            ${m.label}
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function saveDRGPerfil() {
+  if (!State.isDRGMaster) return;
+  clearAlert('drg-perfil-alert');
+  const id = $('drg-perfil-id').value;
+  const nome = $('drg-perfil-nome').value.trim();
+  if (!nome) { showAlert('drg-perfil-alert', 'Nome do perfil é obrigatório.'); return; }
+  const modulos = Array.from(document.querySelectorAll('input[name="drg-perfil-mod"]:checked')).map(c => c.value);
+
+  const btn = $('btn-save-drg-perfil');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    if (id) {
+      await db.collection('drgPerfis').doc(id).update({
+        nome, modulos,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      logAuditoria('update', 'drg_perfil', id, { nome, modulos });
+    } else {
+      const ref = await db.collection('drgPerfis').add({
+        nome, modulos,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user.uid,
+      });
+      logAuditoria('create', 'drg_perfil', ref.id, { nome, modulos });
+    }
+    closeDRGPerfilModal();
+    loadEquipeDRGPerfis();
+  } catch (err) {
+    showAlert('drg-perfil-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteDRGPerfil() {
+  if (!State.isDRGMaster) return;
+  const id = $('drg-perfil-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este perfil DRG? Operadores vinculados voltarão ao padrão (apenas visualização).')) return;
+  try {
+    await db.collection('drgPerfis').doc(id).delete();
+    logAuditoria('delete', 'drg_perfil', id, {});
+    closeDRGPerfilModal();
+    loadEquipeDRGPerfis();
+  } catch (err) {
+    showAlert('drg-perfil-alert', 'Erro: ' + err.message);
   }
 }
 

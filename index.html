@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512l">
+  <link rel="stylesheet" href="styles.css?v=20260512m">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -591,6 +591,63 @@
               </table>
             </div>
           </div>
+
+          <!-- =================================================== -->
+          <!-- Equipe DRG (operadores internos da D.R. Global)      -->
+          <!-- =================================================== -->
+          <div class="card" id="card-equipe-drg" style="margin-top:22px;">
+            <div class="section-header">
+              <div>
+                <h3>👥 Equipe interna DRG</h3>
+                <p class="muted">Gerencie os colaboradores da D.R. Global que operam o SaaS (vendas, suporte, financeiro).</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadEquipeDRG()">🔄 Recarregar</button>
+            </div>
+
+            <h4 class="form-section-title">Membros da equipe</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              <strong>Super Admin:</strong> acesso total ao painel DRG.<br>
+              <strong>Operador DRG:</strong> acesso limitado pelas permissões do perfil vinculado.
+            </p>
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Role</th>
+                    <th>Perfil DRG</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-equipe-drg">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="btn btn-primary btn-sm" type="button" onclick="openDRGUsuarioModal()">+ Adicionar membro DRG</button>
+
+            <h4 class="form-section-title">Perfis DRG (permissões customizáveis)</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Crie perfis para limitar o que cada operador DRG enxerga (ex: "Suporte só visualiza", "Comercial gerencia tenants e pagamentos", "Financeiro lança pagamentos").
+            </p>
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome do perfil</th>
+                    <th>Áreas permitidas</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-drg-perfis">
+                  <tr><td colspan="3" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="btn btn-primary btn-sm" type="button" onclick="openDRGPerfilModal()">+ Novo perfil DRG</button>
+          </div>
         </section>
 
         <!-- Alertas -->
@@ -1135,10 +1192,20 @@
               <p class="muted" style="font-size:11px;">Compartilhe esse link em WhatsApp, redes sociais ou portais para divulgar todos os imóveis publicados.</p>
             </div>
 
-            <h4 class="form-section-title">Usuários da imobiliária</h4>
+            <h4 class="form-section-title">👥 Usuários e perfis da imobiliária</h4>
+            <div style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; border-radius:8px; padding:14px; margin-bottom:16px;">
+              <p style="margin:0 0 8px; color:var(--primary-dark); font-size:13px;">
+                <strong>💡 Como funciona:</strong>
+              </p>
+              <ol style="margin:0; padding-left:18px; color:var(--text); line-height:1.7; font-size:12.5px;">
+                <li><strong>Crie perfis</strong> com permissões específicas (ex: "Captador" só vê imóveis, "Financeiro" só vê contratos/balancetes).</li>
+                <li><strong>Cadastre operadores</strong> com e-mail e senha — eles entram pelo mesmo login do app.</li>
+                <li><strong>Vincule cada operador a um perfil</strong> pra limitar o que ele vê. Sem perfil = padrão (todos os cadastros).</li>
+                <li>Administradores têm acesso total ao tenant; operadores só veem o permitido pelo perfil.</li>
+              </ol>
+            </div>
             <p class="muted" style="font-size:12px; margin-bottom:14px;">
-              Adicione operadores que ajudam no dia a dia. Eles têm acesso aos cadastros
-              e operação, mas não às configurações nem ao painel de Super Admin.
+              <strong>Usuários cadastrados:</strong> operadores que acessam o sistema da imobiliária.
             </p>
 
             <div class="table-wrap" style="margin-bottom:14px;">
@@ -1873,6 +1940,26 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <!-- Módulos habilitados (controle granular do que o tenant pode ver) -->
+        <h4 class="form-section-title">Módulos contratados</h4>
+        <p class="muted" style="font-size:12px; margin-bottom:10px;">
+          Defina o que esta imobiliária pode acessar no sistema. Os usuários dela só verão os módulos habilitados aqui (somado às permissões do perfil de cada operador).
+        </p>
+        <div class="form-row">
+          <div class="form-group" style="max-width:380px;">
+            <label>Pacote</label>
+            <select id="tenant-pacote" onchange="onTenantPacoteChange()">
+              <option value="locacao">🏠 Locação — só locações</option>
+              <option value="venda">💼 Venda — só vendas</option>
+              <option value="completo">🌟 Completo — locação + venda</option>
+              <option value="custom">⚙️ Customizado — eu escolho</option>
+            </select>
+          </div>
+        </div>
+        <div id="tenant-modulos-container" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-top:8px;">
+          <!-- Checkboxes preenchidos por JS -->
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>Trial expira em</label>
@@ -2044,6 +2131,102 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeUsuarioTenantModal()">Cancelar</button>
         <button class="btn btn-primary" id="btn-save-usuario" onclick="saveUsuarioTenant()">Criar usuário</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Adicionar membro da equipe DRG -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-drg-usuario" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar membro DRG</h3>
+        <button class="modal-close" onclick="closeDRGUsuarioModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="drg-usuario-alert" class="alert alert-error" style="display:none;"></div>
+
+        <div class="form-group">
+          <label class="required">Nome completo</label>
+          <input type="text" id="drg-usuario-nome">
+        </div>
+
+        <div class="form-group">
+          <label class="required">E-mail (será o login)</label>
+          <input type="email" id="drg-usuario-email">
+        </div>
+
+        <div class="form-group">
+          <label>Tipo de acesso</label>
+          <select id="drg-usuario-role" onchange="onDRGUsuarioRoleChange()">
+            <option value="operador_drg">Operador DRG (acesso limitado conforme perfil)</option>
+            <option value="super_admin">Super Admin (acesso total ao painel DRG)</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="drg-usuario-perfil-group">
+          <label>Perfil DRG</label>
+          <select id="drg-usuario-perfil">
+            <option value="">— Padrão (apenas visualização)</option>
+          </select>
+          <p class="muted" style="font-size:11px;">Determina o que o operador pode ver e fazer no painel DRG.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="required">Senha inicial</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="drg-usuario-senha" style="flex:1; font-family:'Courier New', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="gerarSenhaDRG()">🎲 Gerar</button>
+          </div>
+          <p class="muted" style="font-size:11px; margin-top:4px;">Mínimo 6 caracteres. Anote — você poderá enviar por e-mail ao colaborador.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="drg-usuario-enviar-email" checked>
+            <span>📧 Enviar e-mail ao colaborador com a senha</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDRGUsuarioModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-drg-usuario" onclick="saveDRGUsuario()">Criar membro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Perfil DRG customizado -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-drg-perfil" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-drg-perfil-title">Novo perfil DRG</h3>
+        <button class="modal-close" onclick="closeDRGPerfilModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="drg-perfil-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="drg-perfil-id">
+
+        <div class="form-group">
+          <label class="required">Nome do perfil DRG</label>
+          <input type="text" id="drg-perfil-nome" placeholder="Ex: Suporte, Comercial, Financeiro">
+        </div>
+
+        <div class="form-group">
+          <label>Áreas administrativas permitidas</label>
+          <p class="muted" style="font-size:11px; margin-bottom:8px;">
+            Marque o que este perfil pode acessar no painel Super Admin.
+          </p>
+          <div id="drg-perfil-modulos-container" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDRGPerfilModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-drg-perfil" onclick="deleteDRGPerfil()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-drg-perfil" onclick="saveDRGPerfil()">Salvar</button>
       </div>
     </div>
   </div>
@@ -3308,6 +3491,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512l"></script>
+  <script src="app.js?v=20260512m"></script>
 </body>
 </html>
