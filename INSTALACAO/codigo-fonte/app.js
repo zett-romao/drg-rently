@@ -8195,6 +8195,13 @@ document.addEventListener('DOMContentLoaded', () => {
     showScreen('screen-login');
   });
 
+  // Abre direto na tela de signup se o link vier com ?signup=1 ou ?cadastro=1
+  // Útil pra divulgação comercial: drg-rently.../?signup=1
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('signup') === '1' || urlParams.get('cadastro') === '1') {
+    showScreen('screen-signup');
+  }
+
   document.querySelectorAll('.nav-link').forEach(el => {
     el.addEventListener('click', () => showSection(el.dataset.section));
   });
