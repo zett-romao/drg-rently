@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260511i">
+  <link rel="stylesheet" href="styles.css?v=20260511j">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -231,6 +231,13 @@
                 <div class="stat-card-label">Negociações em andamento</div>
               </div>
             </div>
+            <div class="stat-card" onclick="showSection('balancetes')" title="Ver balancetes do mês corrente">
+              <div class="stat-card-icon stat-icon-teal">💰</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-balancetes-mes">—</div>
+                <div class="stat-card-label">Balancetes deste mês</div>
+              </div>
+            </div>
           </div>
 
           <div class="card">
@@ -393,10 +400,58 @@
         </section>
 
         <section class="section" id="section-balancetes" style="display:none;">
-          <div class="card placeholder-section">
-            <div class="badge">Fase 2</div>
-            <h3>Balancetes Mensais</h3>
-            <p>Apuração mensal por imóvel, PDF e envio por e-mail ao locador.</p>
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Balancetes Mensais</h3>
+                <p class="muted">Apuração de receitas e despesas por contrato e mês.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openBalanceteModal()">+ Novo Balancete</button>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 14px; max-width: 600px;">
+              <div class="form-group">
+                <label>Mês</label>
+                <select id="filtro-balancete-mes" onchange="loadBalancetes()">
+                  <option value="1">Janeiro</option>
+                  <option value="2">Fevereiro</option>
+                  <option value="3">Março</option>
+                  <option value="4">Abril</option>
+                  <option value="5">Maio</option>
+                  <option value="6">Junho</option>
+                  <option value="7">Julho</option>
+                  <option value="8">Agosto</option>
+                  <option value="9">Setembro</option>
+                  <option value="10">Outubro</option>
+                  <option value="11">Novembro</option>
+                  <option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Ano</label>
+                <input type="number" id="filtro-balancete-ano" min="2020" max="2099" step="1" onchange="loadBalancetes()">
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Locador</th>
+                    <th>Locatário</th>
+                    <th>Aluguel</th>
+                    <th>Líquido a repassar</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-balancetes">
+                  <tr><td colspan="8" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -971,6 +1026,154 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <button class="btn btn-secondary" onclick="closeLocatarioModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-locatario" onclick="deleteLocatario()" style="display:none;">Excluir</button>
         <button class="btn btn-primary" id="btn-save-locatario" onclick="saveLocatario()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Balancete (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-balancete" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-balancete-title">Novo Balancete</h3>
+        <button class="modal-close" onclick="closeBalanceteModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="balancete-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="balancete-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Contrato</label>
+            <select id="balancete-contrato" onchange="onBalanceteContratoChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="balancete-contrato-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Mês</label>
+            <select id="balancete-mes">
+              <option value="1">Janeiro</option>
+              <option value="2">Fevereiro</option>
+              <option value="3">Março</option>
+              <option value="4">Abril</option>
+              <option value="5">Maio</option>
+              <option value="6">Junho</option>
+              <option value="7">Julho</option>
+              <option value="8">Agosto</option>
+              <option value="9">Setembro</option>
+              <option value="10">Outubro</option>
+              <option value="11">Novembro</option>
+              <option value="12">Dezembro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Ano</label>
+            <input type="number" id="balancete-ano" min="2020" max="2099" step="1">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="balancete-status">
+              <option value="aberto">🟢 Aberto</option>
+              <option value="fechado">🔒 Fechado</option>
+              <option value="enviado">✉️ Enviado ao locador</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="copiarBalanceteMesAnterior()" style="margin-top: 22px;">
+              🔁 Copiar lançamentos do mês anterior
+            </button>
+          </div>
+        </div>
+
+        <!-- BLOCO: Entradas -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-entrada">
+            <h4>⬆ Entradas (recebidas pela imobiliária)</h4>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('entrada')">+ Adicionar</button>
+          </div>
+          <div id="lanc-entrada-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total entradas: <strong id="total-entradas">R$ 0,00</strong></div>
+        </div>
+
+        <!-- BLOCO: Despesas do locador -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-despesa-loc">
+            <h4>⬇ Despesas do locador (descontadas do repasse)</h4>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locador')">+ Adicionar</button>
+          </div>
+          <div id="lanc-despesa-locador-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total despesas do locador: <strong id="total-despesas-locador">R$ 0,00</strong></div>
+        </div>
+
+        <!-- BLOCO: Despesas do locatário (informativo) -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-despesa-loct">
+            <h4>⬇ Despesas do locatário (pagas pela imobiliária — informativo)</h4>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locatario')">+ Adicionar</button>
+          </div>
+          <div id="lanc-despesa-locatario-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total despesas do locatário: <strong id="total-despesas-locatario">R$ 0,00</strong></div>
+          <p class="muted" style="font-size:11px; margin-top:4px;">Não afeta o líquido do locador — espelhado pelo reembolso recebido.</p>
+        </div>
+
+        <!-- BLOCO: Taxa de administração -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-taxa">
+            <h4>🧾 Taxa de administração</h4>
+          </div>
+          <div class="form-row" style="padding: 0 12px;">
+            <div class="form-group">
+              <label>Aluguel base (R$)</label>
+              <input type="number" id="balancete-aluguel-base" min="0" step="0.01" disabled>
+            </div>
+            <div class="form-group">
+              <label>Taxa (%) — negociável neste balancete</label>
+              <input type="number" id="balancete-taxa-adm" min="0" max="100" step="0.1" oninput="recalcBalancete()">
+            </div>
+            <div class="form-group">
+              <label>Valor da taxa (R$)</label>
+              <input type="text" id="balancete-taxa-valor" disabled>
+            </div>
+          </div>
+        </div>
+
+        <!-- Resumo destacado -->
+        <div class="balancete-resumo">
+          <div class="resumo-linha">
+            <span>Entradas</span>
+            <strong id="resumo-entradas">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha">
+            <span>− Despesas do locador</span>
+            <strong id="resumo-despesas-locador">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha">
+            <span>− Taxa de administração</span>
+            <strong id="resumo-taxa-adm">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha resumo-final">
+            <span>💰 LÍQUIDO A REPASSAR AO LOCADOR</span>
+            <strong id="resumo-liquido">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+        <div class="form-group">
+          <textarea id="balancete-obs" rows="2" placeholder="Observações que vão para o balancete (visível ao locador)"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeBalanceteModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-balancete" onclick="deleteBalancete()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-balancete" onclick="saveBalancete()">Salvar</button>
       </div>
     </div>
   </div>
@@ -2103,6 +2306,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260511i"></script>
+  <script src="app.js?v=20260511j"></script>
 </body>
 </html>

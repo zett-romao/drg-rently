@@ -438,6 +438,10 @@ function showSection(name) {
   if (name === 'contratos' && State.tenant) {
     loadContratos();
   }
+  if (name === 'balancetes' && State.tenant) {
+    initBalanceteFiltros();
+    loadBalancetes();
+  }
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
   }
@@ -512,19 +516,24 @@ async function toggleTenantStatus(tenantId, ativo) {
 async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis', 'stat-imoveis-venda',
-               'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes'];
+               'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
+               'stat-balancetes-mes'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
 
   try {
-    const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap, negociacoesSnap] = await Promise.all([
+    const hoje = new Date();
+    const mesAtual = hoje.getMonth() + 1;
+    const anoAtual = hoje.getFullYear();
+    const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap, negociacoesSnap, balancetesMesSnap] = await Promise.all([
       tenantPath().collection('locadores').get(),
       tenantPath().collection('locatarios').get(),
       tenantPath().collection('imoveis').get(),
       tenantPath().collection('contratos').get(),
       tenantPath().collection('garantias').get(),
       tenantPath().collection('negociacoes').get(),
+      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
     ]);
 
     const imoveisAlugados = imoveisSnap.docs.filter(d => d.data().status === 'alugado').length;
@@ -548,6 +557,7 @@ async function loadDashboard() {
     $('stat-contratos-vigentes').textContent = contratosVigentes;
     $('stat-garantias-ativas').textContent = garantiasAtivas;
     $('stat-negociacoes').textContent = negociacoesAndamento;
+    $('stat-balancetes-mes').textContent = balancetesMesSnap.size;
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
@@ -1940,6 +1950,502 @@ async function deleteGarantiaDoc(garantiaId, filename) {
   } catch (err) {
     console.error('Erro ao excluir doc:', err);
     showAlert('garantia-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// BALANCETES — apuração mensal por contrato
+// =============================================================
+
+const BALANCETE_STATUS_LABEL = {
+  aberto: 'Aberto',
+  fechado: 'Fechado',
+  enviado: 'Enviado',
+};
+
+const LANC_CATEGORIAS = {
+  entrada: ['aluguel', 'multa_juros', 'reembolso_locatario', 'mobilia', 'garagem_extra', 'outros'],
+  despesa_locador: ['iptu', 'condominio', 'manutencao', 'seguro', 'outros'],
+  despesa_locatario: ['agua', 'luz', 'gas', 'internet', 'outros'],
+};
+
+const LANC_CATEGORIA_LABEL = {
+  aluguel: 'Aluguel',
+  multa_juros: 'Multa / Juros',
+  reembolso_locatario: 'Reembolso do locatário',
+  mobilia: 'Mobília',
+  garagem_extra: 'Garagem extra',
+  iptu: 'IPTU',
+  condominio: 'Condomínio',
+  manutencao: 'Manutenção',
+  seguro: 'Seguro',
+  agua: 'Água',
+  luz: 'Luz',
+  gas: 'Gás',
+  internet: 'Internet',
+  outros: 'Outros (custom)',
+};
+
+// State local do balancete em edição
+let _balanceteLancamentos = []; // { id, bloco, categoria, descricao, valor, comprovantePath, comprovanteNome }
+
+function balanceteId(ano, mes, contratoId) {
+  return `${ano}_${String(mes).padStart(2, '0')}_${contratoId}`;
+}
+
+function fmtMesAno(mes, ano) {
+  const meses = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  return `${meses[mes - 1]}/${ano}`;
+}
+
+async function loadBalancetes() {
+  const tbody = $('tbody-balancetes');
+  tbody.innerHTML = `<tr><td colspan="8" class="empty">Carregando…</td></tr>`;
+
+  const mes = parseInt($('filtro-balancete-mes').value, 10);
+  const ano = parseInt($('filtro-balancete-ano').value, 10);
+  if (!mes || !ano) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty">Selecione mês e ano.</td></tr>`;
+    return;
+  }
+
+  try {
+    const [snap, imoveis, locadores, locatarios] = await Promise.all([
+      tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+      ensureImoveisCache(),
+      ensureLocadoresCache(),
+      ensureLocatariosCache(),
+    ]);
+
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum balancete para ${fmtMesAno(mes, ano)}. Clique em "Novo Balancete" para criar.</td></tr>`;
+      return;
+    }
+
+    const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+    const locadorMap = Object.fromEntries(locadores.map(l => [l.id, l.nome]));
+    const locatarioMap = Object.fromEntries(locatarios.map(l => [l.id, l.nome]));
+
+    const rows = snap.docs.map((doc, i) => {
+      const b = doc.data();
+      const status = b.status || 'aberto';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${imMap[b.imovelId] || '—'}</strong></td>
+          <td>${locadorMap[b.locadorId] || '—'}</td>
+          <td>${locatarioMap[b.locatarioId] || '—'}</td>
+          <td>${fmtBRL(b.aluguelBase)}</td>
+          <td><strong>${fmtBRL(b.liquidoLocador)}</strong></td>
+          <td><span class="badge-status ${status}">${BALANCETE_STATUS_LABEL[status] || status}</span></td>
+          <td><div class="action-btns"><button class="btn btn-sm btn-secondary" onclick="openBalanceteModal('${doc.id}')">Editar</button></div></td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar balancetes:', err);
+    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+// Inicializa filtros do mês/ano com mês atual
+function initBalanceteFiltros() {
+  const hoje = new Date();
+  if (!$('filtro-balancete-ano').value) $('filtro-balancete-ano').value = hoje.getFullYear();
+  if ($('filtro-balancete-mes').value === '') $('filtro-balancete-mes').value = hoje.getMonth() + 1;
+}
+
+// ----- Modal -----
+
+async function populateBalanceteContratos(selected) {
+  const select = $('balancete-contrato');
+  select.innerHTML = '<option value="">— Selecione —</option>';
+
+  try {
+    const snap = await tenantPath().collection('contratos').get();
+    const [imoveis, locatarios] = await Promise.all([
+      ensureImoveisCache(),
+      ensureLocatariosCache(),
+    ]);
+    const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+    const locMap = Object.fromEntries(locatarios.map(l => [l.id, l.nome]));
+
+    const opts = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.status === 'vigente' || c.id === selected)
+      .map(c => {
+        const im = imMap[c.imovelId] || 'Imóvel';
+        const loc = locMap[c.locatarioId] || 'Locatário';
+        const sel = c.id === selected ? ' selected' : '';
+        return `<option value="${c.id}"${sel}>${im} · ${loc} · ${fmtBRL(c.aluguel)}</option>`;
+      });
+
+    select.innerHTML += opts.join('');
+  } catch (err) {
+    console.error('Erro ao carregar contratos:', err);
+  }
+}
+
+async function openBalanceteModal(id) {
+  clearAlert('balancete-alert');
+  $('balancete-id').value = id || '';
+  $('modal-balancete-title').textContent = id ? 'Editar Balancete' : 'Novo Balancete';
+  $('btn-delete-balancete').style.display = id ? 'inline-block' : 'none';
+
+  _balanceteLancamentos = [];
+  $('balancete-aluguel-base').value = '';
+  $('balancete-taxa-adm').value = '';
+  $('balancete-taxa-valor').value = '';
+  $('balancete-obs').value = '';
+  $('balancete-status').value = 'aberto';
+  $('balancete-contrato-info').style.display = 'none';
+
+  const hoje = new Date();
+  if (!id) {
+    $('balancete-mes').value = parseInt($('filtro-balancete-mes').value, 10) || (hoje.getMonth() + 1);
+    $('balancete-ano').value = parseInt($('filtro-balancete-ano').value, 10) || hoje.getFullYear();
+  }
+
+  let selectedContratoId = null;
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('balancetes').doc(id).get();
+      if (snap.exists) {
+        const b = snap.data();
+        selectedContratoId = b.contratoId;
+        $('balancete-mes').value = b.mes;
+        $('balancete-ano').value = b.ano;
+        $('balancete-status').value = b.status || 'aberto';
+        $('balancete-aluguel-base').value = b.aluguelBase ?? '';
+        $('balancete-taxa-adm').value = b.taxaAdm ?? '';
+        $('balancete-obs').value = b.obs || '';
+        _balanceteLancamentos = (b.lancamentos || []).map(l => ({
+          ...l,
+          id: l.id || cryptoRandomId(),
+        }));
+      }
+    } catch (err) {
+      console.error('Erro ao carregar balancete:', err);
+    }
+  }
+
+  await populateBalanceteContratos(selectedContratoId);
+  if (selectedContratoId) $('balancete-contrato').value = selectedContratoId;
+  await refreshBalanceteContratoInfo();
+
+  renderLancamentos();
+  recalcBalancete();
+  aplicarStatusBalancete();
+  $('modal-balancete').style.display = 'flex';
+}
+
+function closeBalanceteModal() { $('modal-balancete').style.display = 'none'; }
+
+function cryptoRandomId() {
+  return Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+}
+
+async function onBalanceteContratoChange() {
+  await refreshBalanceteContratoInfo();
+}
+
+async function refreshBalanceteContratoInfo() {
+  const contratoId = $('balancete-contrato').value;
+  const info = $('balancete-contrato-info');
+  if (!contratoId) { info.style.display = 'none'; $('balancete-aluguel-base').value = ''; $('balancete-taxa-adm').value = ''; recalcBalancete(); return; }
+
+  try {
+    const snap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!snap.exists) return;
+    const c = snap.data();
+    $('balancete-aluguel-base').value = (c.aluguel ?? 0).toFixed(2);
+    if (!$('balancete-taxa-adm').value) $('balancete-taxa-adm').value = c.taxaAdm ?? 10;
+
+    // Garante linha de Aluguel nas Entradas se ainda não tiver
+    const jaTemAluguel = _balanceteLancamentos.some(l => l.bloco === 'entrada' && l.categoria === 'aluguel');
+    if (!jaTemAluguel && !$('balancete-id').value) {
+      _balanceteLancamentos.unshift({
+        id: cryptoRandomId(),
+        bloco: 'entrada',
+        categoria: 'aluguel',
+        descricao: 'Aluguel mensal',
+        valor: c.aluguel || 0,
+        comprovantePath: null,
+        comprovanteNome: null,
+      });
+      renderLancamentos();
+    }
+
+    info.style.display = 'block';
+    info.textContent = `Aluguel ${fmtBRL(c.aluguel)} · Taxa adm padrão ${c.taxaAdm}% · Vencimento dia ${c.diaVencimento}`;
+    info.style.color = 'var(--text-muted)';
+    recalcBalancete();
+  } catch (err) {
+    console.error('Erro ao buscar contrato:', err);
+  }
+}
+
+function renderLancamentos() {
+  const blocos = ['entrada', 'despesa_locador', 'despesa_locatario'];
+  blocos.forEach(bloco => {
+    const list = $('lanc-' + bloco.replace('_', '-') + '-list');
+    const linhas = _balanceteLancamentos.filter(l => l.bloco === bloco);
+    if (linhas.length === 0) {
+      list.innerHTML = '<div class="empty-lanc">Nenhum lançamento — clique em + Adicionar.</div>';
+      return;
+    }
+    list.innerHTML = linhas.map(l => renderLancRow(l)).join('');
+  });
+}
+
+function renderLancRow(l) {
+  const cats = LANC_CATEGORIAS[l.bloco] || [];
+  const catOptions = cats.map(c => {
+    const sel = c === l.categoria ? ' selected' : '';
+    return `<option value="${c}"${sel}>${LANC_CATEGORIA_LABEL[c] || c}</option>`;
+  }).join('');
+
+  const hasFile = !!l.comprovantePath;
+  const fileLabel = hasFile ? '📎 ' + (l.comprovanteNome || 'anexado').slice(0, 14) : '📎 Anexar';
+  const fileClass = hasFile ? 'lanc-comprovante-btn has-file' : 'lanc-comprovante-btn';
+
+  return `
+    <div class="lanc-row" data-id="${l.id}">
+      <select onchange="updateLanc('${l.id}', 'categoria', this.value)">${catOptions}</select>
+      <input type="text" value="${(l.descricao || '').replace(/"/g, '&quot;')}" placeholder="Descrição" oninput="updateLanc('${l.id}', 'descricao', this.value)">
+      <input type="number" min="0" step="0.01" value="${l.valor ?? ''}" placeholder="0,00" oninput="updateLanc('${l.id}', 'valor', parseFloat(this.value) || 0)">
+      <label class="${fileClass}" title="${hasFile ? 'Trocar comprovante' : 'Anexar comprovante'}">
+        <span>${fileLabel}</span>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="uploadLancComprovante('${l.id}', this.files[0])">
+        ${hasFile ? `<a href="#" onclick="abrirLancComprovante(event, '${l.id}')" style="margin-left:4px;">↗</a>` : ''}
+      </label>
+      <button class="lanc-del" title="Excluir" onclick="removeLanc('${l.id}')">×</button>
+    </div>
+  `;
+}
+
+function updateLanc(id, campo, valor) {
+  const idx = _balanceteLancamentos.findIndex(l => l.id === id);
+  if (idx === -1) return;
+  _balanceteLancamentos[idx][campo] = valor;
+  if (campo === 'valor') recalcBalancete();
+}
+
+function addLancamento(bloco) {
+  const defaultCat = LANC_CATEGORIAS[bloco][0];
+  _balanceteLancamentos.push({
+    id: cryptoRandomId(),
+    bloco,
+    categoria: defaultCat,
+    descricao: LANC_CATEGORIA_LABEL[defaultCat] || '',
+    valor: 0,
+    comprovantePath: null,
+    comprovanteNome: null,
+  });
+  renderLancamentos();
+  recalcBalancete();
+}
+
+function removeLanc(id) {
+  if (!confirm('Remover este lançamento?')) return;
+  _balanceteLancamentos = _balanceteLancamentos.filter(l => l.id !== id);
+  renderLancamentos();
+  recalcBalancete();
+}
+
+function recalcBalancete() {
+  const sum = (bloco) => _balanceteLancamentos.filter(l => l.bloco === bloco)
+    .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
+
+  const totalEntradas = sum('entrada');
+  const totalDespLocador = sum('despesa_locador');
+  const totalDespLocatario = sum('despesa_locatario');
+
+  // Taxa adm é calculada sobre o aluguel-base do contrato
+  const aluguelBase = parseFloat($('balancete-aluguel-base').value) || 0;
+  const taxaPercent = parseFloat($('balancete-taxa-adm').value) || 0;
+  const taxaValor = aluguelBase * taxaPercent / 100;
+
+  const liquido = totalEntradas - totalDespLocador - taxaValor;
+
+  $('total-entradas').textContent = fmtBRL(totalEntradas);
+  $('total-despesas-locador').textContent = fmtBRL(totalDespLocador);
+  $('total-despesas-locatario').textContent = fmtBRL(totalDespLocatario);
+  $('balancete-taxa-valor').value = taxaValor.toFixed(2);
+
+  $('resumo-entradas').textContent = fmtBRL(totalEntradas);
+  $('resumo-despesas-locador').textContent = fmtBRL(totalDespLocador);
+  $('resumo-taxa-adm').textContent = fmtBRL(taxaValor);
+  $('resumo-liquido').textContent = fmtBRL(liquido);
+}
+
+function aplicarStatusBalancete() {
+  const fechado = $('balancete-status').value !== 'aberto';
+  // Trava edição se fechado
+  document.querySelectorAll('#modal-balancete .lanc-row input, #modal-balancete .lanc-row select, #modal-balancete .lanc-row button').forEach(el => {
+    el.disabled = fechado;
+  });
+  $('balancete-taxa-adm').disabled = fechado;
+}
+
+async function uploadLancComprovante(id, file) {
+  if (!file) return;
+  const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
+  const idx = _balanceteLancamentos.findIndex(l => l.id === id);
+  if (idx === -1) return;
+
+  try {
+    const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `balancetes/${balanceteId}/comprovantes/${id}_${cleanName}`;
+    const ref = storageTenantRef().child(path);
+    await ref.put(file, { contentType: file.type });
+    _balanceteLancamentos[idx].comprovantePath = path;
+    _balanceteLancamentos[idx].comprovanteNome = file.name;
+    renderLancamentos();
+    showAlert('balancete-alert', `Comprovante anexado: ${file.name}`, 'success');
+  } catch (err) {
+    console.error('Erro ao anexar:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function abrirLancComprovante(event, id) {
+  event.preventDefault();
+  event.stopPropagation();
+  const l = _balanceteLancamentos.find(x => x.id === id);
+  if (!l || !l.comprovantePath) return;
+  try {
+    const url = await storage.ref().child(l.comprovantePath).getDownloadURL();
+    window.open(url, '_blank');
+  } catch (err) {
+    alert('Erro ao abrir: ' + err.message);
+  }
+}
+
+async function copiarBalanceteMesAnterior() {
+  const contratoId = $('balancete-contrato').value;
+  if (!contratoId) { showAlert('balancete-alert', 'Selecione o contrato primeiro.'); return; }
+  const mes = parseInt($('balancete-mes').value, 10);
+  const ano = parseInt($('balancete-ano').value, 10);
+  if (!mes || !ano) return;
+
+  let mesAnt = mes - 1, anoAnt = ano;
+  if (mesAnt === 0) { mesAnt = 12; anoAnt = ano - 1; }
+  const anteriorId = balanceteId(anoAnt, mesAnt, contratoId);
+
+  try {
+    const snap = await tenantPath().collection('balancetes').doc(anteriorId).get();
+    if (!snap.exists) {
+      showAlert('balancete-alert', `Sem balancete em ${fmtMesAno(mesAnt, anoAnt)} para este contrato.`);
+      return;
+    }
+    const b = snap.data();
+    // Copia lançamentos (sem comprovantes — pertencem ao balancete anterior)
+    _balanceteLancamentos = (b.lancamentos || []).map(l => ({
+      ...l,
+      id: cryptoRandomId(),
+      comprovantePath: null,
+      comprovanteNome: null,
+    }));
+    if (b.taxaAdm != null) $('balancete-taxa-adm').value = b.taxaAdm;
+    renderLancamentos();
+    recalcBalancete();
+    showAlert('balancete-alert', `Lançamentos copiados de ${fmtMesAno(mesAnt, anoAnt)} (comprovantes não foram copiados).`, 'success');
+  } catch (err) {
+    console.error('Erro ao copiar mês anterior:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function saveBalancete() {
+  clearAlert('balancete-alert');
+  const contratoId = $('balancete-contrato').value;
+  const mes = parseInt($('balancete-mes').value, 10);
+  const ano = parseInt($('balancete-ano').value, 10);
+
+  if (!contratoId) { showAlert('balancete-alert', 'Selecione o contrato.'); return; }
+  if (!mes || !ano) { showAlert('balancete-alert', 'Informe mês e ano.'); return; }
+
+  const id = $('balancete-id').value || balanceteId(ano, mes, contratoId);
+
+  // Busca contrato pra snapshot de imovel/locador/locatário
+  const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+  if (!cSnap.exists) { showAlert('balancete-alert', 'Contrato não encontrado.'); return; }
+  const c = cSnap.data();
+
+  // Calcula totais finais
+  const sum = (b) => _balanceteLancamentos.filter(l => l.bloco === b)
+    .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
+  const totalEntradas = sum('entrada');
+  const totalDespLocador = sum('despesa_locador');
+  const totalDespLocatario = sum('despesa_locatario');
+  const aluguelBase = c.aluguel || 0;
+  const taxaAdm = parseFloat($('balancete-taxa-adm').value) || 0;
+  const taxaAdmValor = aluguelBase * taxaAdm / 100;
+  const liquidoLocador = totalEntradas - totalDespLocador - taxaAdmValor;
+
+  const data = {
+    contratoId,
+    imovelId: c.imovelId || null,
+    locadorId: c.locadorId || null,
+    locatarioId: c.locatarioId || null,
+    mes, ano,
+    status: $('balancete-status').value,
+    aluguelBase,
+    taxaAdm,
+    taxaAdmValor,
+    totalEntradas,
+    totalDespesasLocador: totalDespLocador,
+    totalDespesasLocatario: totalDespLocatario,
+    liquidoLocador,
+    lancamentos: _balanceteLancamentos.map(l => ({
+      id: l.id, bloco: l.bloco, categoria: l.categoria,
+      descricao: l.descricao || null, valor: parseFloat(l.valor) || 0,
+      comprovantePath: l.comprovantePath || null,
+      comprovanteNome: l.comprovanteNome || null,
+    })),
+    obs: $('balancete-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-balancete');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const existing = await tenantPath().collection('balancetes').doc(id).get();
+    if (!existing.exists) {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+    }
+    await tenantPath().collection('balancetes').doc(id).set(data, { merge: true });
+    $('balancete-id').value = id;
+
+    closeBalanceteModal();
+    loadBalancetes();
+  } catch (err) {
+    console.error('Erro ao salvar balancete:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteBalancete() {
+  const id = $('balancete-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este balancete? Os comprovantes anexados também serão removidos.')) return;
+  try {
+    // Apaga comprovantes do storage
+    const folderRef = storageTenantRef().child(`balancetes/${id}/comprovantes`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) {}
+    await tenantPath().collection('balancetes').doc(id).delete();
+    closeBalanceteModal();
+    loadBalancetes();
+  } catch (err) {
+    showAlert('balancete-alert', 'Erro: ' + err.message);
   }
 }
 
