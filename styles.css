@@ -428,20 +428,36 @@ label.required::after {
   display: flex;
   align-items: center;
   gap: 14px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  border: 1px solid #CBD5E1;
   border-radius: var(--radius);
   padding: 18px;
-  box-shadow: var(--shadow);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 4px 10px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.03);
   cursor: pointer;
   transition: transform var(--transition), box-shadow var(--transition),
               border-color var(--transition);
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+  box-shadow:
+    0 4px 8px rgba(15, 23, 42, 0.08),
+    0 12px 24px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.05);
   border-color: var(--primary);
+}
+
+.stat-card:active {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.10),
+    0 2px 6px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .stat-card[draggable="true"] { cursor: grab; }
@@ -468,6 +484,10 @@ label.required::after {
   font-size: 24px;
   flex-shrink: 0;
   background: var(--primary-light);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.06),
+    0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .stat-icon-blue   { background: #DBEAFE; }
