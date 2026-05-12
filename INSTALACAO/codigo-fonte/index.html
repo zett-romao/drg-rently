@@ -1,0 +1,3338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRG-Rently — Gestão de Locações</title>
+  <link rel="icon" type="image/png" href="logo.png?v=20260511g">
+  <link rel="apple-touch-icon" href="logo.png?v=20260511g">
+  <link rel="stylesheet" href="styles.css?v=20260512o">
+
+  <!-- Firebase v10.7.1 (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js?v=20260510b"></script>
+</head>
+<body>
+
+  <!-- ============================================ -->
+  <!-- TELA: Login -->
+  <!-- ============================================ -->
+  <div id="screen-login" class="screen active">
+    <div class="auth-card">
+      <img src="logo.png?v=20260511g" alt="D.R. Global" class="auth-logo">
+      <h1>DRG-Rently</h1>
+      <p class="subtitle">Gestão de locações residenciais e comerciais</p>
+
+      <div id="login-alert" class="alert alert-error" style="display:none;"></div>
+
+      <div class="form-group">
+        <label for="login-email">E-mail</label>
+        <input type="email" id="login-email" autocomplete="email" placeholder="voce@empresa.com">
+      </div>
+
+      <div class="form-group">
+        <label for="login-senha">Senha</label>
+        <input type="password" id="login-senha" autocomplete="current-password">
+      </div>
+
+      <button id="btn-login" class="btn btn-primary">Entrar</button>
+
+      <div class="auth-footer">
+        Nova imobiliária? <a id="link-show-signup">Criar conta</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- TELA: Signup de novo tenant (imobiliária) -->
+  <!-- ============================================ -->
+  <div id="screen-signup" class="screen">
+    <div class="auth-card">
+      <img src="logo.png?v=20260511g" alt="D.R. Global" class="auth-logo">
+      <h1>Cadastrar imobiliária</h1>
+      <p class="subtitle">Crie a conta da sua empresa no DRG-Rently</p>
+
+      <div id="signup-alert" class="alert alert-error" style="display:none;"></div>
+
+      <div class="card" style="background:var(--primary-light); border:none; padding:14px; margin-bottom:18px;">
+        <strong style="color:var(--primary-dark); font-size:13px;">Dados da imobiliária</strong>
+      </div>
+
+      <div class="form-group">
+        <label for="signup-razao">Razão social</label>
+        <input type="text" id="signup-razao" placeholder="Ex: Imobiliária Exemplo Ltda">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="signup-cnpj">CNPJ</label>
+          <input type="text" id="signup-cnpj" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="form-group">
+          <label for="signup-creci">CRECI (opcional)</label>
+          <input type="text" id="signup-creci">
+        </div>
+      </div>
+
+      <div class="card" style="background:var(--primary-light); border:none; padding:14px; margin: 20px 0 18px;">
+        <strong style="color:var(--primary-dark); font-size:13px;">Administrador da conta</strong>
+      </div>
+
+      <div class="form-group">
+        <label for="signup-nome">Seu nome</label>
+        <input type="text" id="signup-nome">
+      </div>
+
+      <div class="form-group">
+        <label for="signup-email">E-mail (login)</label>
+        <input type="email" id="signup-email" autocomplete="email">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="signup-senha">Senha</label>
+          <input type="password" id="signup-senha" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="signup-senha2">Confirmar senha</label>
+          <input type="password" id="signup-senha2" autocomplete="new-password">
+        </div>
+      </div>
+
+      <button id="btn-signup" class="btn btn-primary">Criar conta</button>
+
+      <div class="auth-footer">
+        Já tem conta? <a id="link-show-login">Fazer login</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- TELA: App principal -->
+  <!-- ============================================ -->
+  <div id="screen-app" class="screen">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img src="logo.png?v=20260511g" alt="DRG" class="brand-logo">
+        <div class="brand-info">
+          <h2 id="brand-title">DRG-Rently</h2>
+          <div class="brand-sub" id="brand-tenant-name">—</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <div class="nav-group">
+          <div class="nav-group-title">Visão Geral</div>
+          <a class="nav-link active" data-section="dashboard"><span class="nav-ico">📊</span><span>Dashboard</span></a>
+          <a class="nav-link" data-section="alertas"><span class="nav-ico">🔔</span><span>Alertas</span></a>
+          <a class="nav-link" data-section="relatorios"><span class="nav-ico">📈</span><span>Relatórios</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Cadastros</div>
+          <a class="nav-link" data-section="locadores"><span class="nav-ico">🏠</span><span>Locadores</span></a>
+          <a class="nav-link" data-section="locatarios"><span class="nav-ico">👤</span><span>Locatários</span></a>
+          <a class="nav-link" data-section="compradores"><span class="nav-ico">🛒</span><span>Compradores</span></a>
+          <a class="nav-link" data-section="garantias"><span class="nav-ico">🛡</span><span>Garantias</span></a>
+          <a class="nav-link" data-section="imoveis"><span class="nav-ico">🏢</span><span>Imóveis</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Operação</div>
+          <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
+          <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
+          <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
+          <a class="nav-link" onclick="openVitrinePublica()"><span class="nav-ico">🌐</span><span>Vitrine Pública</span></a>
+          <a class="nav-link" id="nav-portais" data-section="portais"><span class="nav-ico">📡</span><span>Portais</span></a>
+        </div>
+
+        <div class="nav-group">
+          <div class="nav-group-title">Administração</div>
+          <a class="nav-link" id="nav-importacao" data-section="importacao"><span class="nav-ico">📥</span><span>Importação CSV</span></a>
+          <a class="nav-link" id="nav-auditoria" data-section="auditoria"><span class="nav-ico">📜</span><span>Auditoria</span></a>
+          <a class="nav-link" id="nav-superadmin" data-section="superadmin" style="display:none;"><span class="nav-ico">⚙️</span><span>Super Admin</span></a>
+          <a class="nav-link" id="nav-configuracoes" data-section="configuracoes"><span class="nav-ico">🔧</span><span>Configurações</span></a>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span id="footer-version">v0.1.0</span>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <!-- Banner de "Atuando como" (super admin) -->
+      <div id="banner-atuando-como" class="banner-atuando" style="display:none;">
+        <span>👁 Você está atuando como <strong id="banner-atuando-nome">—</strong></span>
+        <button class="btn btn-sm" onclick="voltarParaSuperAdmin()">← Voltar ao Super Admin</button>
+      </div>
+
+      <header class="topbar">
+        <div class="topbar-title" id="topbar-title">Dashboard</div>
+        <div class="topbar-user">
+          <span id="user-name">—</span>
+          <button id="btn-logout" class="btn btn-secondary btn-sm">Sair</button>
+        </div>
+      </header>
+
+      <div class="content">
+
+        <!-- Dashboard -->
+        <section class="section" id="section-dashboard">
+          <p class="muted" style="font-size:11px; margin-bottom:10px;">
+            💡 Arraste os cards para reordenar conforme sua preferência. A ordem é salva automaticamente.
+          </p>
+          <div class="dashboard-grid" id="dashboard-grid">
+            <div class="stat-card" data-card-id="locadores" onclick="showSection('locadores')" title="Ver locadores">
+              <div class="stat-card-icon stat-icon-blue">🏠</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-locadores">—</div>
+                <div class="stat-card-label">Locadores</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="locatarios" onclick="showSection('locatarios')" title="Ver locatários">
+              <div class="stat-card-icon stat-icon-purple">👤</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-locatarios">—</div>
+                <div class="stat-card-label">Locatários</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="imoveis-alugados" onclick="showSection('imoveis')" title="Ver imóveis alugados">
+              <div class="stat-card-icon stat-icon-amber">🏢</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-imoveis-alugados">—</div>
+                <div class="stat-card-label">Imóveis locados</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="imoveis-disponiveis" onclick="showSection('imoveis')" title="Ver imóveis disponíveis">
+              <div class="stat-card-icon stat-icon-green">🟢</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-imoveis-disponiveis">—</div>
+                <div class="stat-card-label">Imóveis disponíveis</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="imoveis-venda" onclick="showSection('imoveis')" title="Ver imóveis à venda">
+              <div class="stat-card-icon stat-icon-amber">🏷</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-imoveis-venda">—</div>
+                <div class="stat-card-label">Imóveis à venda</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="contratos-vigentes" onclick="showSection('contratos')" title="Ver contratos vigentes">
+              <div class="stat-card-icon stat-icon-teal">📝</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-contratos-vigentes">—</div>
+                <div class="stat-card-label">Contratos vigentes</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="garantias-ativas" onclick="showSection('garantias')" title="Ver garantias ativas">
+              <div class="stat-card-icon stat-icon-rose">🛡</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-garantias-ativas">—</div>
+                <div class="stat-card-label">Garantias ativas</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="negociacoes" onclick="showSection('negociacoes')" title="Ver negociações em andamento">
+              <div class="stat-card-icon stat-icon-purple">🤝</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-negociacoes">—</div>
+                <div class="stat-card-label">Negociações em andamento</div>
+              </div>
+            </div>
+            <div class="stat-card" data-card-id="balancetes-mes" onclick="showSection('balancetes')" title="Ver balancetes do mês corrente">
+              <div class="stat-card-icon stat-icon-teal">💰</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-balancetes-mes">—</div>
+                <div class="stat-card-label">Balancetes deste mês</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Bem-vindo ao DRG-Rently</h3>
+            <p style="color:var(--text-muted);">Sistema em construção. Fase 1 (cadastros) — concluída. Próxima fase: balancetes mensais.</p>
+          </div>
+        </section>
+
+        <!-- Locadores -->
+        <section class="section" id="section-locadores" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Locadores</h3>
+                <p class="muted">Proprietários dos imóveis sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>E-mail</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-locadores">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-locatarios" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Locatários</h3>
+                <p class="muted">Inquilinos e ficha sócio-econômica.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openLocatarioModal()">+ Novo Locatário</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-locatarios">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-garantias" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Garantias</h3>
+                <p class="muted">Fiador, caução ou seguro fiança.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openGarantiaModal()">+ Nova Garantia</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Identificação</th>
+                    <th>Tipo</th>
+                    <th>Valor referência</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-garantias">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-imoveis" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Imóveis</h3>
+                <p class="muted">Unidades sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openImovelModal()">+ Novo Imóvel</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Apelido</th>
+                    <th>Tipo</th>
+                    <th>Locador</th>
+                    <th>Aluguel sugerido</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-imoveis">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-contratos" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Contratos</h3>
+                <p class="muted">Vínculo locador + locatário + imóvel + garantia.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openContratoModal()">+ Novo Contrato</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Locatário</th>
+                    <th>Período</th>
+                    <th>Aluguel</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-contratos">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-balancetes" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Balancetes Mensais</h3>
+                <p class="muted">Apuração de receitas e despesas por contrato e mês.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openBalanceteModal()">+ Novo Balancete</button>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 14px; max-width: 600px;">
+              <div class="form-group">
+                <label>Mês</label>
+                <select id="filtro-balancete-mes" onchange="loadBalancetes()">
+                  <option value="1">Janeiro</option>
+                  <option value="2">Fevereiro</option>
+                  <option value="3">Março</option>
+                  <option value="4">Abril</option>
+                  <option value="5">Maio</option>
+                  <option value="6">Junho</option>
+                  <option value="7">Julho</option>
+                  <option value="8">Agosto</option>
+                  <option value="9">Setembro</option>
+                  <option value="10">Outubro</option>
+                  <option value="11">Novembro</option>
+                  <option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Ano</label>
+                <input type="number" id="filtro-balancete-ano" min="2020" max="2099" step="1" onchange="loadBalancetes()">
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Locador</th>
+                    <th>Locatário</th>
+                    <th>Aluguel</th>
+                    <th>Líquido a repassar</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-balancetes">
+                  <tr><td colspan="8" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Compradores -->
+        <section class="section" id="section-compradores" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Compradores</h3>
+                <p class="muted">Interessados em adquirir imóveis sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openCompradorModal()">+ Novo Comprador</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>Forma de pagamento</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-compradores">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Negociações -->
+        <section class="section" id="section-negociacoes" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Negociações</h3>
+                <p class="muted">Propostas e contratos de compra e venda.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openNegociacaoModal()">+ Nova Negociação</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Comprador</th>
+                    <th>Valor proposto</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-negociacoes">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Painel Super Admin (só visível para role=super_admin) -->
+        <section class="section" id="section-superadmin" style="display:none;">
+          <!-- KPIs gerais -->
+          <div class="dashboard-grid" id="superadmin-kpis" style="margin-bottom: 22px;"></div>
+
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Imobiliárias clientes</h3>
+                <p class="muted">Gerencie todos os tenants do SaaS.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadTenantsTable()">🔄 Recarregar</button>
+            </div>
+
+            <div class="form-row" style="max-width:700px; margin-bottom:14px;">
+              <div class="form-group">
+                <label>Filtro</label>
+                <select id="filtro-tenant-status" onchange="renderTenantsTable()">
+                  <option value="">Todos</option>
+                  <option value="ativo">Ativos</option>
+                  <option value="suspenso">Suspensos</option>
+                  <option value="trial">Em trial</option>
+                  <option value="inadimplente">Inadimplentes</option>
+                  <option value="vencendo">Trial vencendo em 7d</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Plano</label>
+                <select id="filtro-tenant-plano" onchange="renderTenantsTable()">
+                  <option value="">Todos</option>
+                  <option value="trial">Trial</option>
+                  <option value="basic">Basic</option>
+                  <option value="pro">Pro</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Buscar</label>
+                <input type="text" id="filtro-tenant-busca" placeholder="Nome ou CNPJ" oninput="renderTenantsTable()">
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table" id="table-tenants">
+                <thead>
+                  <tr>
+                    <th>Razão social</th>
+                    <th>Plano</th>
+                    <th>Mensalidade</th>
+                    <th>Próximo venc.</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-tenants">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- =================================================== -->
+          <!-- Equipe DRG (operadores internos da D.R. Global)      -->
+          <!-- =================================================== -->
+          <div class="card" id="card-equipe-drg" style="margin-top:22px;">
+            <div class="section-header">
+              <div>
+                <h3>👥 Equipe interna DRG</h3>
+                <p class="muted">Gerencie os colaboradores da D.R. Global que operam o SaaS (vendas, suporte, financeiro).</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadEquipeDRG()">🔄 Recarregar</button>
+            </div>
+
+            <h4 class="form-section-title">Membros da equipe</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              <strong>Super Admin:</strong> acesso total ao painel DRG.<br>
+              <strong>Operador DRG:</strong> acesso limitado pelas permissões do perfil vinculado.
+            </p>
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Role</th>
+                    <th>Perfil DRG</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-equipe-drg">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="btn btn-primary btn-sm" type="button" onclick="openDRGUsuarioModal()">+ Adicionar membro DRG</button>
+
+            <h4 class="form-section-title">Perfis DRG (permissões customizáveis)</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Crie perfis para limitar o que cada operador DRG enxerga (ex: "Suporte só visualiza", "Comercial gerencia tenants e pagamentos", "Financeiro lança pagamentos").
+            </p>
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome do perfil</th>
+                    <th>Áreas permitidas</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-drg-perfis">
+                  <tr><td colspan="3" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="btn btn-primary btn-sm" type="button" onclick="openDRGPerfilModal()">+ Novo perfil DRG</button>
+          </div>
+        </section>
+
+        <!-- Alertas -->
+        <section class="section" id="section-alertas" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Alertas</h3>
+                <p class="muted">Pendências e situações que merecem atenção.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAlertas()">🔄 Recarregar</button>
+            </div>
+            <div id="alertas-container"></div>
+          </div>
+        </section>
+
+        <!-- Relatórios -->
+        <section class="section" id="section-relatorios" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Relatórios</h3>
+                <p class="muted">Análises e exportações dos dados.</p>
+              </div>
+            </div>
+
+            <div class="form-row" style="max-width:900px;">
+              <div class="form-group">
+                <label>Relatório</label>
+                <select id="relatorio-tipo" onchange="loadRelatorio()">
+                  <option value="faturamento">💰 Faturamento mensal (líquidos repassados)</option>
+                  <option value="receita_imobiliaria">🧾 Receita da imobiliária (taxa de adm)</option>
+                  <option value="balancetes_pendentes">⏳ Balancetes pendentes (não enviados)</option>
+                  <option value="contratos_vigentes">📝 Contratos vigentes</option>
+                  <option value="locatarios_status">👤 Locatários por status</option>
+                  <option value="imoveis_status">🏢 Imóveis por status</option>
+                  <option value="historico_imovel">📜 Histórico por imóvel</option>
+                </select>
+              </div>
+              <div class="form-group" id="relatorio-periodo-grupo">
+                <label>Mês</label>
+                <select id="relatorio-mes" onchange="loadRelatorio()">
+                  <option value="1">Janeiro</option><option value="2">Fevereiro</option>
+                  <option value="3">Março</option><option value="4">Abril</option>
+                  <option value="5">Maio</option><option value="6">Junho</option>
+                  <option value="7">Julho</option><option value="8">Agosto</option>
+                  <option value="9">Setembro</option><option value="10">Outubro</option>
+                  <option value="11">Novembro</option><option value="12">Dezembro</option>
+                </select>
+              </div>
+              <div class="form-group" id="relatorio-ano-grupo">
+                <label>Ano</label>
+                <input type="number" id="relatorio-ano" min="2020" max="2099" onchange="loadRelatorio()">
+              </div>
+              <div class="form-group" id="relatorio-imovel-grupo" style="display:none;">
+                <label>Imóvel</label>
+                <select id="relatorio-imovel" onchange="loadRelatorio()"></select>
+              </div>
+            </div>
+
+            <div id="relatorio-resumo" class="balancete-resumo-print" style="margin: 20px 0; display:none;"></div>
+
+            <div class="table-wrap">
+              <table class="table" id="tabela-relatorio">
+                <thead id="thead-relatorio"></thead>
+                <tbody id="tbody-relatorio">
+                  <tr><td colspan="6" class="empty">Selecione um relatório acima.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="margin-top:14px; display:flex; gap:8px; justify-content:flex-end;">
+              <button class="btn btn-secondary btn-sm" onclick="exportarRelatorioCsv()">📥 Exportar CSV</button>
+              <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨 Imprimir</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Importação CSV -->
+        <section class="section" id="section-importacao" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Importação em massa (CSV)</h3>
+                <p class="muted">Cadastre múltiplos registros a partir de um arquivo CSV. Útil pra migração de outras planilhas/sistemas.</p>
+              </div>
+            </div>
+
+            <div class="form-row" style="max-width:600px;">
+              <div class="form-group">
+                <label>Tipo de registro</label>
+                <select id="import-tipo" onchange="onImportTipoChange()">
+                  <option value="locadores">🏠 Locadores</option>
+                  <option value="locatarios">👤 Locatários</option>
+                  <option value="imoveis">🏢 Imóveis</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Modelo</label>
+                <button class="btn btn-secondary btn-sm" type="button" onclick="baixarTemplateImport()" style="margin-top:22px;">📥 Baixar template CSV</button>
+              </div>
+            </div>
+
+            <div class="form-group" style="max-width:600px;">
+              <label>Arquivo CSV (UTF-8, separador vírgula)</label>
+              <input type="file" id="import-arquivo" accept=".csv" onchange="processarArquivoImport()">
+              <p class="muted" style="font-size:11px; margin-top:4px;">Limite: 100 linhas por importação. Primeira linha = cabeçalho.</p>
+            </div>
+
+            <div id="import-preview-container" style="display:none;">
+              <h4 class="form-section-title" id="import-preview-titulo">Pré-visualização</h4>
+              <div id="import-stats" class="balancete-resumo-print" style="margin-bottom:14px;"></div>
+              <div class="table-wrap" style="max-height: 400px; overflow-y: auto;">
+                <table class="table" style="font-size:12px;">
+                  <thead id="import-thead"></thead>
+                  <tbody id="import-tbody"></tbody>
+                </table>
+              </div>
+              <div style="margin-top:14px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="cancelarImportacao()">Cancelar</button>
+                <button class="btn btn-primary" id="btn-confirmar-import" onclick="confirmarImportacao()">✓ Importar agora</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Auditoria -->
+        <section class="section" id="section-auditoria" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Auditoria</h3>
+                <p class="muted">Histórico de ações sensíveis no sistema (LGPD).</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAuditoria()">🔄 Recarregar</button>
+            </div>
+
+            <div class="form-row" style="max-width:700px; margin-bottom:14px;">
+              <div class="form-group">
+                <label>Entidade</label>
+                <select id="filtro-auditoria-entidade" onchange="loadAuditoria()">
+                  <option value="">Todas</option>
+                  <option value="locador">Locadores</option>
+                  <option value="locatario">Locatários</option>
+                  <option value="comprador">Compradores</option>
+                  <option value="garantia">Garantias</option>
+                  <option value="imovel">Imóveis</option>
+                  <option value="contrato">Contratos</option>
+                  <option value="negociacao">Negociações</option>
+                  <option value="balancete">Balancetes</option>
+                  <option value="usuario">Usuários do tenant</option>
+                  <option value="config">Configurações</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Ação</label>
+                <select id="filtro-auditoria-acao" onchange="loadAuditoria()">
+                  <option value="">Todas</option>
+                  <option value="create">Criação</option>
+                  <option value="update">Atualização</option>
+                  <option value="delete">Exclusão</option>
+                  <option value="login">Login</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Data / Hora</th>
+                    <th>Usuário</th>
+                    <th>Ação</th>
+                    <th>Entidade</th>
+                    <th>ID do registro</th>
+                    <th>Detalhes</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-auditoria">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+              Mostrando os últimos 200 registros. Logs são imutáveis e mantidos por 5 anos para conformidade LGPD.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================ -->
+        <!-- SECTION: Portais Imobiliários -->
+        <!-- ============================================ -->
+        <section class="section" id="section-portais" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📡 Portais imobiliários</h3>
+                <p class="muted">Anuncie seus imóveis nos principais portais do Brasil. <strong style="color:var(--success);">Feed XML disponível!</strong></p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadPortaisStatus()">🔄 Atualizar status</button>
+            </div>
+
+            <!-- Status do Feed -->
+            <div class="card" id="feed-status-card" style="background:linear-gradient(135deg, #d1fae5, #a7f3d0); border:1px solid #86efac; padding:18px; margin-bottom:20px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                <div>
+                  <h4 style="margin:0 0 4px; color:#065f46;">✅ Feed XML ativo</h4>
+                  <p style="margin:0; font-size:13px; color:var(--text);">
+                    <span id="feed-status-count">—</span> imóveis publicados estão sendo expostos aos portais.
+                    URLs do feed prontas pra colar no painel de cada portal.
+                  </p>
+                </div>
+                <div>
+                  <button class="btn btn-secondary btn-sm" onclick="previewFeedXml()">👁 Visualizar XML</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Banner informativo: como funciona -->
+            <div class="card" style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; padding:18px; margin-bottom:20px;">
+              <h4 style="margin:0 0 10px; color:var(--primary-dark);">💡 Como funciona a integração com portais</h4>
+              <ol style="margin:0; padding-left:20px; color:var(--text); line-height:1.7; font-size:13px;">
+                <li><strong>Contrate um plano profissional</strong> no portal escolhido (cada um cobra uma mensalidade).</li>
+                <li><strong>Receba do portal um endereço (URL)</strong> onde ele vai buscar seus imóveis automaticamente.</li>
+                <li><strong>Cadastre seus imóveis aqui no DRG-Rently</strong> com fotos, descrição e valores.</li>
+                <li><strong>Copie a URL do feed XML</strong> (botão "📋 Copiar URL" em cada card abaixo) e cole no painel do portal.</li>
+                <li><strong>Em algumas horas seus imóveis aparecem publicados</strong> e atualizam automaticamente (cache 10 min).</li>
+              </ol>
+            </div>
+
+            <!-- Grid de cards de portais (renderizado dinamicamente) -->
+            <div class="portais-grid" id="portais-grid-container">
+              <p class="muted" style="grid-column: 1 / -1;">Carregando portais…</p>
+            </div>
+
+            <!-- Roadmap / próximos passos -->
+            <div class="card" style="background:#fef9e7; border:1px solid #fcd34d; padding:18px; margin-top:24px;">
+              <h4 style="margin:0 0 10px; color:#92400e;">🗺 Roadmap de integração</h4>
+              <ul style="margin:0; padding-left:20px; color:var(--text); line-height:1.7; font-size:13px;">
+                <li><strong>Fase 1 ✅:</strong> Tela informativa com guia dos principais portais</li>
+                <li><strong>Fase 2 ✅:</strong> Geração automática de XML feed em URL pública por tenant — o portal busca sozinho os imóveis a cada poucas horas (cache 10 min)</li>
+                <li><strong>Fase 3 (planejado):</strong> Painel de monitoramento com status de cada portal (última sincronização, erros, imóveis publicados) + envio de leads dos portais direto pro CRM</li>
+                <li><strong>Fase 4 (planejado):</strong> Importação reversa — receber leads dos portais e criar negociações automaticamente</li>
+              </ul>
+            </div>
+
+            <!-- Aviso de boas práticas -->
+            <div class="card" style="background:#f0fdf4; border:1px solid #86efac; padding:16px; margin-top:16px;">
+              <h4 style="margin:0 0 8px; color:#166534;">✅ Boas práticas para anunciar bem</h4>
+              <ul style="margin:0; padding-left:20px; color:var(--text); line-height:1.7; font-size:13px;">
+                <li><strong>Capriche nas fotos:</strong> mínimo 6 fotos, boa iluminação, ângulos amplos. Anúncios sem foto têm 80% menos cliques.</li>
+                <li><strong>Descrição detalhada:</strong> mencione bairro, características, comércio próximo, transporte, escolas.</li>
+                <li><strong>Valor honesto:</strong> publique o valor real — economize tempo seu e do cliente.</li>
+                <li><strong>Atualize sempre:</strong> remova imóveis já alugados/vendidos. Anúncios desatualizados queimam credibilidade.</li>
+                <li><strong>Não pague portais que não rendam:</strong> teste 2-3 meses, meça leads. Foque nos que trazem retorno real.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-configuracoes" style="display:none;">
+          <div class="card">
+            <h3>Configurações da imobiliária</h3>
+
+            <div id="cfg-alert" class="alert alert-error" style="display:none;"></div>
+
+            <h4 class="form-section-title">Identidade visual</h4>
+            <div class="form-group">
+              <label>Logo da imobiliária</label>
+              <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+                <div id="cfg-logo-preview" style="width:90px; height:90px; border-radius:50%; background:#f0f0f0; overflow:hidden; display:flex; align-items:center; justify-content:center; box-shadow: var(--shadow);">
+                  <img id="cfg-logo-img" src="logo.png" alt="Logo" style="max-width:90px; max-height:90px;">
+                </div>
+                <div style="flex:1; min-width:200px;">
+                  <input type="file" id="cfg-logo-input" accept=".png,.jpg,.jpeg,.webp,.svg" onchange="uploadLogoTenant()">
+                  <p class="muted" style="font-size:11px; margin-top:4px;">PNG/JPG/SVG até 1MB. Recomendado quadrado (mín 200×200px). Aparece no app, links públicos e e-mails.</p>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="removerLogoTenant()" id="btn-remover-logo" style="display:none; margin-top:6px;">🗑 Voltar pra logo padrão</button>
+                </div>
+              </div>
+            </div>
+
+            <h4 class="form-section-title">Dados cadastrais</h4>
+            <div class="form-group">
+              <label>Razão social</label>
+              <input type="text" id="cfg-razao" disabled>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>CNPJ</label>
+                <input type="text" id="cfg-cnpj" disabled>
+              </div>
+              <div class="form-group">
+                <label>CRECI</label>
+                <input type="text" id="cfg-creci" disabled>
+              </div>
+            </div>
+
+            <h4 class="form-section-title">Contato público (aparece nos links e na vitrine)</h4>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Telefone / WhatsApp</label>
+                <input type="text" id="cfg-telefone" placeholder="(00) 00000-0000" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Usado nos botões 💬 WhatsApp e 📞 Ligar</span>
+              </div>
+              <div class="form-group">
+                <label>E-mail de contato</label>
+                <input type="email" id="cfg-email-contato" placeholder="contato@imobiliaria.com.br" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Usado no botão ✉️ E-mail</span>
+              </div>
+            </div>
+
+            <h4 class="form-section-title">Página pública dos imóveis</h4>
+
+            <div class="form-group">
+              <label class="toggle-row" style="cursor:pointer;">
+                <input type="checkbox" id="cfg-watermark-default" onchange="saveConfigImobiliaria()">
+                <span>Aplicar marca d'água nas fotos por padrão</span>
+              </label>
+              <p class="muted" style="font-size:12px; margin-top:6px;">
+                Quando ativo, a logo da imobiliária é sobreposta às fotos ao fazer
+                upload. Você pode desativar caso a caso no upload de cada imóvel.
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Apelido amigável (slug) da vitrine</label>
+              <input type="text" id="cfg-slug" placeholder="drglobal" oninput="onSlugInput()" onblur="saveConfigImobiliaria()">
+              <span id="cfg-slug-status" class="input-status muted" style="display:none;"></span>
+              <p class="muted" style="font-size:11px;">Apenas letras minúsculas, números e hífen (ex: <code>drglobal</code>, <code>imoveis-sp</code>). Substitui o ID interno na URL pública. Deixe vazio para usar o ID padrão.</p>
+            </div>
+
+            <div class="form-group">
+              <label>Link da sua vitrine</label>
+              <div class="link-display">
+                <input type="text" id="cfg-vitrine-url" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyVitrineUrl()">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica()">↗ Abrir</button>
+              </div>
+              <p class="muted" style="font-size:11px;">Compartilhe esse link em WhatsApp, redes sociais ou portais para divulgar todos os imóveis publicados.</p>
+            </div>
+
+            <h4 class="form-section-title">👥 Usuários e perfis da imobiliária</h4>
+            <div style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; border-radius:8px; padding:14px; margin-bottom:16px;">
+              <p style="margin:0 0 8px; color:var(--primary-dark); font-size:13px;">
+                <strong>💡 Como funciona:</strong>
+              </p>
+              <ol style="margin:0; padding-left:18px; color:var(--text); line-height:1.7; font-size:12.5px;">
+                <li><strong>Crie perfis</strong> com permissões específicas (ex: "Captador" só vê imóveis, "Financeiro" só vê contratos/balancetes).</li>
+                <li><strong>Cadastre operadores</strong> com e-mail e senha — eles entram pelo mesmo login do app.</li>
+                <li><strong>Vincule cada operador a um perfil</strong> pra limitar o que ele vê. Sem perfil = padrão (todos os cadastros).</li>
+                <li>Administradores têm acesso total ao tenant; operadores só veem o permitido pelo perfil.</li>
+              </ol>
+            </div>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              <strong>Usuários cadastrados:</strong> operadores que acessam o sistema da imobiliária.
+            </p>
+
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Perfil</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-usuarios-tenant">
+                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button class="btn btn-primary btn-sm" type="button" onclick="openUsuarioTenantModal()">+ Adicionar usuário</button>
+
+            <h4 class="form-section-title">Perfis e permissões</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Crie perfis customizados com permissões específicas (ex: "Captador", "Financeiro").
+              Vincule operadores a esses perfis pra limitar o que cada um vê e faz.
+            </p>
+
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome do perfil</th>
+                    <th>Módulos permitidos</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-perfis">
+                  <tr><td colspan="3" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button class="btn btn-primary btn-sm" type="button" onclick="openPerfilModal()">+ Novo perfil</button>
+
+            <h4 class="form-section-title">Cláusulas padrão dos contratos</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Esses textos servem de base e são preenchidos automaticamente nos contratos gerados.
+              Use variáveis para puxar dados: <code>{{locador.nome}}</code>, <code>{{locatario.nome}}</code>,
+              <code>{{imovel.apelido}}</code>, <code>{{imovel.enderecoCompleto}}</code>,
+              <code>{{contrato.aluguel}}</code>, <code>{{contrato.prazo}}</code>,
+              <code>{{contrato.multa}}</code>, <code>{{contrato.taxaAdm}}</code>,
+              <code>{{contrato.inicio}}</code>, <code>{{contrato.fim}}</code>,
+              <code>{{garantia.descricao}}</code>, <code>{{negociacao.valor}}</code>, etc.
+            </p>
+
+            <div class="form-group">
+              <label>Template de contrato de LOCAÇÃO</label>
+              <textarea id="cfg-template-locacao" rows="10" oninput="saveConfigImobiliaria()" placeholder="Ex:
+DAS PARTES — Pelo presente instrumento particular, de um lado {{locador.nome}}, inscrito(a) no CPF/CNPJ {{locador.documento}}, doravante denominado(a) LOCADOR, e de outro {{locatario.nome}}, inscrito(a) no CPF/CNPJ {{locatario.documento}}, doravante denominado(a) LOCATÁRIO, têm entre si justo e contratado o seguinte:
+
+CLÁUSULA 1ª — DO OBJETO
+O LOCADOR cede em locação ao LOCATÁRIO o imóvel situado em {{imovel.enderecoCompleto}}, matrícula {{imovel.matricula}}.
+
+CLÁUSULA 2ª — DO PRAZO
+O contrato vigorará por {{contrato.prazo}} meses, com início em {{contrato.inicio}} e término em {{contrato.fim}}.
+
+CLÁUSULA 3ª — DO ALUGUEL
+O LOCATÁRIO pagará mensalmente {{contrato.aluguel}}, vencendo todo dia {{contrato.diaVencimento}}.
+
+CLÁUSULA 4ª — DA MULTA
+Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, equivalente a três aluguéis.
+
+(continue com as suas cláusulas padrão…)"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Cabeçalho do balancete (aparece no topo)</label>
+              <textarea id="cfg-balancete-cabecalho" rows="3" oninput="saveConfigImobiliaria()" placeholder="Ex: BALANCETE DE LOCAÇÃO — Apresentamos abaixo a movimentação financeira do imóvel sob nossa administração no período de referência."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Rodapé / Observações do balancete (aparece no fim)</label>
+              <textarea id="cfg-balancete-rodape" rows="3" oninput="saveConfigImobiliaria()" placeholder="Ex: Valores conferem com os comprovantes em anexo. Qualquer divergência deve ser informada em até 5 dias úteis. {{tenant.nome}} — CRECI {{tenant.creci}}"></textarea>
+            </div>
+
+            <h4 class="form-section-title">Envio automático por e-mail</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare proxy do Resend)</label>
+              <input type="url" id="cfg-worker-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-resend.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint do Worker que envia e-mails via Resend. Veja instruções em <code>cloudflare-worker-resend.js</code> no repo.</span>
+            </div>
+
+            <h4 class="form-section-title">Leitura automática de boletos (Gemini Vision)</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare proxy do Gemini)</label>
+              <input type="url" id="cfg-worker-gemini-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-gemini.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint do Worker que extrai dados de boletos via Gemini Vision. Veja instruções em <code>cloudflare-worker-gemini.js</code> no repo.</span>
+            </div>
+
+            <h4 class="form-section-title">📡 XML Feed para portais imobiliários</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare gerador de XML feed)</label>
+              <input type="url" id="cfg-worker-feed-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-feed.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint que expõe seus imóveis publicados em XML para ZAP/Viva/OLX/etc. Veja instruções em <code>cloudflare-worker-feed.js</code> no repo.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Remetente (e-mail "from")</label>
+              <input type="email" id="cfg-email-from" oninput="saveConfigImobiliaria()" placeholder="onboarding@resend.dev">
+              <span class="muted" style="font-size:11px;">Use <code>onboarding@resend.dev</code> até verificar seu domínio em resend.com.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Mensagem padrão do e-mail (vai no corpo, antes do balancete)</label>
+              <textarea id="cfg-email-template" rows="3" oninput="saveConfigImobiliaria()" placeholder="Ex: Prezado(a) {{locador.nome}}, segue o balancete referente ao período. Em caso de dúvidas, entre em contato. Atenciosamente, {{tenant.nome}}."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Template de contrato de COMPRA E VENDA</label>
+              <textarea id="cfg-template-venda" rows="10" oninput="saveConfigImobiliaria()" placeholder="Ex:
+DAS PARTES — Pelo presente instrumento, de um lado {{vendedor.nome}}, CPF/CNPJ {{vendedor.documento}}, doravante VENDEDOR, e de outro {{comprador.nome}}, CPF/CNPJ {{comprador.documento}}, doravante COMPRADOR, ajustam o seguinte:
+
+CLÁUSULA 1ª — DO OBJETO
+O VENDEDOR aliena ao COMPRADOR o imóvel descrito em {{imovel.enderecoCompleto}}, matrícula {{imovel.matricula}}, inscrição imobiliária {{imovel.iptu}}.
+
+CLÁUSULA 2ª — DO PREÇO
+O preço ajustado é de {{negociacao.valor}}, a ser pago da seguinte forma: {{negociacao.formaPagamento}}.
+
+CLÁUSULA 3ª — DA TRANSMISSÃO
+A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
+
+(continue com as suas cláusulas padrão…)"></textarea>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Locador (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-locador" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-locador-title">Novo Locador</h3>
+        <button class="modal-close" onclick="closeLocadorModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="locador-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="locador-id">
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="locador-tipo" onchange="onLocadorTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="locador-nome-label" class="required">Nome completo</label>
+            <input type="text" id="locador-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locador-doc-label" class="required">CPF</label>
+            <input type="text" id="locador-documento" placeholder="000.000.000-00">
+            <span id="locador-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="locador-rg-group">
+            <label>RG</label>
+            <input type="text" id="locador-rg">
+          </div>
+          <div class="form-group" id="locador-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="locador-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="locador-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="locador-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Profissão</label>
+            <input type="text" id="locador-profissao">
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="locador-nacionalidade" value="Brasileira">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="locador-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="locador-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="locador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPLocador()">
+            <span id="locador-cep-status" class="input-status" style="display:none;">Buscando…</span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="locador-logradouro" placeholder="Rua, avenida, etc.">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="locador-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="locador-complemento" placeholder="Apto, bloco, sala…">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="locador-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="locador-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="locador-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados para repasse</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Chave Pix</label>
+            <input type="text" id="locador-pix" placeholder="CPF, e-mail, telefone ou chave aleatória">
+          </div>
+          <div class="form-group">
+            <label>Banco / Agência / Conta (alternativa ao Pix)</label>
+            <input type="text" id="locador-banco" placeholder="Ex: 341 / 1234 / 56789-0">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="locador-obs" rows="3"></textarea>
+        </div>
+
+        <!-- Documentos — só aparece em modo edição -->
+        <div id="locador-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de endereço, escritura, IPTU, autorização de administração, etc.</p>
+
+          <div id="locador-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="locador-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadLocadorDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeLocadorModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-locador" onclick="deleteLocador()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-locador" onclick="saveLocador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Locatário (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-locatario" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-locatario-title">Novo Locatário</h3>
+        <button class="modal-close" onclick="closeLocatarioModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="locatario-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="locatario-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="locatario-status">
+              <option value="pendente_analise">Pendente de análise</option>
+              <option value="aprovado">Aprovado</option>
+              <option value="reprovado">Reprovado</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se reprovado)</label>
+            <input type="text" id="locatario-motivo-status" placeholder="Ex: renda incompatível, restrição cadastral">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="locatario-tipo" onchange="onLocatarioTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="locatario-nome-label" class="required">Nome completo</label>
+            <input type="text" id="locatario-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locatario-doc-label" class="required">CPF</label>
+            <input type="text" id="locatario-documento" placeholder="000.000.000-00">
+            <span id="locatario-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="locatario-rg-group">
+            <label>RG</label>
+            <input type="text" id="locatario-rg">
+          </div>
+          <div class="form-group" id="locatario-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="locatario-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="locatario-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="locatario-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="locatario-nacionalidade" value="Brasileira">
+          </div>
+          <div class="form-group">
+            <label>Dependentes</label>
+            <input type="number" id="locatario-dependentes" min="0" step="1" value="0">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="locatario-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="locatario-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço atual</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="locatario-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPLocatario()">
+            <span id="locatario-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="locatario-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="locatario-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="locatario-complemento">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="locatario-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="locatario-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="locatario-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Análise de crédito</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="locatario-profissao-label">Profissão</label>
+            <input type="text" id="locatario-profissao">
+          </div>
+          <div class="form-group">
+            <label>Empresa onde trabalha</label>
+            <input type="text" id="locatario-empresa">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cargo</label>
+            <input type="text" id="locatario-cargo">
+          </div>
+          <div class="form-group">
+            <label>Data de admissão</label>
+            <input type="date" id="locatario-admissao">
+          </div>
+          <div class="form-group">
+            <label>Renda mensal (R$)</label>
+            <input type="number" id="locatario-renda" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Aluga outros imóveis?</label>
+            <select id="locatario-outros-imoveis">
+              <option value="nao">Não</option>
+              <option value="sim">Sim</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Detalhes (se aluga outros imóveis)</label>
+            <input type="text" id="locatario-outros-detalhes" placeholder="Ex: 1 sala comercial no centro, R$ 1.500,00/mês">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="locatario-obs" rows="3"></textarea>
+        </div>
+
+        <div id="locatario-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de residência, últimos 3 contracheques, DIRPF (autônomo), carteira de trabalho, etc.</p>
+
+          <div id="locatario-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="locatario-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadLocatarioDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeLocatarioModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-locatario" onclick="deleteLocatario()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-locatario" onclick="saveLocatario()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Balancete (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-balancete" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-balancete-title">Novo Balancete</h3>
+        <button class="modal-close" onclick="closeBalanceteModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="balancete-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="balancete-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Contrato</label>
+            <select id="balancete-contrato" onchange="onBalanceteContratoChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="balancete-contrato-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Mês</label>
+            <select id="balancete-mes">
+              <option value="1">Janeiro</option>
+              <option value="2">Fevereiro</option>
+              <option value="3">Março</option>
+              <option value="4">Abril</option>
+              <option value="5">Maio</option>
+              <option value="6">Junho</option>
+              <option value="7">Julho</option>
+              <option value="8">Agosto</option>
+              <option value="9">Setembro</option>
+              <option value="10">Outubro</option>
+              <option value="11">Novembro</option>
+              <option value="12">Dezembro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Ano</label>
+            <input type="number" id="balancete-ano" min="2020" max="2099" step="1">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="balancete-status">
+              <option value="aberto">🟢 Aberto</option>
+              <option value="fechado">🔒 Fechado</option>
+              <option value="enviado">✉️ Enviado ao locador</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="copiarBalanceteMesAnterior()" style="margin-top: 22px;">
+              🔁 Copiar lançamentos do mês anterior
+            </button>
+          </div>
+        </div>
+
+        <!-- BLOCO: Entradas -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-entrada">
+            <h4>⬆ Entradas (recebidas pela imobiliária)</h4>
+            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('entrada')">+ Adicionar</button>
+          </div>
+          <div id="lanc-entrada-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total entradas: <strong id="total-entradas">R$ 0,00</strong></div>
+        </div>
+
+        <!-- BLOCO: Despesas do locador -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-despesa-loc">
+            <h4>⬇ Despesas do locador (descontadas do repasse)</h4>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="lerBoletoLancamento('despesa_locador')">🤖 Ler de boleto</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locador')">+ Adicionar</button>
+            </div>
+          </div>
+          <div id="lanc-despesa-locador-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total despesas do locador: <strong id="total-despesas-locador">R$ 0,00</strong></div>
+        </div>
+
+        <!-- BLOCO: Despesas do locatário (informativo) -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-despesa-loct">
+            <h4>⬇ Despesas do locatário (pagas pela imobiliária — informativo)</h4>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="lerBoletoLancamento('despesa_locatario')">🤖 Ler de boleto</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locatario')">+ Adicionar</button>
+            </div>
+          </div>
+          <div id="lanc-despesa-locatario-list" class="lanc-list"></div>
+          <div class="balancete-bloco-total">Total despesas do locatário: <strong id="total-despesas-locatario">R$ 0,00</strong></div>
+          <p class="muted" style="font-size:11px; margin-top:4px;">Não afeta o líquido do locador — espelhado pelo reembolso recebido.</p>
+        </div>
+
+        <!-- BLOCO: Taxa de administração -->
+        <div class="balancete-bloco">
+          <div class="balancete-bloco-header bloco-taxa">
+            <h4>🧾 Taxa de administração</h4>
+          </div>
+          <div class="form-row" style="padding: 0 12px;">
+            <div class="form-group">
+              <label>Aluguel base (R$)</label>
+              <input type="number" id="balancete-aluguel-base" min="0" step="0.01" disabled>
+            </div>
+            <div class="form-group">
+              <label>Taxa (%) — negociável neste balancete</label>
+              <input type="number" id="balancete-taxa-adm" min="0" max="100" step="0.1" oninput="recalcBalancete()">
+            </div>
+            <div class="form-group">
+              <label>Valor da taxa (R$)</label>
+              <input type="text" id="balancete-taxa-valor" disabled>
+            </div>
+          </div>
+        </div>
+
+        <!-- Resumo destacado -->
+        <div class="balancete-resumo">
+          <div class="resumo-linha">
+            <span>Entradas</span>
+            <strong id="resumo-entradas">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha">
+            <span>− Despesas do locador</span>
+            <strong id="resumo-despesas-locador">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha">
+            <span>− Taxa de administração</span>
+            <strong id="resumo-taxa-adm">R$ 0,00</strong>
+          </div>
+          <div class="resumo-linha resumo-final">
+            <span>💰 LÍQUIDO A REPASSAR AO LOCADOR</span>
+            <strong id="resumo-liquido">R$ 0,00</strong>
+          </div>
+
+          <div class="resumo-pix" id="resumo-pix" style="display:none;">
+            <div class="resumo-pix-info">
+              <span>Chave Pix do locador</span>
+              <strong id="resumo-pix-chave">—</strong>
+            </div>
+            <button class="btn btn-pix" type="button" onclick="copiarPixLocador()">📋 Copiar dados para pagamento</button>
+          </div>
+
+          <div class="resumo-pix-aviso" id="resumo-pix-aviso" style="display:none;">
+            ⚠ Locador sem chave Pix cadastrada. Cadastre em <strong>🏠 Locadores</strong> para habilitar este atalho.
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+        <div class="form-group">
+          <textarea id="balancete-obs" rows="2" placeholder="Observações que vão para o balancete (visível ao locador)"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeBalanceteModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-balancete" onclick="deleteBalancete()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-gerar-balancete" onclick="gerarBalancete()" style="display:none;">📄 Gerar balancete</button>
+        <button class="btn btn-secondary" id="btn-enviar-balancete" onclick="openEnvioBalancete()" style="display:none;">✉️ Enviar ao locador</button>
+        <button class="btn btn-primary" id="btn-save-balancete" onclick="saveBalancete()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Gestão do Tenant (Super Admin) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-tenant" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-tenant-title">Gestão do tenant</h3>
+        <button class="modal-close" onclick="closeTenantModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="tenant-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="tenant-id">
+
+        <!-- Métricas -->
+        <h4 class="form-section-title">Métricas atuais</h4>
+        <div id="tenant-metricas" class="dashboard-grid" style="margin-bottom: 14px;"></div>
+
+        <!-- Dados cadastrais (read-only) -->
+        <h4 class="form-section-title">Dados da imobiliária</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Razão social</label>
+            <input type="text" id="tenant-nome" disabled>
+          </div>
+          <div class="form-group">
+            <label>CNPJ</label>
+            <input type="text" id="tenant-cnpj" disabled>
+          </div>
+          <div class="form-group">
+            <label>Admin</label>
+            <input type="text" id="tenant-admin" disabled>
+          </div>
+        </div>
+
+        <!-- Plano comercial (editável) -->
+        <h4 class="form-section-title">Plano comercial</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Plano</label>
+            <select id="tenant-plano">
+              <option value="trial">Trial (gratuito)</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor mensalidade (R$)</label>
+            <input type="number" id="tenant-valor" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Próximo vencimento</label>
+            <input type="date" id="tenant-proximo-venc">
+          </div>
+        </div>
+
+        <!-- Módulos habilitados (controle granular do que o tenant pode ver) -->
+        <h4 class="form-section-title">Módulos contratados</h4>
+        <p class="muted" style="font-size:12px; margin-bottom:10px;">
+          Defina o que esta imobiliária pode acessar no sistema. Os usuários dela só verão os módulos habilitados aqui (somado às permissões do perfil de cada operador).
+        </p>
+        <div class="form-row">
+          <div class="form-group" style="max-width:380px;">
+            <label>Pacote</label>
+            <select id="tenant-pacote" onchange="onTenantPacoteChange()">
+              <option value="locacao">🏠 Locação — só locações</option>
+              <option value="venda">💼 Venda — só vendas</option>
+              <option value="completo">🌟 Completo — locação + venda</option>
+              <option value="custom">⚙️ Customizado — eu escolho</option>
+            </select>
+          </div>
+        </div>
+        <div id="tenant-modulos-container" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px; margin-top:8px;">
+          <!-- Checkboxes preenchidos por JS -->
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Trial expira em</label>
+            <input type="date" id="tenant-trial-expira">
+            <p class="muted" style="font-size:11px;">Após essa data, alerta aparece. Suspensão é manual.</p>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="tenant-ativo">
+              <option value="true">🟢 Ativo</option>
+              <option value="false">🔴 Suspenso</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Notas internas</h4>
+        <div class="form-group">
+          <textarea id="tenant-notas" rows="3" placeholder="Anotações sobre o cliente (não visível ao admin do tenant)"></textarea>
+        </div>
+
+        <!-- Histórico de pagamentos -->
+        <h4 class="form-section-title">Histórico de pagamentos</h4>
+
+        <div class="table-wrap" style="margin-bottom: 10px;">
+          <table class="table" style="font-size:12px;">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Método</th>
+                <th>Valor</th>
+                <th>Observação</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-pagamentos">
+              <tr><td colspan="5" class="empty">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="form-row" style="background: var(--bg); padding: 10px; border-radius: var(--radius-sm);">
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="pag-data">
+          </div>
+          <div class="form-group">
+            <label>Método</label>
+            <select id="pag-metodo">
+              <option value="pix">PIX</option>
+              <option value="boleto">Boleto</option>
+              <option value="cartao">Cartão</option>
+              <option value="transferencia">Transferência</option>
+              <option value="dinheiro">Dinheiro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" id="pag-valor" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Observação</label>
+            <input type="text" id="pag-obs" placeholder="Ex: Mensalidade Jan/2026">
+          </div>
+          <div class="form-group" style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary btn-sm" type="button" onclick="addPagamento()">+ Adicionar</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeTenantModal()">Cancelar</button>
+        <button class="btn btn-secondary" onclick="atuarComoTenant()">👁 Atuar como este tenant</button>
+        <button class="btn btn-primary" id="btn-save-tenant" onclick="saveTenantManagement()">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Perfil customizado -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-perfil" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-perfil-title">Novo perfil</h3>
+        <button class="modal-close" onclick="closePerfilModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="perfil-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="perfil-id">
+
+        <div class="form-group">
+          <label class="required">Nome do perfil</label>
+          <input type="text" id="perfil-nome" placeholder="Ex: Captador, Financeiro, Atendente">
+        </div>
+
+        <div class="form-group">
+          <label>Módulos permitidos</label>
+          <p class="muted" style="font-size:11px; margin-bottom:10px;">Marque os módulos que este perfil pode acessar.</p>
+          <div id="perfil-modulos-container"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closePerfilModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-perfil" onclick="deletePerfil()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-perfil" onclick="savePerfil()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Novo usuário do tenant -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-usuario-tenant" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-usuario-tenant-title">Adicionar usuário</h3>
+        <button class="modal-close" onclick="closeUsuarioTenantModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="usuario-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="usuario-uid">
+
+        <div class="form-group">
+          <label class="required">Nome completo</label>
+          <input type="text" id="usuario-nome">
+        </div>
+
+        <div class="form-group">
+          <label class="required">E-mail (será o login)</label>
+          <input type="email" id="usuario-email">
+        </div>
+
+        <div class="form-group">
+          <label>Tipo de acesso</label>
+          <select id="usuario-role" onchange="onUsuarioRoleChange()">
+            <option value="operador">Operador (acesso limitado conforme perfil)</option>
+            <option value="admin">Administrador (acesso total ao tenant)</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="usuario-perfil-group">
+          <label>Perfil customizado (opcional)</label>
+          <select id="usuario-perfil">
+            <option value="">— Padrão (todos os cadastros e operação)</option>
+          </select>
+          <p class="muted" style="font-size:11px;">Se selecionado, o operador só vê os módulos permitidos por este perfil.</p>
+        </div>
+
+        <div class="form-group" id="usuario-senha-group">
+          <label class="required">Senha inicial</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="usuario-senha" style="flex:1; font-family:'Courier New', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="gerarSenhaUsuario()">🎲 Gerar</button>
+          </div>
+          <p class="muted" style="font-size:11px; margin-top:4px;">
+            Anote ou envie ao operador — você pode pedir que ele troque depois pelo
+            "Esqueci minha senha" da tela de login. Mínimo 6 caracteres.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="usuario-enviar-email" checked>
+            <span>📧 Enviar e-mail ao usuário com a senha (requer Worker Resend configurado)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeUsuarioTenantModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-usuario" onclick="saveUsuarioTenant()">Criar usuário</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Adicionar membro da equipe DRG -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-drg-usuario" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar membro DRG</h3>
+        <button class="modal-close" onclick="closeDRGUsuarioModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="drg-usuario-alert" class="alert alert-error" style="display:none;"></div>
+
+        <div class="form-group">
+          <label class="required">Nome completo</label>
+          <input type="text" id="drg-usuario-nome">
+        </div>
+
+        <div class="form-group">
+          <label class="required">E-mail (será o login)</label>
+          <input type="email" id="drg-usuario-email">
+        </div>
+
+        <div class="form-group">
+          <label>Tipo de acesso</label>
+          <select id="drg-usuario-role" onchange="onDRGUsuarioRoleChange()">
+            <option value="operador_drg">Operador DRG (acesso limitado conforme perfil)</option>
+            <option value="super_admin">Super Admin (acesso total ao painel DRG)</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="drg-usuario-perfil-group">
+          <label>Perfil DRG</label>
+          <select id="drg-usuario-perfil">
+            <option value="">— Padrão (apenas visualização)</option>
+          </select>
+          <p class="muted" style="font-size:11px;">Determina o que o operador pode ver e fazer no painel DRG.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="required">Senha inicial</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="drg-usuario-senha" style="flex:1; font-family:'Courier New', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="gerarSenhaDRG()">🎲 Gerar</button>
+          </div>
+          <p class="muted" style="font-size:11px; margin-top:4px;">Mínimo 6 caracteres. Anote — você poderá enviar por e-mail ao colaborador.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="drg-usuario-enviar-email" checked>
+            <span>📧 Enviar e-mail ao colaborador com a senha</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDRGUsuarioModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-drg-usuario" onclick="saveDRGUsuario()">Criar membro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Perfil DRG customizado -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-drg-perfil" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-drg-perfil-title">Novo perfil DRG</h3>
+        <button class="modal-close" onclick="closeDRGPerfilModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="drg-perfil-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="drg-perfil-id">
+
+        <div class="form-group">
+          <label class="required">Nome do perfil DRG</label>
+          <input type="text" id="drg-perfil-nome" placeholder="Ex: Suporte, Comercial, Financeiro">
+        </div>
+
+        <div class="form-group">
+          <label>Áreas administrativas permitidas</label>
+          <p class="muted" style="font-size:11px; margin-bottom:8px;">
+            Marque o que este perfil pode acessar no painel Super Admin.
+          </p>
+          <div id="drg-perfil-modulos-container" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:14px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeDRGPerfilModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-drg-perfil" onclick="deleteDRGPerfil()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-drg-perfil" onclick="saveDRGPerfil()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Revisão do boleto lido pelo Gemini -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-boleto-revisao" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🤖 Dados extraídos do boleto</h3>
+        <button class="modal-close" onclick="closeBoletoRevisao()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="boleto-alert" class="alert alert-error" style="display:none;"></div>
+
+        <p class="muted" style="font-size:12px; margin-bottom:14px;">
+          Revise os campos extraídos pelo Gemini. Você pode editar antes de confirmar.
+          Ao confirmar, será criado um lançamento e o boleto anexado como comprovante.
+        </p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categoria sugerida</label>
+            <select id="boleto-categoria"></select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Descrição</label>
+            <input type="text" id="boleto-descricao">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Valor (R$)</label>
+            <input type="number" id="boleto-valor" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Vencimento</label>
+            <input type="date" id="boleto-vencimento">
+          </div>
+          <div class="form-group">
+            <label>Competência</label>
+            <input type="month" id="boleto-competencia">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Beneficiário</label>
+            <input type="text" id="boleto-beneficiario">
+          </div>
+          <div class="form-group">
+            <label>CNPJ/CPF do beneficiário</label>
+            <input type="text" id="boleto-doc-benef">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Linha digitável</label>
+          <input type="text" id="boleto-linha-digitavel" style="font-family: 'Courier New', monospace; font-size: 12px;">
+        </div>
+
+        <p class="muted" style="font-size:11px;">
+          📎 Arquivo carregado: <strong id="boleto-arquivo-nome">—</strong>
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeBoletoRevisao()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-boleto" onclick="confirmarBoletoExtraido()">✓ Confirmar e adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Envio do Balancete por e-mail -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-envio-balancete" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Enviar balancete ao locador</h3>
+        <button class="modal-close" onclick="closeEnvioBalancete()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="envio-alert" class="alert alert-error" style="display:none;"></div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Destinatário (e-mail do locador)</label>
+            <input type="email" id="envio-to" required>
+            <span class="muted" style="font-size:11px;">Você pode editar antes de enviar.</span>
+          </div>
+          <div class="form-group">
+            <label>Cópia (BCC, opcional)</label>
+            <input type="email" id="envio-bcc" placeholder="seu-email@exemplo.com">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="required">Assunto</label>
+          <input type="text" id="envio-subject">
+        </div>
+
+        <div class="form-group">
+          <label>Mensagem inicial (vai antes do balancete)</label>
+          <textarea id="envio-mensagem" rows="4"></textarea>
+        </div>
+
+        <details style="margin-top: 12px;">
+          <summary style="cursor: pointer; font-size: 13px; color: var(--primary); font-weight: 600;">Pré-visualizar o que será enviado</summary>
+          <div id="envio-preview" class="contrato-preview" style="margin-top: 12px; max-height: 400px; overflow-y: auto;"></div>
+        </details>
+
+        <p class="muted" style="font-size:11px; margin-top: 16px;">
+          O e-mail será enviado pelo Cloudflare Worker (Resend). Ao confirmar, o
+          balancete será marcado como "Enviado".
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEnvioBalancete()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-envio" onclick="sendBalanceteEmail()">✉️ Enviar agora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Comprador (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-comprador" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-comprador-title">Novo Comprador</h3>
+        <button class="modal-close" onclick="closeCompradorModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="comprador-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="comprador-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="comprador-status">
+              <option value="pendente_analise">Pendente de análise</option>
+              <option value="aprovado">Aprovado</option>
+              <option value="reprovado">Reprovado</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se reprovado)</label>
+            <input type="text" id="comprador-motivo-status" placeholder="Ex: crédito insuficiente, restrição cadastral">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="comprador-tipo" onchange="onCompradorTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="comprador-nome-label" class="required">Nome completo</label>
+            <input type="text" id="comprador-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="comprador-doc-label" class="required">CPF</label>
+            <input type="text" id="comprador-documento" placeholder="000.000.000-00">
+            <span id="comprador-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="comprador-rg-group">
+            <label>RG</label>
+            <input type="text" id="comprador-rg">
+          </div>
+          <div class="form-group" id="comprador-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="comprador-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="comprador-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="comprador-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Profissão</label>
+            <input type="text" id="comprador-profissao">
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="comprador-nacionalidade" value="Brasileira">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="comprador-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="comprador-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="comprador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPComprador()">
+            <span id="comprador-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="comprador-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="comprador-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="comprador-complemento">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="comprador-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="comprador-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="comprador-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Forma de pagamento prevista</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Forma de pagamento</label>
+            <select id="comprador-forma-pagamento" onchange="onCompradorFormaChange()">
+              <option value="a_vista">À vista</option>
+              <option value="financiado">Financiado</option>
+              <option value="fgts">FGTS</option>
+              <option value="consorcio">Consórcio</option>
+              <option value="permuta">Permuta</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Renda mensal (R$)</label>
+            <input type="number" id="comprador-renda" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row" id="comprador-financiado-extra" style="display:none;">
+          <div class="form-group">
+            <label>Banco / Financeira</label>
+            <input type="text" id="comprador-banco-fin" placeholder="Ex: Caixa, Itaú, BB, Santander">
+          </div>
+          <div class="form-group">
+            <label>Valor de entrada (R$)</label>
+            <input type="number" id="comprador-valor-entrada" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="comprador-obs" rows="3"></textarea>
+        </div>
+
+        <div id="comprador-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de residência, comprovante de renda, extrato FGTS, pré-aprovação de financiamento, etc.</p>
+
+          <div id="comprador-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="comprador-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadCompradorDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCompradorModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-comprador" onclick="deleteComprador()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-comprador" onclick="saveComprador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Negociação (Nova / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-negociacao" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-negociacao-title">Nova Negociação</h3>
+        <button class="modal-close" onclick="closeNegociacaoModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="negociacao-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="negociacao-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Status</label>
+            <select id="negociacao-status">
+              <option value="rascunho">📝 Rascunho</option>
+              <option value="em_negociacao">💬 Em negociação</option>
+              <option value="aceita">✅ Proposta aceita</option>
+              <option value="fechada">🏆 Fechada (escritura)</option>
+              <option value="recusada">❌ Recusada</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo / observação do status</label>
+            <input type="text" id="negociacao-motivo-status" placeholder="Ex: aguarda análise do banco, comprador desistiu">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Vínculos</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Imóvel</label>
+            <select id="negociacao-imovel" onchange="onNegociacaoImovelChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="negociacao-imovel-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Vendedor (proprietário)</label>
+            <select id="negociacao-vendedor">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Comprador</label>
+            <select id="negociacao-comprador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Termo comercial</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Valor proposto (R$)</label>
+            <input type="number" id="negociacao-valor" min="0" step="0.01" placeholder="0,00">
+            <span class="input-status muted" id="negociacao-valor-info">Anunciado: —</span>
+          </div>
+          <div class="form-group">
+            <label>Forma de pagamento</label>
+            <select id="negociacao-forma-pagamento">
+              <option value="a_vista">À vista</option>
+              <option value="financiado">Financiado</option>
+              <option value="fgts">FGTS</option>
+              <option value="consorcio">Consórcio</option>
+              <option value="permuta">Permuta</option>
+              <option value="parcelado">Parcelado direto</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Comissão da imobiliária (%)</label>
+            <input type="number" id="negociacao-comissao" min="0" max="100" step="0.1" value="6">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor de entrada / sinal (R$)</label>
+            <input type="number" id="negociacao-entrada" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Data do sinal / aceite</label>
+            <input type="date" id="negociacao-data-aceite">
+          </div>
+          <div class="form-group">
+            <label>Data prevista da posse / escritura</label>
+            <input type="date" id="negociacao-data-posse">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Cláusulas particulares</h4>
+
+        <div class="form-group">
+          <textarea id="negociacao-clausulas" rows="4" placeholder="Condições específicas da negociação (mobília inclusa, débitos do imóvel, prazos, etc.)"></textarea>
+        </div>
+
+        <h4 class="form-section-title">Observações internas</h4>
+
+        <div class="form-group">
+          <textarea id="negociacao-obs" rows="2" placeholder="Anotações da imobiliária — não vão para o contrato impresso"></textarea>
+        </div>
+
+        <div id="negociacao-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Proposta assinada, pré-aprovação bancária, escritura, etc.</p>
+
+          <div id="negociacao-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="negociacao-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadNegociacaoDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeNegociacaoModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-negociacao" onclick="deleteNegociacao()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-gerar-negociacao" onclick="gerarContratoVenda()" style="display:none;">📄 Gerar contrato</button>
+        <button class="btn btn-primary" id="btn-save-negociacao" onclick="saveNegociacao()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Garantia (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-garantia" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-garantia-title">Nova Garantia</h3>
+        <button class="modal-close" onclick="closeGarantiaModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="garantia-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="garantia-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Tipo de garantia</label>
+            <select id="garantia-tipo" onchange="onGarantiaTipoChange()">
+              <option value="fiador">Fiador</option>
+              <option value="caucao">Caução</option>
+              <option value="seguro_fianca">Seguro Fiança</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="garantia-status">
+              <option value="ativa">Ativa</option>
+              <option value="encerrada">Encerrada</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Data de início</label>
+            <input type="date" id="garantia-inicio">
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: FIADOR (PF) -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-fiador">
+          <h4 class="form-section-title">Dados do fiador</h4>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label class="required">Nome completo</label>
+              <input type="text" id="garantia-fiador-nome">
+            </div>
+            <div class="form-group">
+              <label class="required">CPF</label>
+              <input type="text" id="garantia-fiador-cpf" placeholder="000.000.000-00">
+              <span id="garantia-fiador-cpf-status" class="input-status" style="display:none;"></span>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>RG</label>
+              <input type="text" id="garantia-fiador-rg">
+            </div>
+            <div class="form-group">
+              <label>Data de nascimento</label>
+              <input type="date" id="garantia-fiador-nascimento">
+            </div>
+            <div class="form-group">
+              <label>Profissão</label>
+              <input type="text" id="garantia-fiador-profissao">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Estado civil</label>
+              <select id="garantia-fiador-estado-civil" onchange="onFiadorEstadoCivilChange()">
+                <option value="">—</option>
+                <option value="solteiro">Solteiro(a)</option>
+                <option value="casado">Casado(a)</option>
+                <option value="divorciado">Divorciado(a)</option>
+                <option value="viuvo">Viúvo(a)</option>
+                <option value="uniao_estavel">União Estável</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>E-mail</label>
+              <input type="email" id="garantia-fiador-email">
+            </div>
+            <div class="form-group">
+              <label>Telefone</label>
+              <input type="text" id="garantia-fiador-telefone" placeholder="(00) 00000-0000">
+            </div>
+          </div>
+
+          <h4 class="form-section-title">Endereço do fiador</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>CEP</label>
+              <input type="text" id="garantia-fiador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPFiador()">
+              <span id="garantia-fiador-cep-status" class="input-status" style="display:none;"></span>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Logradouro</label>
+              <input type="text" id="garantia-fiador-logradouro">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Número</label>
+              <input type="text" id="garantia-fiador-numero">
+            </div>
+            <div class="form-group">
+              <label>Complemento</label>
+              <input type="text" id="garantia-fiador-complemento">
+            </div>
+            <div class="form-group">
+              <label>Bairro</label>
+              <input type="text" id="garantia-fiador-bairro">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Cidade</label>
+              <input type="text" id="garantia-fiador-cidade">
+            </div>
+            <div class="form-group">
+              <label>UF</label>
+              <input type="text" id="garantia-fiador-uf" maxlength="2" style="text-transform:uppercase;">
+            </div>
+          </div>
+
+          <h4 class="form-section-title">Análise financeira</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Renda mensal (R$)</label>
+              <input type="number" id="garantia-fiador-renda" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Bens declarados</label>
+              <input type="text" id="garantia-fiador-bens" placeholder="Imóveis, veículos, contas, aplicações…">
+            </div>
+          </div>
+
+          <div id="garantia-fiador-conjuge-wrap" style="display:none;">
+            <h4 class="form-section-title">Cônjuge (obrigatório se casado)</h4>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: span 2;">
+                <label>Nome do cônjuge</label>
+                <input type="text" id="garantia-fiador-conjuge-nome">
+              </div>
+              <div class="form-group">
+                <label>CPF do cônjuge</label>
+                <input type="text" id="garantia-fiador-conjuge-cpf" placeholder="000.000.000-00">
+                <span id="garantia-fiador-conjuge-cpf-status" class="input-status" style="display:none;"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: CAUÇÃO -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-caucao" style="display:none;">
+          <h4 class="form-section-title">Dados da caução</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Modalidade</label>
+              <select id="garantia-caucao-modalidade" onchange="onCaucaoModalidadeChange()">
+                <option value="dinheiro">Dinheiro</option>
+                <option value="imovel">Imóvel</option>
+                <option value="titulo">Título / Aplicação</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Data do depósito / registro</label>
+              <input type="date" id="garantia-caucao-data">
+            </div>
+            <div class="form-group">
+              <label>Valor (R$)</label>
+              <input type="number" id="garantia-caucao-valor" min="0" step="0.01" placeholder="0,00">
+            </div>
+          </div>
+
+          <div id="garantia-caucao-dinheiro-extra">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Banco</label>
+                <input type="text" id="garantia-caucao-banco">
+              </div>
+              <div class="form-group">
+                <label>Agência</label>
+                <input type="text" id="garantia-caucao-agencia">
+              </div>
+              <div class="form-group">
+                <label>Conta</label>
+                <input type="text" id="garantia-caucao-conta">
+              </div>
+            </div>
+          </div>
+
+          <div id="garantia-caucao-bem-extra" style="display:none;">
+            <div class="form-group">
+              <label>Descrição do bem</label>
+              <textarea id="garantia-caucao-bem-descricao" rows="2" placeholder="Matrícula, endereço, número do título, instituição emissora…"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- BLOCO: SEGURO FIANÇA -->
+        <!-- ============================================ -->
+        <div id="garantia-bloco-seguro" style="display:none;">
+          <h4 class="form-section-title">Dados da apólice</h4>
+
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label class="required">Seguradora</label>
+              <input type="text" id="garantia-seguro-seguradora">
+            </div>
+            <div class="form-group">
+              <label class="required">Número da apólice</label>
+              <input type="text" id="garantia-seguro-apolice">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Vigência — início</label>
+              <input type="date" id="garantia-seguro-vigencia-ini">
+            </div>
+            <div class="form-group">
+              <label>Vigência — fim</label>
+              <input type="date" id="garantia-seguro-vigencia-fim">
+            </div>
+            <div class="form-group">
+              <label>Cobertura contratada (R$)</label>
+              <input type="number" id="garantia-seguro-cobertura" min="0" step="0.01" placeholder="0,00">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Prêmio total (R$)</label>
+              <input type="number" id="garantia-seguro-premio" min="0" step="0.01" placeholder="0,00">
+            </div>
+            <div class="form-group">
+              <label>Forma de pagamento</label>
+              <select id="garantia-seguro-forma">
+                <option value="">—</option>
+                <option value="a_vista">À vista</option>
+                <option value="parcelado">Parcelado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Parcelas (se parcelado)</label>
+              <input type="number" id="garantia-seguro-parcelas" min="1" step="1">
+            </div>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="garantia-obs" rows="3"></textarea>
+        </div>
+
+        <div id="garantia-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Comprovantes da garantia: docs do fiador, escritura do imóvel caucionado, comprovante de depósito, apólice de seguro, etc.</p>
+
+          <div id="garantia-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="garantia-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadGarantiaDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeGarantiaModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-garantia" onclick="deleteGarantia()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-garantia" onclick="saveGarantia()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Imóvel (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-imovel" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-imovel-title">Novo Imóvel</h3>
+        <button class="modal-close" onclick="closeImovelModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="imovel-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="imovel-id">
+
+        <h4 class="form-section-title">Identificação</h4>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Apelido / Identificação interna</label>
+            <input type="text" id="imovel-apelido" placeholder="Ex: Apto 301 - Ed. Solar do Lago">
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="imovel-status">
+              <option value="disponivel">🟢 Disponível</option>
+              <option value="alugado">🟠 Alugado</option>
+              <option value="vendido">💰 Vendido</option>
+              <option value="em_reforma">🟡 Em reforma</option>
+              <option value="indisponivel">🔴 Indisponível</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Tipo</label>
+            <select id="imovel-tipo">
+              <option value="residencial">Residencial</option>
+              <option value="comercial">Comercial</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Subtipo</label>
+            <select id="imovel-subtipo">
+              <option value="">—</option>
+              <option value="apartamento">Apartamento</option>
+              <option value="casa">Casa</option>
+              <option value="sobrado">Sobrado</option>
+              <option value="kitnet">Kitnet / Studio</option>
+              <option value="sala">Sala comercial</option>
+              <option value="loja">Loja</option>
+              <option value="galpao">Galpão</option>
+              <option value="terreno">Terreno</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Locador (proprietário)</label>
+            <select id="imovel-locador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="imovel-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPImovel()">
+            <span id="imovel-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="imovel-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="imovel-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="imovel-complemento" placeholder="Apto, bloco, sala…">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="imovel-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="imovel-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="imovel-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Características</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Área útil (m²)</label>
+            <input type="number" id="imovel-area-util" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Área total (m²)</label>
+            <input type="number" id="imovel-area-total" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Andar</label>
+            <input type="text" id="imovel-andar" placeholder="Ex: 3º, Térreo">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quartos</label>
+            <input type="number" id="imovel-quartos" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Banheiros</label>
+            <input type="number" id="imovel-banheiros" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Vagas de garagem</label>
+            <input type="number" id="imovel-vagas" min="0" step="1" value="0">
+          </div>
+          <div class="form-group">
+            <label>Mobiliado</label>
+            <select id="imovel-mobiliado">
+              <option value="nao">Não</option>
+              <option value="parcial">Parcialmente</option>
+              <option value="sim">Sim</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="imovel-multiplas-unidades">
+            <span>🏘 Imóvel com múltiplas unidades (ex: prédio de kitnets, casas geminadas)</span>
+          </label>
+          <p class="muted" style="font-size:11px; margin-top:4px;">
+            Quando ativo, o status "Alugado" NÃO é aplicado automaticamente ao criar contratos vigentes.
+            Permite múltiplos contratos simultâneos no mesmo imóvel.
+          </p>
+        </div>
+
+        <h4 class="form-section-title">Registros legais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Matrícula do registro de imóveis</label>
+            <input type="text" id="imovel-matricula">
+          </div>
+          <div class="form-group">
+            <label>Número do IPTU</label>
+            <input type="text" id="imovel-iptu" placeholder="Inscrição imobiliária">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Finalidade e valores</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Finalidade</label>
+            <select id="imovel-finalidade" onchange="onImovelFinalidadeChange()">
+              <option value="locacao">Apenas para locação</option>
+              <option value="venda">Apenas para venda</option>
+              <option value="ambos">Locação e venda</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor de mercado / avaliação (R$)</label>
+            <input type="number" id="imovel-valor-mercado" min="0" step="0.01" placeholder="0,00">
+            <span class="muted" style="font-size:11px;">Interno — nunca aparece no link público</span>
+          </div>
+        </div>
+
+        <div class="form-row" id="imovel-loc-fields">
+          <div class="form-group">
+            <label>Aluguel sugerido (R$)</label>
+            <input type="number" id="imovel-aluguel-sugerido" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row" id="imovel-venda-fields" style="display:none;">
+          <div class="form-group">
+            <label>Valor de venda (R$)</label>
+            <input type="number" id="imovel-valor-venda" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Aceita financiamento?</label>
+            <select id="imovel-aceita-financiamento">
+              <option value="sim">Sim</option>
+              <option value="nao">Não</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Aceita FGTS?</label>
+            <select id="imovel-permite-fgts">
+              <option value="sim">Sim</option>
+              <option value="nao">Não</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="imovel-obs" rows="3"></textarea>
+        </div>
+
+        <!-- Publicação pública -->
+        <div id="imovel-publicacao-section" style="display:none;">
+          <h4 class="form-section-title">Publicação pública</h4>
+          <div class="publicacao-box">
+            <label class="toggle-row">
+              <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()">
+              <span>🌐 Publicar este imóvel (gera link compartilhável)</span>
+            </label>
+            <p class="muted" style="font-size:12px; margin-top:6px;">
+              Quando ativo, qualquer pessoa com o link consegue visualizar as fotos
+              e a descrição. Dados sensíveis (locador, valores internos, endereço
+              exato) ficam ocultos.
+            </p>
+            <div id="imovel-link-actions" style="display:none; margin-top:10px;">
+              <div class="link-display">
+                <input type="text" id="imovel-link-url" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyImovelLink()">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openImovelLink()">↗ Abrir</button>
+              </div>
+            </div>
+
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+              <strong style="font-size:13px;">🔒 Privacidade (o que mostrar no link público)</strong>
+              <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
+                Dados pessoais (LGPD) sempre ficam ocultos: nome do proprietário, CPF/CNPJ,
+                contatos, documentos. Aqui você escolhe o que mais quer revelar do imóvel.
+              </p>
+              <div class="form-row" style="grid-template-columns: 1fr 1fr;">
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-valor" checked>
+                  <span>Mostrar valor exato (se desligado: "Sob consulta")</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-bairro" checked>
+                  <span>Mostrar bairro</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-area" checked>
+                  <span>Mostrar metragens (área útil/total)</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-comodos" checked>
+                  <span>Mostrar quartos/banheiros/vagas</span>
+                </label>
+              </div>
+            </div>
+
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+              <strong style="font-size:13px;">📡 Conteúdo extra para portais imobiliários</strong>
+              <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
+                Campos opcionais usados pelos portais (ZAP, Viva, OLX, etc.) via XML feed.
+                Quanto mais completo, melhor o anúncio.
+              </p>
+
+              <div class="form-group">
+                <label>Descrição longa</label>
+                <textarea id="imovel-descricao-longa" rows="4" placeholder="Texto detalhado do imóvel: características, comércio próximo, transporte, escolas, diferenciais… (usado nos portais e na página pública)"></textarea>
+                <p class="muted" style="font-size:10px; margin-top:2px;">
+                  ✨ Dica: 4-8 linhas é ideal. Mencione referências e diferenciais.
+                </p>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>🎥 URL do vídeo (YouTube/Vimeo)</label>
+                  <input type="url" id="imovel-video-url" placeholder="https://www.youtube.com/watch?v=…">
+                </div>
+                <div class="form-group">
+                  <label>🌐 Tour virtual 360° (Matterport, etc.)</label>
+                  <input type="url" id="imovel-tour-url" placeholder="https://my.matterport.com/show/?m=…">
+                </div>
+              </div>
+
+              <label class="toggle-row" style="font-size:13px; margin-top:8px;">
+                <input type="checkbox" id="imovel-vitrine-feed" checked>
+                <span>📤 Incluir este imóvel no XML feed dos portais (ZAP/Viva/OLX, etc.)</span>
+              </label>
+              <p class="muted" style="font-size:11px; margin-top:4px;">
+                Desligue se quiser publicar só na sua vitrine própria, sem distribuir pros portais.
+                Requer também que "Publicar este imóvel" esteja ativo.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fotos do imóvel (galeria pública) -->
+        <div id="imovel-fotos-section" style="display:none;">
+          <h4 class="form-section-title">Fotos do imóvel</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">
+            Imagens que aparecem na página pública. Sem limite de quantidade.
+          </p>
+
+          <div id="imovel-fotos-grid" class="fotos-grid">
+            <p class="empty">Carregando fotos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="imovel-foto-input" multiple accept=".jpg,.jpeg,.png,.webp">
+            <button class="btn btn-secondary btn-sm" onclick="uploadImovelFotos()">📷 Adicionar fotos</button>
+            <label class="toggle-row" style="margin-left:auto; font-size:12px;">
+              <input type="checkbox" id="imovel-foto-watermark" checked>
+              <span>Aplicar marca d'água</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Documentos legais -->
+        <div id="imovel-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos legais</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Escritura, IPTU, planta, autorização de administração, etc. (não aparecem no link público)</p>
+
+          <div id="imovel-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="imovel-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadImovelDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeImovelModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-imovel" onclick="deleteImovel()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-imovel" onclick="saveImovel()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Contrato (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-contrato" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-contrato-title">Novo Contrato</h3>
+        <button class="modal-close" onclick="closeContratoModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="contrato-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="contrato-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Status</label>
+            <select id="contrato-status">
+              <option value="rascunho">📝 Rascunho</option>
+              <option value="vigente">✅ Vigente</option>
+              <option value="encerrado">🏁 Encerrado</option>
+              <option value="rescindido">❌ Rescindido</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se rescindido / encerrado antecipadamente)</label>
+            <input type="text" id="contrato-motivo-status" placeholder="Ex: desinteresse do locatário, inadimplência, mudança de cidade">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Vínculos</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Imóvel</label>
+            <select id="contrato-imovel" onchange="onContratoImovelChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="contrato-imovel-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Locador (proprietário)</label>
+            <select id="contrato-locador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Locatário (inquilino)</label>
+            <select id="contrato-locatario">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="contrato-locatario-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label>Garantia</label>
+            <select id="contrato-garantia">
+              <option value="">— Sem garantia (atípico) —</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Termo comercial</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Prazo</label>
+            <select id="contrato-prazo" onchange="onContratoPrazoOrInicioChange()">
+              <option value="6">6 meses</option>
+              <option value="12">12 meses</option>
+              <option value="24">24 meses</option>
+              <option value="30" selected>30 meses</option>
+              <option value="36">36 meses</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="required">Data de início</label>
+            <input type="date" id="contrato-inicio" onchange="onContratoPrazoOrInicioChange()">
+          </div>
+          <div class="form-group">
+            <label>Data de fim</label>
+            <input type="date" id="contrato-fim">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Aluguel mensal (R$)</label>
+            <input type="number" id="contrato-aluguel" min="0" step="0.01" placeholder="0,00" oninput="onContratoAluguelChange()">
+          </div>
+          <div class="form-group">
+            <label class="required">Dia de vencimento</label>
+            <input type="number" id="contrato-vencimento" min="1" max="30" step="1" value="5">
+          </div>
+          <div class="form-group">
+            <label>Taxa de administração (%)</label>
+            <input type="number" id="contrato-taxa-adm" min="0" max="100" step="0.1" value="10">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Multa rescisória (R$)</label>
+            <input type="number" id="contrato-multa" min="0" step="0.01" placeholder="0,00">
+            <span class="input-status muted" id="contrato-multa-info">Sugerido: 3× o aluguel</span>
+          </div>
+          <div class="form-group">
+            <label>Índice de reajuste</label>
+            <select id="contrato-reajuste-indice">
+              <option value="igpm">IGP-M</option>
+              <option value="ipca" selected>IPCA</option>
+              <option value="inpc">INPC</option>
+              <option value="sem">Sem reajuste</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Periodicidade do reajuste</label>
+            <select id="contrato-reajuste-periodicidade">
+              <option value="anual" selected>Anual</option>
+              <option value="bienal">Bienal</option>
+              <option value="sem">Sem reajuste</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="contrato-primeiro-aluguel-escritorio" style="width:auto;">
+            🎯 Primeiro aluguel destinado ao escritório (captação realizada por nós)
+          </label>
+        </div>
+
+        <h4 class="form-section-title">Cláusulas extras</h4>
+
+        <div class="form-group">
+          <textarea id="contrato-clausulas" rows="4" placeholder="Regras específicas, animais permitidos, pintura, sublocação, etc."></textarea>
+        </div>
+
+        <h4 class="form-section-title">Observações internas</h4>
+
+        <div class="form-group">
+          <textarea id="contrato-obs" rows="2" placeholder="Anotações da imobiliária — não vão para o contrato impresso"></textarea>
+        </div>
+
+        <div id="contrato-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Contrato assinado em PDF, vistoria de entrada, autorizações específicas, anexos.</p>
+
+          <div id="contrato-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="contrato-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadContratoDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-gerar-contrato" onclick="gerarContratoLocacao()" style="display:none;">📄 Gerar contrato</button>
+        <button class="btn btn-primary" id="btn-save-contrato" onclick="saveContrato()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Preview do Contrato (gerado) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-contrato-preview" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-contrato-preview-title">Preview do documento</h3>
+        <button class="modal-close" onclick="closeContratoPreview()">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:12px; margin-bottom:14px;">
+          Preview com os dados preenchidos. Você pode imprimir, baixar em Word
+          para editar ou copiar o texto puro.
+        </p>
+        <div id="contrato-preview-content" class="contrato-preview"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeContratoPreview()">Fechar</button>
+        <button class="btn btn-secondary" onclick="copyContratoTexto()">📋 Copiar texto</button>
+        <button class="btn btn-secondary" onclick="downloadContratoWord()">📝 Baixar Word</button>
+        <button class="btn btn-primary" onclick="printContrato()">📄 Imprimir / PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260512o"></script>
+</body>
+</html>

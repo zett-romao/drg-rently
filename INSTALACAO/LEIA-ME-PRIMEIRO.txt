@@ -1,0 +1,74 @@
+================================================================
+   DRG-RENTLY — KIT DE INSTALAÇÃO COMPLETO
+================================================================
+
+   Versão: 1.0
+   Data: 12 de maio de 2026
+   Para: Instalação em novo ambiente (cliente self-hosted ou nova conta DRG)
+
+   Autor: D.R. Global Multi Services
+   Site:  drglobal.com.br
+   Email: zett.romao@gmail.com
+
+================================================================
+
+ESTRUTURA DESTA PASTA:
+
+   /INSTALACAO
+   ├── LEIA-ME-PRIMEIRO.txt   (este arquivo)
+   ├── PASSO-A-PASSO.md       (guia completo de instalação)
+   ├── /codigo-fonte           (cópia dos arquivos do app)
+   │   ├── index.html
+   │   ├── app.js
+   │   ├── styles.css
+   │   ├── imoveis.html
+   │   ├── imovel.html
+   │   ├── public-imoveis.js
+   │   ├── public-imovel.js
+   │   ├── public.css
+   │   ├── logo.png
+   │   ├── firebase-config.template.js  ← editar este!
+   │   └── firestore.rules
+   ├── /workers                (códigos dos 3 Cloudflare Workers)
+   │   ├── cloudflare-worker-resend.js
+   │   ├── cloudflare-worker-gemini.js
+   │   └── cloudflare-worker-feed.js
+   └── /manuais
+       ├── MANUAL_IMOBILIARIA.md    (manual operacional pra usuários)
+       └── MANUAL_DRG_SYSTEMS.md    (manual interno DRG)
+
+================================================================
+
+   PRÉ-REQUISITOS:
+
+   1. Conta Google (Gmail)
+   2. Cartão de crédito (Firebase plano Blaze - pay as you go)
+   3. Conta Cloudflare (gratuita)
+   4. Conta GitHub (gratuita)
+   5. Conta Resend (gratuita até 3.000 e-mails/mês)
+   6. Conta Google Cloud (gratuita, pra Gemini API)
+
+================================================================
+
+   PASSO RÁPIDO:
+
+   1. Lê o PASSO-A-PASSO.md
+   2. Cria projeto Firebase
+   3. Configura firebase-config.js com tuas credenciais
+   4. Publica regras Firestore
+   5. Sobe código no GitHub
+   6. Ativa GitHub Pages
+   7. Deploya os 3 Workers no Cloudflare
+   8. Configura URLs dos Workers no app
+
+   Tempo total: 1-2 horas
+
+================================================================
+
+   DÚVIDAS? CONTATE:
+
+   D.R. Global Multi Services
+   📧 zett.romao@gmail.com
+   🌐 drglobal.com.br
+
+================================================================

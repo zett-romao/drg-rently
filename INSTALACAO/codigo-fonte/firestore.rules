@@ -1,0 +1,108 @@
+// =============================================================
+// DRG-Rently — Regras Firestore
+// Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
+// Última atualização: 2026-05-12 (equipe DRG + módulos por tenant)
+// =============================================================
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && userExists() && userDoc().role == 'super_admin';
+    }
+
+    function isDRGTeam() {
+      // Equipe DRG (super_admin ou operador_drg) — vê o painel Super Admin
+      return isSignedIn() && userExists()
+             && (userDoc().role == 'super_admin' || userDoc().role == 'operador_drg');
+    }
+
+    function belongsToTenant(tenantId) {
+      return isSignedIn() && userExists() && userDoc().tenantId == tenantId;
+    }
+
+    // ----------- USERS -----------
+    match /users/{uid} {
+      // Leituras
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isDRGTeam();
+      allow read: if isSignedIn() && userExists()
+                  && userDoc().role == 'admin'
+                  && resource.data.tenantId == userDoc().tenantId;
+
+      // Criações
+      allow create: if isSignedIn() && request.auth.uid == uid;        // signup
+      allow create: if isSignedIn() && userExists()                    // admin criando operador
+                    && userDoc().role == 'admin'
+                    && request.resource.data.tenantId == userDoc().tenantId;
+      allow create: if isSuperAdmin()                                   // super_admin criando equipe DRG
+                    && (!('tenantId' in request.resource.data)
+                        || request.resource.data.tenantId == null);
+
+      // Atualizações
+      allow update: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isSuperAdmin();
+      allow update: if isSignedIn() && userExists()
+                    && userDoc().role == 'admin'
+                    && resource.data.tenantId == userDoc().tenantId;
+
+      // Deleções
+      allow delete: if isSuperAdmin();
+    }
+
+    // ----------- DRG PERFIS (perfis customizáveis da equipe interna) -----------
+    match /drgPerfis/{perfilId} {
+      allow read: if isDRGTeam();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    // ----------- TENANTS -----------
+    match /tenants/{tenantId} {
+      allow read;  // leitura pública dos campos públicos (nome, telefone, emailContato)
+      allow create: if isSignedIn();
+      allow update: if belongsToTenant(tenantId) && userDoc().role == 'admin';
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+
+      // Subcoleções genéricas (locadores, locatarios, garantias, contratos, config, pagamentos, perfis, etc.)
+      match /{collection}/{docId} {
+        allow read, write: if belongsToTenant(tenantId);
+        allow read, write: if isDRGTeam();
+      }
+
+      // Imóveis: leitura pública SE linkPublico === true
+      match /imoveis/{imovelId} {
+        allow read: if resource.data.linkPublico == true;
+        allow read, write: if belongsToTenant(tenantId);
+        allow read, write: if isDRGTeam();
+
+        // Fotos do imóvel: leitura sempre pública (galeria)
+        match /fotos/{fotoId} {
+          allow read;
+          allow write: if belongsToTenant(tenantId);
+          allow write: if isDRGTeam();
+        }
+      }
+    }
+
+    // ----------- LOGS DE AUDITORIA (collection global) -----------
+    match /auditoria/{logId} {
+      allow read: if isDRGTeam();
+      allow read: if isSignedIn() && userExists()
+                  && userDoc().role == 'admin'
+                  && resource.data.tenantId == userDoc().tenantId;
+      allow create: if isSignedIn();
+      allow update, delete: if false;  // logs são imutáveis
+    }
+  }
+}

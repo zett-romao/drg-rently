@@ -1,8 +1,8 @@
 # DRG-Rently — Prompt do Projeto
 
-**Última atualização:** 2026-05-11
-**Versão atual:** 0.1.0
-**Estado:** Fase 1 completa em produção · próxima entrega: Fase 2 (Balancete)
+**Última atualização:** 2026-05-12
+**Versão atual:** 0.2.0
+**Estado:** ✅ SaaS funcional em produção — multi-tenant + portais imobiliários (Fase 2)
 
 > Documento serve como ponto de partida pra qualquer pessoa (ou IA) que vai
 > retomar o projeto. Cole no início de uma conversa nova ou leia antes de
@@ -12,10 +12,10 @@
 
 ## 1. O que é
 
-Sistema **SaaS B2B multi-tenant** pra **gestão de locações de imóveis residenciais
+Sistema **SaaS B2B multi-tenant** pra **gestão de locações e vendas de imóveis residenciais
 e comerciais**. Atende imobiliárias que administram imóveis de terceiros (locadores)
-e os disponibilizam para inquilinos (locatários), com garantia (fiador / caução /
-seguro fiança) e contrato vigente.
+e os disponibilizam para inquilinos (locatários) ou compradores, com garantia
+(fiador / caução / seguro fiança) e contrato vigente.
 
 ### Modelo de negócio
 
@@ -27,8 +27,7 @@ Mesmo codebase atende três modos:
   um tenant isolado. Cobrança hoje é manual (super-admin suspende/ativa pelo
   painel); Stripe/MP fica pra fase posterior.
 - **C — Self-hosted (pen drive):** mesmo código distribuído pra cliente que
-  prefere rodar no Firebase próprio. `firebase-config.template.js` está pronto
-  pra esse caso.
+  prefere rodar no Firebase próprio. Pasta `INSTALACAO/` contém kit completo.
 
 ### Fluxo operacional (negócio)
 
@@ -39,274 +38,256 @@ Mesmo codebase atende três modos:
 5. Multa rescisória padrão = 3× valor do aluguel (editável)
 6. Taxa de administração padrão = 10% (editável por contrato)
 7. Flag "1º aluguel para o escritório" quando a captação foi da imobiliária
-8. Mensalmente: balancete por imóvel → PDF + envio ao locador *(Fase 2)*
-9. Repasse do líquido via Pix *(Fase 4)*
+8. Mensalmente: balancete por imóvel → PDF + envio ao locador (Resend) ✅
+9. Repasse do líquido via Pix *(Fase 4 — planejado)*
+10. Anúncios automáticos nos portais via XML feed (ZAP/Viva/OLX/etc.) ✅
 
 ---
 
 ## 2. Stack e infraestrutura
 
-- **Frontend:** HTML/CSS/JS puro (sem framework). Paleta teal `#00897B` pra
-  diferenciar visualmente do DRG-Kronos azul.
-- **Firebase 10.7.1 compat:** Auth (e-mail/senha), Firestore, Storage. Plano
-  Blaze com limite R$10/mês configurado.
-- **Hosting em produção:** GitHub Pages em
-  **`https://zett-romao.github.io/drg-rently/`**
-- **Repo:** `github.com/zett-romao/drg-rently` (público desde 2026-05-11)
-- **Pasta local:** `G:\Meu Drive\DRG-Rently\` (Google Drive sincronizado —
-  pausar Sync antes de rename/move)
+- **Frontend:** HTML/CSS/JS puro (sem framework). Paleta slate-blue `#475569`
+  fotofobia-friendly.
+- **Backend:** Firebase (Auth + Firestore + Storage) — plano Blaze ativo.
+- **Hosting:** GitHub Pages em `https://zett-romao.github.io/drg-rently/`
+- **APIs externas via Cloudflare Workers** (3 deployados):
+  - `drg-rently-resend` — envio de e-mail via Resend (balancetes)
+  - `drg-rently-gemini` — leitura de boletos via Gemini Vision
+  - `drg-rently-feed` — gera XML feed pros portais imobiliários
+- **Domínio do e-mail:** `drglobal.com.br` verificado no Resend (SPF + DKIM).
+  Remetente final: `balancetes@drglobal.com.br`.
 
-### Regiões
+### Repositório
 
-- Firestore: `southamerica-east1` (São Paulo)
-- Storage: `US-EAST1` (sem custos; latência cross-region tolerável)
-
-### Hardening aplicado em 2026-05-11
-
-- Repo público com chave Firebase web (pública por design)
-- HTTP Referrer restriction na Browser Key (Google Cloud Credentials):
-  `https://zett-romao.github.io/*`, `http://localhost/*`, `http://127.0.0.1/*`
-- Authorized domains no Firebase Auth incluem `zett-romao.github.io`
-- GitHub Secret Protection + Push Protection habilitados
-- Dependabot alerts/malware/security/grouped habilitados (sem efeito hoje
-  porque não há `package.json`; preventivo para futuro)
-- Private vulnerability reporting habilitado
+- **GitHub:** `zett-romao/drg-rently` (público)
+- **Pasta local:** `G:\Meu Drive\DRG-Rently\`
+- **Branch principal:** `main`
+- **Cache buster atual:** `?v=20260512o`
 
 ---
 
-## 3. Modelo de dados (Firestore)
+## 3. Estrutura de dados (Firestore)
 
-### Top-level
+### Coleções globais
 
-- **`tenants/{tenantId}`** — imobiliárias cadastradas
-  - Campos: `nome`, `cnpj`, `creci`, `plano` ('trial' | 'basic' | 'pro'),
-    `ativo` (bool), `criadoEm`, `criadoPor`
-- **`users/{uid}`** — usuários (uid = Firebase Auth uid)
-  - Campos: `nome`, `email`, `tenantId` (ausente se super_admin),
-    `role` ('admin' | 'operador' | 'super_admin'), `criadoEm`
+- **`users/{uid}`** — dados do usuário (vinculado ao Auth UID)
+  - `nome`, `email`, `role` (`super_admin` / `operador_drg` / `admin` / `operador`)
+  - `tenantId` (null se equipe DRG; preenchido se é admin/operador de tenant)
+  - `perfilId` — perfil customizado (operador de tenant)
+  - `drgPerfilId` — perfil customizado DRG (operador_drg)
+  - `ativo` (bool)
+
+- **`tenants/{tenantId}`** — uma imobiliária
+  - `nome`, `cnpj`, `creci`, `slug`, `telefone`, `emailContato`
+  - `plano` (`trial` / `basic` / `pro`), `valorMensalidade`, `proximoVencimento`
+  - `pacote` (`locacao` / `venda` / `completo` / `custom`) **← NOVO**
+  - `modulosHabilitados` (array de strings) **← NOVO**
+  - `logoUrl` (logo customizada do tenant)
+  - `ativo` (bool)
+
+- **`drgPerfis/{perfilId}`** ✨ **NOVA** — perfis customizáveis pra equipe DRG
+  - `nome`, `modulos` (array de áreas administrativas permitidas)
+
+- **`auditoria/{logId}`** — logs imutáveis para LGPD
 
 ### Subcoleções por tenant
 
-- `tenants/{tenantId}/locadores/{id}` — proprietários, com:
-  - PF/PJ, documento (canônico só dígitos), endereço estruturado,
-    chave Pix, banco, observações
-- `tenants/{tenantId}/locatarios/{id}` — inquilinos, com:
-  - Ficha sócio-econômica (renda, empresa, cargo, admissão, dependentes,
-    outros imóveis), status (`pendente_analise` | `aprovado` | `reprovado`)
-- `tenants/{tenantId}/garantias/{id}` — campo `tipo`:
-  - `fiador`: subobjeto `fiador` com nome, CPF, endereço, renda, bens,
-    cônjuge (se casado)
-  - `caucao`: subobjeto `caucao` com modalidade (dinheiro/imóvel/título),
-    valor, banco, descrição do bem
-  - `seguro_fianca`: subobjeto `seguro` com seguradora, apólice, vigência,
-    cobertura, prêmio
-- `tenants/{tenantId}/imoveis/{id}` — unidades sob administração, com:
-  - Apelido, tipo (residencial/comercial), subtipo, vínculo `locadorId`,
-    endereço, características (área, quartos, banheiros, vagas, mobiliado),
-    matrícula, IPTU, valorMercado, aluguelSugerido, status
-    (`disponivel` | `alugado` | `em_reforma` | `indisponivel`)
-- `tenants/{tenantId}/contratos/{id}` — vínculo locador+locatário+imóvel+garantia, com:
-  - Prazo (meses), datas, aluguel, dia vencimento, taxa adm %, multa rescisória,
-    reajuste (índice + periodicidade), flag `primeiroAluguelEscritorio`,
-    cláusulas, status (`rascunho` | `vigente` | `encerrado` | `rescindido`),
-    motivoStatus
-
-### Storage layout
-
-```
-/tenants/{tenantId}/locadores/{id}/{file}
-/tenants/{tenantId}/locatarios/{id}/{file}
-/tenants/{tenantId}/garantias/{id}/{file}
-/tenants/{tenantId}/imoveis/{id}/{file}
-/tenants/{tenantId}/contratos/{id}/{file}
-```
-
-### Regras Firestore (resumo)
-
-- `users/{uid}`: leitura/escrita só pelo próprio uid (ou super_admin)
-- `tenants/{tenantId}`: leitura pelo membro do tenant (ou super_admin);
-  criação por qualquer signed in; update por admin do tenant
-- `tenants/{tenantId}/{collection}/{doc}`: leitura/escrita pelo membro do
-  tenant (ou super_admin)
-- `userExists()` check antes de `userDoc()` para evitar quebra durante o
-  signup (race condition resolvida)
-
-Regras completas no `CLAUDE.md`.
+- **`tenants/{tid}/locadores/{id}`** — proprietários dos imóveis
+- **`tenants/{tid}/locatarios/{id}`** — inquilinos
+- **`tenants/{tid}/compradores/{id}`** — interessados em comprar
+- **`tenants/{tid}/garantias/{id}`** — fiadores, caução, seguro fiança
+- **`tenants/{tid}/imoveis/{id}`** — imóveis cadastrados
+  - Campos extras pra portais: `descricaoLonga`, `videoUrl`, `tourUrl`, `vitrineFeed`
+- **`tenants/{tid}/imoveis/{id}/fotos/{id}`** — fotos públicas
+- **`tenants/{tid}/imoveis/{id}/docs/{id}`** — documentos (privados)
+- **`tenants/{tid}/contratos/{id}`** — contratos de locação OU venda
+- **`tenants/{tid}/negociacoes/{id}`** — funil de vendas
+- **`tenants/{tid}/balancetes/{id}`** — fechamento mensal
+- **`tenants/{tid}/pagamentos/{id}`** — histórico de mensalidades pagas
+- **`tenants/{tid}/perfis/{id}`** — perfis customizáveis do tenant
+- **`tenants/{tid}/config/site`** — configurações gerais
 
 ---
 
-## 4. Estado de entrega
+## 4. Funcionalidades por módulo
 
-### ✅ Fase 0 — Fundação multi-tenant
-- Firebase Auth (e-mail/senha)
-- Signup de tenant + admin (atômico via batch)
-- Painel principal (sidebar + topbar + 8 módulos)
-- Painel Super Admin com tabela de tenants e suspender/reativar
-- Regras Firestore + Storage com isolamento por `tenantId`
-- Bootstrap manual do super-admin
+### Visão Geral
+- 📊 **Dashboard** — KPIs principais + drag-and-drop dos cards
+- 🔔 **Alertas** — vencimentos, garantias expirando, contratos a renovar
+- 📈 **Relatórios** — receita, ocupação, comissões
 
-### ✅ Fase 1 — Cadastros (cinco módulos)
+### Cadastros
+- 🏠 **Locadores** — proprietários (auto-fill por CNPJ via BrasilAPI)
+- 👤 **Locatários** — inquilinos (ficha sócio-econômica + documentos)
+- 🛒 **Compradores** — funil de vendas (interessados em compra)
+- 🛡 **Garantias** — fiadores / caução / seguro fiança
+- 🏢 **Imóveis** — endereço (CEP automático via ViaCEP), fotos com watermark, documentos
 
-**1.1 — Locadores**
-- CRUD PF/PJ, máscaras CPF/CNPJ/telefone/CEP com cursor preservado
-- Validador algorítmico de CPF/CNPJ (real-time ✓/✗)
-- ViaCEP autopreenche endereço
-- BrasilAPI busca dados da Receita ao completar CNPJ válido
-- Asterisco vermelho em obrigatórios
-- Upload/listagem/exclusão de docs no Storage
+### Operação
+- 📝 **Contratos** — geração em Word/PDF/texto, templates customizáveis
+- 🤝 **Negociações** — funil de vendas + contrato compra/venda
+- 💰 **Balancetes** — fechamento mensal, leitura de boleto via Gemini, envio por e-mail
+- 🌐 **Vitrine Pública** — link compartilhável por tenant (slug ou ID)
+- 📡 **Portais** — XML feed pra ZAP/Viva/OLX/Imovelweb/Wimoveis (12 portais documentados)
 
-**1.2 — Locatários**
-- Mesma estrutura do Locador + ficha sócio-econômica:
-  empresa, cargo, admissão, renda, dependentes, outros imóveis
-- Status de aprovação (pendente/aprovado/reprovado) com badges
-- Motivo da reprovação
+### Administração
+- 📥 **Importação CSV** — em massa pra locadores/locatários/imóveis
+- 📜 **Auditoria** — logs imutáveis (LGPD)
+- ⚙️ **Super Admin** — painel SaaS (só visível pra equipe DRG)
+- 🔧 **Configurações** — usuários, perfis, logo, templates, workers
 
-**1.3 — Garantias**
-- Tipo `fiador`: dados pessoais + endereço + análise financeira +
-  cônjuge condicional (se casado/união estável)
-- Tipo `caucao`: modalidade dinheiro/imóvel/título com campos específicos
-- Tipo `seguro_fianca`: seguradora, apólice, vigência, cobertura, prêmio
-- Status ativa/encerrada com badges
-- Cadastro independente: mesma garantia pode ser reaproveitada em múltiplos contratos
+---
 
-**1.4 — Imóveis**
-- Vínculo obrigatório ao Locador (select populado da subcoleção)
-- 4 status com badges (disponível/alugado/em reforma/indisponível)
-- Características: área, quartos, banheiros, vagas, mobiliado, andar
-- Registros legais: matrícula RI, inscrição IPTU
-- Valor mercado + aluguel sugerido
-- Cache de locadores em memória, invalidado em save/delete
+## 5. Permissões e perfis
 
-**1.5 — Contratos** (amarração final da Fase 1)
-- 4 selects: imóvel, locador, locatário, garantia (opcional)
-- Selecionar imóvel auto-preenche locador + aluguel sugerido + multa 3×
-- Data fim calculada automaticamente a partir de início + prazo
-- 4 status com badges (rascunho/vigente/encerrado/rescindido)
-- Efeito colateral: status vigente → imóvel alugado; rescindido → imóvel disponível
-- Excluir contrato vigente libera o imóvel
-- Cláusulas extras, observações internas, motivo de rescisão
+### Roles do sistema
 
-### 🔜 Próximas fases
+| Role | Contexto | O que pode fazer |
+|---|---|---|
+| `super_admin` | Equipe DRG | Acesso total (SaaS + tenant) |
+| `operador_drg` | Equipe DRG | Painel SaaS limitado por perfil DRG |
+| `admin` | Tenant | Acesso total ao próprio tenant |
+| `operador` | Tenant | Limitado por perfil do tenant |
 
-**Fase 2 — Balancete mensal**
-- Lançamentos do mês por imóvel: receitas extras (locador), despesas locador,
-  despesas locatário
-- Upload de comprovantes
-- Fechamento → PDF do balancete + anexos
-- Envio automático por e-mail ao locador (Cloud Function + Resend ou SendGrid)
-- Cálculo: aluguel + receitas extras − despesas locador − taxa adm = líquido
+### Pacotes por tenant (módulos contratados)
 
-**Fase 3 — Leitura automática do boleto do condomínio**
-- Upload de PDF/imagem do boleto
-- Cloudflare Worker novo (separado do `drg-gemini-proxy` do DRG-Kronos)
-- Extrai valor, vencimento, beneficiário, linha digitável via Gemini Vision
-- Operador confirma antes de gravar
+- **🏠 Locação** — só locações (sem vendas)
+- **💼 Venda** — só vendas (sem locações)
+- **🌟 Completo** — locação + venda
+- **⚙️ Customizado** — Super Admin escolhe checkboxes
 
-**Fase 4 — Pix**
-- Integração com PSP (a definir: Banco do Brasil, Itaú, Sicredi, Asaas, Efí, Cora)
-- Transferência do líquido ao locador
-- Fallback: copiar chave Pix + valor pra pagamento manual
+### Áreas DRG (módulos pra operador_drg)
 
-**Pós-Fase 4 — Cobrança de assinatura**
+- `drg_dashboard` — Dashboard / KPIs
+- `drg_tenants_view` — Ver imobiliárias
+- `drg_tenants_edit` — Editar plano e módulos
+- `drg_tenants_pagamentos` — Gerenciar pagamentos
+- `drg_tenants_atuar_como` — Atuar como cliente
+- `drg_equipe` — Gerenciar equipe DRG
+
+---
+
+## 6. Branding dinâmico
+
+- **Equipe DRG no painel Super Admin** → sidebar exibe `DRG-Systems` / `DevOps`
+  + logo D.R. Global padrão
+- **Equipe DRG "atuando como" um tenant** → sidebar exibe `DRG-Rently` / nome
+  do tenant + logo customizada
+- **Admin/operador do tenant** → idem (DRG-Rently + nome do tenant)
+
+---
+
+## 7. Workers Cloudflare (URLs em produção)
+
+| Worker | URL | Função |
+|---|---|---|
+| Resend | `https://drg-rently-resend.zett-romao.workers.dev` | Envio de e-mail |
+| Gemini | `https://drg-rently-gemini.zett-romao.workers.dev` | Leitura de boletos |
+| Feed | `https://drg-rently-feed.zett-romao.workers.dev` | XML feed pros portais |
+
+### Secrets configurados (por Worker)
+
+- Resend: `RESEND_API_KEY`
+- Gemini: `GEMINI_API_KEY`
+- Feed: `FIREBASE_API_KEY`, var `PROJECT_ID=drg-rently`
+
+---
+
+## 8. Portais Imobiliários — XML Feed
+
+### Formatos suportados pelo Worker `drg-rently-feed`
+
+| Formato | Portais que aceitam |
+|---|---|
+| `wimoveis` (default) | Chaves na Mão, DF Imóveis, SP Imóvel, Casa Mineira, Órulo, DWV, regionais |
+| `zap` | ZAP Imóveis, Viva Real |
+| `olx` | OLX Imóveis |
+| `imovelweb` | Imovelweb |
+
+### Não aceitam XML
+
+- **Loft** — captação direta, cadastro manual
+- **Mercado Livre Imóveis** — categoria descontinuada em 2022
+
+### Como usar
+
+```
+https://drg-rently-feed.zett-romao.workers.dev/?tenant=<id-ou-slug>&format=<wimoveis|zap|olx|imovelweb>
+```
+
+Filtros aplicados:
+- Imóveis com `linkPublico === true`
+- Imóveis com `vitrineFeed !== false` (toggle do operador)
+- Máximo 500 imóveis/tenant, 30 fotos/imóvel
+- Cache CDN: 10 minutos
+
+---
+
+## 9. Histórico de implementação (commits relevantes)
+
+| Commit | Descrição |
+|---|---|
+| `840ae8f` | Logo customizada por tenant + perfis customizáveis com permissões |
+| `f1cbc38` | Tela informativa de integração com portais imobiliários (Fase 1) |
+| `08da279` | Módulos customizáveis por tenant + equipe DRG com perfis |
+| `dae6361` | Marca dinâmica conforme contexto (SaaS vs tenant) |
+| `a50bf17` | Fase 2 — XML Feed gerador via Cloudflare Worker |
+
+---
+
+## 10. Pendências / Roadmap
+
+### Curto prazo
+
+- 🟡 Marcar imóveis publicados com toggle "Incluir no feed XML" (UX automático)
+- 🟡 Conectar URL do Worker Feed em Configurações de cada tenant
+
+### Fase 3 dos Portais (planejado)
+
+- Painel de monitoramento (última sincronização, erros, imóveis publicados por portal)
+- Webhooks de recebimento de leads dos portais → criar negociações no CRM
+
+### Fase 4 — Pix (planejado)
+
+- Integração com PSP (BB, Itaú, Sicredi, Asaas, Efí, Cora — a definir)
+- Repasse automático do líquido ao locador via chave Pix
+- Requer certificado mTLS, OAuth, conta jurídica habilitada
+
+### Cobrança da assinatura (planejado)
+
 - Stripe ou Mercado Pago
-- Por enquanto, super-admin suspende/ativa manualmente pelo painel
+- Plano por número de imóveis administrados
+- Hoje: cobrança manual; super-admin suspende/ativa pelo painel
 
 ---
 
-## 5. Decisões importantes tomadas
-
-- **Multi-tenant desde o início** — todo dado vive em `tenants/{tenantId}/...`,
-  isolado por regras Firestore. Mesmo código atende A/B/C.
-- **Repo público** — chave Firebase web é pública por design; proteção real
-  vem das regras + HTTP referrer. Padrão idêntico ao DRG-Kronos.
-- **Persistência canônica** — documento, telefone, CEP salvos só com dígitos;
-  máscara reaplicada na exibição. Facilita futuras buscas/validações.
-- **Cadastro de garantia independente** — fiador pode garantir múltiplos
-  contratos. Contrato apenas referencia uma garantia existente.
-- **Status do imóvel atualiza automaticamente** quando contrato muda de estado.
-- **Super-admin sem `tenantId` atua no primeiro tenant ativo** (fallback simples).
-  Suporte multi-tenant real (seletor "Atuar como") fica como TODO.
-- **Cobrança manual no início** — Stripe/MP fica pra quando houver volume real.
-- **Pix adiado pra Fase 4** — exige integração PSP com mTLS, conta jurídica;
-  decisão de qual PSP usar fica pra avaliação da API por parte do usuário.
-
----
-
-## 6. Credenciais e referências
-
-- **Firebase Project ID:** `drg-rently`
-- **Auth user super-admin:** `donizete@drglobal.com.br` (role `super_admin`,
-  sem `tenantId`)
-- **Tenant operacional:** "D.R. Global Imóveis" (CNPJ 49.698.112/000-157)
-- **Conta GitHub:** `zett-romao`
-- **E-mail técnico:** `zett.romao@gmail.com`
-
----
-
-## 7. Estilo de comunicação que o usuário prefere
-
-(Herdado do DRG-Kronos.)
+## 11. Estilo de comunicação que o usuário prefere
 
 - Português direto, sem rodeios
 - Diagnósticos curtos antes de propor solução
 - Passo a passo numerado quando há trabalho de UI
-- Honestidade sobre risco e trade-offs ("isso pode quebrar X", "essa
-  abordagem é hacky mas resolve")
-- Confirmar antes de ações destrutivas (delete, force push, etc.)
-- Não rodar comandos sem necessidade — terminal é caro de contexto
-- Commits estilo conventional commits com escopo: `feat(modulo):`,
-  `fix(modulo):`, `chore:`, `docs:` etc.
-- Co-Authored-By no rodapé do commit
+- Termos técnicos OK (ele entende: Firestore, Worker, Auth, etc.)
+- Erros: mostrar o problema, depois a correção
+- Não inventar requisitos — perguntar quando ambíguo
 
 ---
 
-## 8. Como retomar em uma nova sessão
+## 12. Convenções de código
 
-Use este prompt no início de uma conversa nova:
-
-> Estou retomando o projeto **DRG-Rently** em `G:\Meu Drive\DRG-Rently\`.
-> O `PROMPT_DO_PROJETO.md` na raiz tem o snapshot completo. O `CLAUDE.md`
-> tem o detalhe técnico de manutenção. Leia ambos antes de fazer mudanças.
-> Próxima entrega: Fase 2 (balancete mensal).
-
-E o agente vai ter contexto suficiente pra continuar de onde parou.
+- **Commits:** Conventional Commits + Co-Authored-By Claude
+- **Cache busting:** `?v=YYYYMMDDx` em `index.html` (bumpar a cada deploy de JS/CSS)
+- **Funções no `app.js`:** prefixadas por entidade (`loadLocadores`, `saveImovel`)
+- **IDs HTML:** kebab-case (`imovel-apelido`, `cfg-worker-feed-url`)
+- **Constantes globais:** SCREAMING_SNAKE (`MODULOS_DISPONIVEIS`, `TENANT_PACOTES`)
 
 ---
 
-## 9. Comandos úteis
+## 13. Como retomar
 
-```bash
-# Verificar estado
-git -C "G:/Meu Drive/DRG-Rently" status
-git -C "G:/Meu Drive/DRG-Rently" log --oneline -10
-
-# Padrão de commit (HEREDOC pra preservar formatação)
-git -C "G:/Meu Drive/DRG-Rently" add <arquivos>
-git -C "G:/Meu Drive/DRG-Rently" commit -m "$(cat <<'EOF'
-feat(escopo): título curto
-
-Corpo com bullets do que mudou.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-EOF
-)"
-git -C "G:/Meu Drive/DRG-Rently" push
-
-# Bump de cache buster (?v=...) — necessário quando muda assets em produção
-# Atualizar em index.html as queries strings dos <script> e <link>
-```
-
----
-
-## 10. Histórico de commits da Fase 0 + Fase 1
-
-| Commit | Entrega |
-|---|---|
-| `c185c3d` | Estrutura inicial (Fase 0 — multi-tenant + auth) |
-| `10abf5e` | Credenciais Firebase aplicadas |
-| `e1da556` | Fix race condition signup + regras Firestore short-circuit-safe |
-| `3b7542f` | Fase 1.1 — Locadores (validações, ViaCEP, BrasilAPI, máscaras) |
-| `9cb661d` | Fase 1.2 — Locatários (ficha sócio-econômica + status aprovação) |
-| `35cab63` | Fase 1.3 — Garantias (fiador, caução, seguro fiança) |
-| `5127f2a` | Fase 1.4 — Imóveis (vínculo com Locador + 4 status) |
-| `e3e8bc8` | Fase 1.5 — Contratos (amarra tudo + side-effects no imóvel) |
+1. Leia este documento por inteiro
+2. Olhe os 5 commits mais recentes: `git log --oneline -5`
+3. Confira `CLAUDE.md` pra detalhes técnicos (regras Firestore, deploy)
+4. Antes de mexer em código, pergunte ao usuário o que ele quer
+5. Use o `TodoWrite` se a tarefa tem 3+ passos
+6. Sempre bumpar cache buster ao mudar JS/CSS
+7. Commit + push em cada mudança visível na produção
