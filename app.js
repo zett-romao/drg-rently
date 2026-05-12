@@ -5111,7 +5111,7 @@ function getLogoImage() {
     img.crossOrigin = 'anonymous';
     img.onload = () => { _logoImageCache = img; resolve(img); };
     img.onerror = () => reject(new Error('Falha ao carregar logo'));
-    img.src = 'logo.png?v=20260511d';
+    img.src = 'logo.png?v=20260513a';
   });
 }
 
