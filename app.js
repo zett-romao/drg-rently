@@ -2018,6 +2018,12 @@ async function loadImoveis() {
   }
 }
 
+function onImovelFinalidadeChange() {
+  const fin = $('imovel-finalidade').value;
+  $('imovel-loc-fields').style.display = (fin === 'venda') ? 'none' : 'grid';
+  $('imovel-venda-fields').style.display = (fin === 'locacao') ? 'none' : 'grid';
+}
+
 async function buscarCEPImovel() {
   const input = $('imovel-cep');
   const status = $('imovel-cep-status');
@@ -2067,15 +2073,24 @@ async function openImovelModal(id) {
    'imovel-complemento', 'imovel-bairro', 'imovel-cidade', 'imovel-uf',
    'imovel-area-util', 'imovel-area-total', 'imovel-andar',
    'imovel-matricula', 'imovel-iptu',
-   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-obs'].forEach(f => $(f).value = '');
+   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
+   'imovel-obs'].forEach(f => $(f).value = '');
   $('imovel-status').value = 'disponivel';
   $('imovel-tipo').value = 'residencial';
   $('imovel-subtipo').value = '';
+  $('imovel-finalidade').value = 'locacao';
+  $('imovel-aceita-financiamento').value = 'sim';
+  $('imovel-permite-fgts').value = 'sim';
   $('imovel-quartos').value = '0';
   $('imovel-banheiros').value = '0';
   $('imovel-vagas').value = '0';
   $('imovel-mobiliado').value = 'nao';
   $('imovel-cep-status').style.display = 'none';
+  // Toggles de privacidade padrão
+  ['pub-mostrar-valor', 'pub-mostrar-bairro', 'pub-mostrar-area', 'pub-mostrar-comodos'].forEach(id => {
+    const el = $(id); if (el) el.checked = true;
+  });
+  onImovelFinalidadeChange();
 
   // Refresh cache de locadores e popula select (deferido para após carregar dados)
   invalidateLocadoresCache();
@@ -2110,9 +2125,21 @@ async function openImovelModal(id) {
 
         $('imovel-matricula').value = im.matricula || '';
         $('imovel-iptu').value = im.iptu || '';
+        $('imovel-finalidade').value = im.finalidade || 'locacao';
         $('imovel-valor-mercado').value = im.valorMercado ?? '';
         $('imovel-aluguel-sugerido').value = im.aluguelSugerido ?? '';
+        $('imovel-valor-venda').value = im.valorVenda ?? '';
+        $('imovel-aceita-financiamento').value = im.aceitaFinanciamento || 'sim';
+        $('imovel-permite-fgts').value = im.permiteFGTS || 'sim';
         $('imovel-obs').value = im.obs || '';
+        onImovelFinalidadeChange();
+
+        // Toggles de privacidade
+        const pub = im.publicacao || {};
+        $('pub-mostrar-valor').checked   = pub.mostrarValor   !== false;
+        $('pub-mostrar-bairro').checked  = pub.mostrarBairro  !== false;
+        $('pub-mostrar-area').checked    = pub.mostrarArea    !== false;
+        $('pub-mostrar-comodos').checked = pub.mostrarComodos !== false;
       }
     } catch (err) {
       console.error('Erro ao carregar imóvel:', err);
@@ -2188,8 +2215,18 @@ async function saveImovel() {
     mobiliado: $('imovel-mobiliado').value,
     matricula: $('imovel-matricula').value.trim() || null,
     iptu: $('imovel-iptu').value.trim() || null,
+    finalidade: $('imovel-finalidade').value,
     valorMercado: parseFloat($('imovel-valor-mercado').value) || null,
     aluguelSugerido: parseFloat($('imovel-aluguel-sugerido').value) || null,
+    valorVenda: parseFloat($('imovel-valor-venda').value) || null,
+    aceitaFinanciamento: $('imovel-aceita-financiamento').value,
+    permiteFGTS: $('imovel-permite-fgts').value,
+    publicacao: {
+      mostrarValor:   $('pub-mostrar-valor').checked,
+      mostrarBairro:  $('pub-mostrar-bairro').checked,
+      mostrarArea:    $('pub-mostrar-area').checked,
+      mostrarComodos: $('pub-mostrar-comodos').checked,
+    },
     obs: $('imovel-obs').value.trim() || null,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
@@ -2571,9 +2608,13 @@ async function loadConfigImobiliaria() {
     const snap = await tenantPath().collection('config').doc('site').get();
     const cfg = snap.exists ? snap.data() : {};
     $('cfg-watermark-default').checked = cfg.watermarkDefault !== false; // default true
+    $('cfg-template-locacao').value = cfg.templateLocacao || '';
+    $('cfg-template-venda').value = cfg.templateVenda || '';
   } catch (err) {
     console.warn('Sem config de site ainda:', err);
     $('cfg-watermark-default').checked = true;
+    $('cfg-template-locacao').value = '';
+    $('cfg-template-venda').value = '';
   }
 }
 
@@ -2594,9 +2635,11 @@ async function saveConfigImobiliaria() {
       State.tenant.telefone = telefoneDigits;
       State.tenant.emailContato = emailContato;
 
-      // Subdoc config/site — watermark default
+      // Subdoc config/site — watermark default e templates de cláusulas
       await tenantPath().collection('config').doc('site').set({
         watermarkDefault: $('cfg-watermark-default').checked,
+        templateLocacao: $('cfg-template-locacao').value,
+        templateVenda: $('cfg-template-venda').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 

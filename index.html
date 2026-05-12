@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRG-Rently — Gestão de Locações</title>
-  <link rel="icon" type="image/png" href="logo.png?v=20260511f">
-  <link rel="apple-touch-icon" href="logo.png?v=20260511f">
-  <link rel="stylesheet" href="styles.css?v=20260511f">
+  <link rel="icon" type="image/png" href="logo.png?v=20260511g">
+  <link rel="apple-touch-icon" href="logo.png?v=20260511g">
+  <link rel="stylesheet" href="styles.css?v=20260511g">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -22,7 +22,7 @@
   <!-- ============================================ -->
   <div id="screen-login" class="screen active">
     <div class="auth-card">
-      <img src="logo.png?v=20260511f" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511g" alt="D.R. Global" class="auth-logo">
       <h1>DRG-Rently</h1>
       <p class="subtitle">Gestão de locações residenciais e comerciais</p>
 
@@ -51,7 +51,7 @@
   <!-- ============================================ -->
   <div id="screen-signup" class="screen">
     <div class="auth-card">
-      <img src="logo.png?v=20260511f" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511g" alt="D.R. Global" class="auth-logo">
       <h1>Cadastrar imobiliária</h1>
       <p class="subtitle">Crie a conta da sua empresa no DRG-Rently</p>
 
@@ -118,7 +118,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="logo.png?v=20260511f" alt="DRG" class="brand-logo">
+        <img src="logo.png?v=20260511g" alt="DRG" class="brand-logo">
         <div class="brand-info">
           <h2>DRG-Rently</h2>
           <div class="brand-sub" id="brand-tenant-name">—</div>
@@ -465,6 +465,54 @@
                 <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica()">↗ Abrir</button>
               </div>
               <p class="muted" style="font-size:11px;">Compartilhe esse link em WhatsApp, redes sociais ou portais para divulgar todos os imóveis publicados.</p>
+            </div>
+
+            <h4 class="form-section-title">Cláusulas padrão dos contratos</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Esses textos servem de base e são preenchidos automaticamente nos contratos gerados.
+              Use variáveis para puxar dados: <code>{{locador.nome}}</code>, <code>{{locatario.nome}}</code>,
+              <code>{{imovel.apelido}}</code>, <code>{{imovel.enderecoCompleto}}</code>,
+              <code>{{contrato.aluguel}}</code>, <code>{{contrato.prazo}}</code>,
+              <code>{{contrato.multa}}</code>, <code>{{contrato.taxaAdm}}</code>,
+              <code>{{contrato.inicio}}</code>, <code>{{contrato.fim}}</code>,
+              <code>{{garantia.descricao}}</code>, <code>{{negociacao.valor}}</code>, etc.
+            </p>
+
+            <div class="form-group">
+              <label>Template de contrato de LOCAÇÃO</label>
+              <textarea id="cfg-template-locacao" rows="10" oninput="saveConfigImobiliaria()" placeholder="Ex:
+DAS PARTES — Pelo presente instrumento particular, de um lado {{locador.nome}}, inscrito(a) no CPF/CNPJ {{locador.documento}}, doravante denominado(a) LOCADOR, e de outro {{locatario.nome}}, inscrito(a) no CPF/CNPJ {{locatario.documento}}, doravante denominado(a) LOCATÁRIO, têm entre si justo e contratado o seguinte:
+
+CLÁUSULA 1ª — DO OBJETO
+O LOCADOR cede em locação ao LOCATÁRIO o imóvel situado em {{imovel.enderecoCompleto}}, matrícula {{imovel.matricula}}.
+
+CLÁUSULA 2ª — DO PRAZO
+O contrato vigorará por {{contrato.prazo}} meses, com início em {{contrato.inicio}} e término em {{contrato.fim}}.
+
+CLÁUSULA 3ª — DO ALUGUEL
+O LOCATÁRIO pagará mensalmente {{contrato.aluguel}}, vencendo todo dia {{contrato.diaVencimento}}.
+
+CLÁUSULA 4ª — DA MULTA
+Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, equivalente a três aluguéis.
+
+(continue com as suas cláusulas padrão…)"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>Template de contrato de COMPRA E VENDA</label>
+              <textarea id="cfg-template-venda" rows="10" oninput="saveConfigImobiliaria()" placeholder="Ex:
+DAS PARTES — Pelo presente instrumento, de um lado {{vendedor.nome}}, CPF/CNPJ {{vendedor.documento}}, doravante VENDEDOR, e de outro {{comprador.nome}}, CPF/CNPJ {{comprador.documento}}, doravante COMPRADOR, ajustam o seguinte:
+
+CLÁUSULA 1ª — DO OBJETO
+O VENDEDOR aliena ao COMPRADOR o imóvel descrito em {{imovel.enderecoCompleto}}, matrícula {{imovel.matricula}}, inscrição imobiliária {{imovel.iptu}}.
+
+CLÁUSULA 2ª — DO PREÇO
+O preço ajustado é de {{negociacao.valor}}, a ser pago da seguinte forma: {{negociacao.formaPagamento}}.
+
+CLÁUSULA 3ª — DA TRANSMISSÃO
+A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
+
+(continue com as suas cláusulas padrão…)"></textarea>
             </div>
           </div>
         </section>
@@ -1298,16 +1346,49 @@
           </div>
         </div>
 
-        <h4 class="form-section-title">Valores</h4>
+        <h4 class="form-section-title">Finalidade e valores</h4>
 
         <div class="form-row">
           <div class="form-group">
+            <label class="required">Finalidade</label>
+            <select id="imovel-finalidade" onchange="onImovelFinalidadeChange()">
+              <option value="locacao">Apenas para locação</option>
+              <option value="venda">Apenas para venda</option>
+              <option value="ambos">Locação e venda</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Valor de mercado / avaliação (R$)</label>
             <input type="number" id="imovel-valor-mercado" min="0" step="0.01" placeholder="0,00">
+            <span class="muted" style="font-size:11px;">Interno — nunca aparece no link público</span>
           </div>
+        </div>
+
+        <div class="form-row" id="imovel-loc-fields">
           <div class="form-group">
             <label>Aluguel sugerido (R$)</label>
             <input type="number" id="imovel-aluguel-sugerido" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row" id="imovel-venda-fields" style="display:none;">
+          <div class="form-group">
+            <label>Valor de venda (R$)</label>
+            <input type="number" id="imovel-valor-venda" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Aceita financiamento?</label>
+            <select id="imovel-aceita-financiamento">
+              <option value="sim">Sim</option>
+              <option value="nao">Não</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Aceita FGTS?</label>
+            <select id="imovel-permite-fgts">
+              <option value="sim">Sim</option>
+              <option value="nao">Não</option>
+            </select>
           </div>
         </div>
 
@@ -1335,6 +1416,32 @@
                 <input type="text" id="imovel-link-url" readonly>
                 <button class="btn btn-secondary btn-sm" onclick="copyImovelLink()">📋 Copiar</button>
                 <button class="btn btn-secondary btn-sm" onclick="openImovelLink()">↗ Abrir</button>
+              </div>
+            </div>
+
+            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+              <strong style="font-size:13px;">🔒 Privacidade (o que mostrar no link público)</strong>
+              <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
+                Dados pessoais (LGPD) sempre ficam ocultos: nome do proprietário, CPF/CNPJ,
+                contatos, documentos. Aqui você escolhe o que mais quer revelar do imóvel.
+              </p>
+              <div class="form-row" style="grid-template-columns: 1fr 1fr;">
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-valor" checked>
+                  <span>Mostrar valor exato (se desligado: "Sob consulta")</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-bairro" checked>
+                  <span>Mostrar bairro</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-area" checked>
+                  <span>Mostrar metragens (área útil/total)</span>
+                </label>
+                <label class="toggle-row" style="font-size:13px;">
+                  <input type="checkbox" id="pub-mostrar-comodos" checked>
+                  <span>Mostrar quartos/banheiros/vagas</span>
+                </label>
               </div>
             </div>
           </div>
@@ -1557,6 +1664,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260511f"></script>
+  <script src="app.js?v=20260511g"></script>
 </body>
 </html>

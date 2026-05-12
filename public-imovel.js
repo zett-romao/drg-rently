@@ -79,6 +79,12 @@ function renderImovel(im, tenant, fotos) {
   const subtipoLabel = SUBTIPO_LABEL[im.subtipo] || tipoLabel;
   const end = im.endereco || {};
   const cidadeUf = [end.cidade, end.uf].filter(Boolean).join(' / ');
+  const finalidade = im.finalidade || 'locacao';
+  const pub = im.publicacao || {};
+  const mostrarValor = pub.mostrarValor !== false;
+  const mostrarBairro = pub.mostrarBairro !== false;
+  const mostrarArea = pub.mostrarArea !== false;
+  const mostrarComodos = pub.mostrarComodos !== false;
 
   // Header com nome da imobiliária
   $$('header-empresa').textContent = tenant.nome || 'DRG-Rently';
@@ -86,13 +92,36 @@ function renderImovel(im, tenant, fotos) {
   $$('ano-rodape').textContent = new Date().getFullYear();
 
   // Hero
-  $$('hero-tipo').textContent = subtipoLabel;
+  const finalidadeLabel = finalidade === 'venda' ? 'Venda' :
+                          finalidade === 'ambos' ? 'Locação e venda' : 'Locação';
+  $$('hero-tipo').textContent = `${subtipoLabel} · ${finalidadeLabel}`;
   $$('hero-cidade').textContent = cidadeUf || '—';
   $$('hero-apelido').textContent = im.apelido || 'Imóvel';
-  $$('hero-aluguel').textContent = fmtBRL(im.aluguelSugerido);
+
+  // Preço(s): mostra conforme finalidade e flag mostrarValor
+  const heroPriceEl = $$('hero-aluguel').parentElement;
+  let priceHtml = '';
+  if (finalidade === 'venda') {
+    priceHtml = `<span class="muted-label">Valor de venda</span>
+                 <strong>${mostrarValor ? fmtBRL(im.valorVenda) : 'Sob consulta'}</strong>`;
+  } else if (finalidade === 'ambos') {
+    priceHtml = `
+      <div><span class="muted-label">Aluguel mensal</span>
+        <strong>${mostrarValor ? fmtBRL(im.aluguelSugerido) : 'Sob consulta'}</strong></div>
+      <div style="margin-left:24px;"><span class="muted-label">Valor de venda</span>
+        <strong>${mostrarValor ? fmtBRL(im.valorVenda) : 'Sob consulta'}</strong></div>`;
+  } else {
+    priceHtml = `<span class="muted-label">Aluguel mensal a partir de</span>
+                 <strong>${mostrarValor ? fmtBRL(im.aluguelSugerido) : 'Sob consulta'}</strong>`;
+  }
+  heroPriceEl.innerHTML = priceHtml;
 
   // SEO meta tags
-  const descSEO = `${subtipoLabel} para locação em ${cidadeUf}. ${im.areaUtil ? im.areaUtil + ' m². ' : ''}${im.quartos ? im.quartos + ' quartos. ' : ''}A partir de ${fmtBRL(im.aluguelSugerido)}.`;
+  const partsSEO = [`${subtipoLabel} para ${finalidadeLabel.toLowerCase()}`];
+  if (cidadeUf) partsSEO.push(`em ${cidadeUf}`);
+  if (mostrarArea && im.areaUtil) partsSEO.push(`${im.areaUtil} m²`);
+  if (mostrarComodos && im.quartos) partsSEO.push(`${im.quartos} quartos`);
+  const descSEO = partsSEO.join(' · ') + '.';
   document.title = `${im.apelido} — ${tenant.nome || 'DRG-Rently'}`;
   $$('meta-desc').setAttribute('content', descSEO);
   $$('og-title').setAttribute('content', `${im.apelido} — ${cidadeUf}`);
@@ -111,17 +140,21 @@ function renderImovel(im, tenant, fotos) {
     `).join('');
   }
 
-  // Features
+  // Features (respeitando toggles)
   const features = [];
-  if (im.areaUtil)  features.push({ ico: '📐', label: 'Área útil',  val: im.areaUtil + ' m²' });
-  if (im.areaTotal) features.push({ ico: '📏', label: 'Área total', val: im.areaTotal + ' m²' });
-  if (im.quartos)   features.push({ ico: '🛏', label: 'Quartos',    val: im.quartos });
-  if (im.banheiros) features.push({ ico: '🚿', label: 'Banheiros',  val: im.banheiros });
-  if (im.vagas)     features.push({ ico: '🚗', label: 'Vagas',      val: im.vagas });
+  if (mostrarArea && im.areaUtil)   features.push({ ico: '📐', label: 'Área útil',  val: im.areaUtil + ' m²' });
+  if (mostrarArea && im.areaTotal)  features.push({ ico: '📏', label: 'Área total', val: im.areaTotal + ' m²' });
+  if (mostrarComodos && im.quartos)   features.push({ ico: '🛏', label: 'Quartos',    val: im.quartos });
+  if (mostrarComodos && im.banheiros) features.push({ ico: '🚿', label: 'Banheiros',  val: im.banheiros });
+  if (mostrarComodos && im.vagas)     features.push({ ico: '🚗', label: 'Vagas',      val: im.vagas });
   if (im.andar)     features.push({ ico: '🏢', label: 'Andar',      val: im.andar });
   if (im.mobiliado) {
     const mb = { sim: 'Sim', parcial: 'Parcial', nao: 'Não' }[im.mobiliado] || im.mobiliado;
     features.push({ ico: '🛋', label: 'Mobiliado', val: mb });
+  }
+  if (finalidade !== 'locacao') {
+    if (im.aceitaFinanciamento) features.push({ ico: '🏦', label: 'Financiamento', val: im.aceitaFinanciamento === 'sim' ? 'Aceita' : 'Não aceita' });
+    if (im.permiteFGTS) features.push({ ico: '💼', label: 'FGTS', val: im.permiteFGTS === 'sim' ? 'Aceita' : 'Não aceita' });
   }
 
   const featuresEl = $$('features-grid');
@@ -139,8 +172,9 @@ function renderImovel(im, tenant, fotos) {
     `).join('');
   }
 
-  // Endereço resumido (sem número exato)
-  const endTxt = [end.bairro, end.cidade, end.uf].filter(Boolean).join(' · ');
+  // Endereço resumido (sem número exato; bairro condicional)
+  const endParts = mostrarBairro ? [end.bairro, end.cidade, end.uf] : [end.cidade, end.uf];
+  const endTxt = endParts.filter(Boolean).join(' · ');
   $$('endereco-publico').textContent = endTxt || 'Localização sob consulta';
 
   // Contato — usa dados do tenant

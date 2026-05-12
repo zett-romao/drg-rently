@@ -461,6 +461,39 @@ body.public-page {
   color: var(--primary-dark);
 }
 
+.vitrine-card-price .price-small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.vitrine-card-price-2 {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.vitrine-card-cover { position: relative; }
+
+.badge-finalidade {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  color: white;
+}
+
+.badge-locacao { background: var(--primary); }
+.badge-venda   { background: #B45309; }
+.badge-ambos   { background: #7E22CE; }
+
+.filtros-row { grid-template-columns: 2fr 1fr 1fr 1fr; }
+
 /* Mobile */
 @media (max-width: 640px) {
   .public-hero h1 { font-size: 24px; }

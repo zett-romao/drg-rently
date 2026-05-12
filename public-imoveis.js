@@ -77,6 +77,7 @@ let _allImoveis = []; // cache pra filtros
 
     // Filtros
     $$('filtro-busca').addEventListener('input', applyFiltros);
+    $$('filtro-finalidade').addEventListener('change', applyFiltros);
     $$('filtro-tipo').addEventListener('change', applyFiltros);
     $$('filtro-quartos').addEventListener('change', applyFiltros);
 
@@ -90,11 +91,19 @@ let _allImoveis = []; // cache pra filtros
 
 function applyFiltros() {
   const busca = $$('filtro-busca').value.trim().toLowerCase();
+  const finalidade = $$('filtro-finalidade').value;
   const tipo = $$('filtro-tipo').value;
   const quartosMin = parseInt($$('filtro-quartos').value, 10) || 0;
 
   const filtered = _allImoveis.filter(im => {
     if (tipo && im.tipo !== tipo) return false;
+    if (finalidade) {
+      const f = im.finalidade || 'locacao';
+      // 'locacao' filter → mostra imóveis com finalidade locacao ou ambos
+      // 'venda' filter → mostra imóveis com finalidade venda ou ambos
+      if (finalidade === 'locacao' && f === 'venda') return false;
+      if (finalidade === 'venda' && f === 'locacao') return false;
+    }
     if (quartosMin && (im.quartos || 0) < quartosMin) return false;
     if (busca) {
       const end = im.endereco || {};
@@ -121,26 +130,51 @@ function renderLista(imoveis) {
 
   el.innerHTML = imoveis.map(im => {
     const end = im.endereco || {};
+    const pub = im.publicacao || {};
     const cidadeUf = [end.cidade, end.uf].filter(Boolean).join(' / ');
     const subt = SUBTIPO_LABEL[im.subtipo] || TIPO_LABEL[im.tipo] || '';
     const cover = im.coverUrl
       ? `<img src="${im.coverUrl}" alt="${(im.apelido || 'Imóvel').replace(/"/g, '&quot;')}" loading="lazy">`
       : `<div class="vitrine-card-noimg">🏢<br><span>Sem foto</span></div>`;
 
+    const mostrarArea = pub.mostrarArea !== false;
+    const mostrarComodos = pub.mostrarComodos !== false;
+    const mostrarValor = pub.mostrarValor !== false;
+
     const specs = [];
-    if (im.areaUtil) specs.push(`📐 ${im.areaUtil} m²`);
-    if (im.quartos)  specs.push(`🛏 ${im.quartos}`);
-    if (im.banheiros) specs.push(`🚿 ${im.banheiros}`);
-    if (im.vagas)    specs.push(`🚗 ${im.vagas}`);
+    if (mostrarArea && im.areaUtil) specs.push(`📐 ${im.areaUtil} m²`);
+    if (mostrarComodos && im.quartos)   specs.push(`🛏 ${im.quartos}`);
+    if (mostrarComodos && im.banheiros) specs.push(`🚿 ${im.banheiros}`);
+    if (mostrarComodos && im.vagas)     specs.push(`🚗 ${im.vagas}`);
+
+    const finalidade = im.finalidade || 'locacao';
+    let badge = '';
+    if (finalidade === 'venda')  badge = '<span class="badge-finalidade badge-venda">VENDA</span>';
+    if (finalidade === 'ambos')  badge = '<span class="badge-finalidade badge-ambos">VENDA + LOCAÇÃO</span>';
+    if (finalidade === 'locacao') badge = '<span class="badge-finalidade badge-locacao">LOCAÇÃO</span>';
+
+    // Preço(s)
+    let precoHtml;
+    if (!mostrarValor) {
+      precoHtml = `<div class="vitrine-card-price">Sob consulta</div>`;
+    } else if (finalidade === 'venda') {
+      precoHtml = `<div class="vitrine-card-price">${fmtBRL(im.valorVenda)}</div>`;
+    } else if (finalidade === 'ambos') {
+      precoHtml = `
+        <div class="vitrine-card-price">${fmtBRL(im.aluguelSugerido)}<span class="price-small">/mês</span></div>
+        <div class="vitrine-card-price-2">Venda: ${fmtBRL(im.valorVenda)}</div>`;
+    } else {
+      precoHtml = `<div class="vitrine-card-price">${fmtBRL(im.aluguelSugerido)}<span class="price-small">/mês</span></div>`;
+    }
 
     return `
       <a class="vitrine-card" href="imovel.html?id=${im.id}&t=${tenantId}">
-        <div class="vitrine-card-cover">${cover}</div>
+        <div class="vitrine-card-cover">${cover}${badge}</div>
         <div class="vitrine-card-body">
           <div class="vitrine-card-tipo">${subt}${cidadeUf ? ' · ' + cidadeUf : ''}</div>
           <div class="vitrine-card-title">${im.apelido || 'Imóvel'}</div>
           <div class="vitrine-card-specs">${specs.join(' · ') || ''}</div>
-          <div class="vitrine-card-price">${fmtBRL(im.aluguelSugerido)}</div>
+          ${precoHtml}
         </div>
       </a>
     `;
