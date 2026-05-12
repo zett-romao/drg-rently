@@ -1302,6 +1302,33 @@ label.required::after {
   border-radius: var(--radius-sm);
 }
 
+/* ----- Banner 'Atuando como' (super admin) ----- */
+.banner-atuando {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, #C2410C 0%, #B45309 100%);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid #92310B;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.banner-atuando button {
+  background: white;
+  color: #B45309;
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.banner-atuando button:hover { background: #FEF3C7; }
+
 @media (max-width: 720px) {
   .lanc-row {
     grid-template-columns: 1fr 1fr;

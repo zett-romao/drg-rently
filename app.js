@@ -474,56 +474,329 @@ function showSection(name) {
 }
 
 // =============================================================
-// Super Admin — lista de tenants
+// SUPER ADMIN — gestão completa do SaaS
 // =============================================================
+
+let _tenantsCarregados = []; // cache pra filtros sem requery
+
+const PLANO_LABEL = { trial: 'Trial', basic: 'Basic', pro: 'Pro' };
+
+function diasAteData(isoDate) {
+  if (!isoDate) return null;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const alvo = new Date(isoDate + 'T00:00:00');
+  return Math.floor((alvo.getTime() - hoje.getTime()) / 86400000);
+}
+
+function tenantSituacao(t) {
+  if (t.ativo === false) return 'suspenso';
+  const trialDias = diasAteData(t.trialExpira);
+  const vencDias = diasAteData(t.proximoVencimento);
+  if (vencDias != null && vencDias < 0) return 'inadimplente';
+  if (t.plano === 'trial' && trialDias != null && trialDias <= 7) return 'vencendo';
+  if (t.plano === 'trial') return 'trial';
+  return 'ativo';
+}
+
 async function loadTenantsTable() {
   const tbody = $('tbody-tenants');
-  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-light);">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
     const snap = await db.collection('tenants').orderBy('criadoEm', 'desc').get();
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-light);">Nenhum tenant cadastrado.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum tenant cadastrado.</td></tr>`;
+      renderSuperAdminKpis([]);
       return;
     }
-
-    const rows = [];
-    for (const doc of snap.docs) {
-      const t = doc.data();
-      const adminSnap = await db.collection('users')
-        .where('tenantId', '==', doc.id)
-        .where('role', '==', 'admin')
-        .limit(1)
-        .get();
-      const adminNome = adminSnap.empty ? '—' : (adminSnap.docs[0].data().nome || adminSnap.docs[0].data().email);
-
-      const ativo = t.ativo !== false;
-      rows.push(`
-        <tr>
-          <td><strong>${t.nome || '—'}</strong></td>
-          <td>${t.cnpj || '—'}</td>
-          <td>${adminNome}</td>
-          <td>${fmtDate(t.criadoEm)}</td>
-          <td><span class="badge-status ${ativo ? 'ativo' : 'suspenso'}">${ativo ? 'Ativo' : 'Suspenso'}</span></td>
-          <td>
-            <button class="btn btn-sm ${ativo ? 'btn-danger' : 'btn-primary'}" onclick="toggleTenantStatus('${doc.id}', ${!ativo})">
-              ${ativo ? 'Suspender' : 'Reativar'}
-            </button>
-          </td>
-        </tr>
-      `);
-    }
-    tbody.innerHTML = rows.join('');
+    _tenantsCarregados = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderSuperAdminKpis(_tenantsCarregados);
+    renderTenantsTable();
   } catch (err) {
     console.error('Erro carregando tenants:', err);
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--danger);">Erro: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
   }
 }
 
+function renderSuperAdminKpis(tenants) {
+  const kpis = $('superadmin-kpis');
+  if (!kpis) return;
+  const total = tenants.length;
+  const ativos = tenants.filter(t => tenantSituacao(t) === 'ativo' || tenantSituacao(t) === 'trial' || tenantSituacao(t) === 'vencendo').length;
+  const trials = tenants.filter(t => t.plano === 'trial' && t.ativo !== false).length;
+  const inadimplentes = tenants.filter(t => tenantSituacao(t) === 'inadimplente').length;
+  const suspensos = tenants.filter(t => t.ativo === false).length;
+  const mrr = tenants
+    .filter(t => t.ativo !== false && t.plano !== 'trial')
+    .reduce((acc, t) => acc + (t.valorMensalidade || 0), 0);
+
+  kpis.innerHTML = `
+    <div class="stat-card"><div class="stat-card-icon stat-icon-blue">🏢</div>
+      <div class="stat-card-body"><div class="stat-card-value">${total}</div><div class="stat-card-label">Total de Tenants</div></div></div>
+    <div class="stat-card"><div class="stat-card-icon stat-icon-green">✓</div>
+      <div class="stat-card-body"><div class="stat-card-value">${ativos}</div><div class="stat-card-label">Ativos</div></div></div>
+    <div class="stat-card"><div class="stat-card-icon stat-icon-amber">⏳</div>
+      <div class="stat-card-body"><div class="stat-card-value">${trials}</div><div class="stat-card-label">Em Trial</div></div></div>
+    <div class="stat-card"><div class="stat-card-icon stat-icon-rose">⚠</div>
+      <div class="stat-card-body"><div class="stat-card-value">${inadimplentes}</div><div class="stat-card-label">Inadimplentes</div></div></div>
+    <div class="stat-card"><div class="stat-card-icon stat-icon-purple">💰</div>
+      <div class="stat-card-body"><div class="stat-card-value">${fmtBRL(mrr)}</div><div class="stat-card-label">MRR (mensal recorrente)</div></div></div>
+  `;
+}
+
+function renderTenantsTable() {
+  const tbody = $('tbody-tenants');
+  const filtroStatus = $('filtro-tenant-status').value;
+  const filtroPlano = $('filtro-tenant-plano').value;
+  const filtroBusca = $('filtro-tenant-busca').value.trim().toLowerCase();
+
+  let lista = _tenantsCarregados;
+  if (filtroPlano) lista = lista.filter(t => t.plano === filtroPlano);
+  if (filtroStatus) lista = lista.filter(t => tenantSituacao(t) === filtroStatus);
+  if (filtroBusca) lista = lista.filter(t => {
+    const txt = (t.nome || '') + ' ' + (t.cnpj || '');
+    return txt.toLowerCase().includes(filtroBusca);
+  });
+
+  if (lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum tenant corresponde aos filtros.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = lista.map(t => {
+    const sit = tenantSituacao(t);
+    const sitBadge = {
+      ativo: '<span class="badge-status ativo">Ativo</span>',
+      suspenso: '<span class="badge-status suspenso">Suspenso</span>',
+      trial: '<span class="badge-status pendente_analise">Trial</span>',
+      vencendo: '<span class="badge-status em_reforma">Trial vencendo</span>',
+      inadimplente: '<span class="badge-status reprovado">Inadimplente</span>',
+    }[sit] || sit;
+    const vencDias = diasAteData(t.proximoVencimento);
+    const vencTxt = t.proximoVencimento
+      ? `${fmtDataBR(t.proximoVencimento)}${vencDias < 0 ? ` <span style="color:var(--danger);font-size:11px;">(${Math.abs(vencDias)}d atraso)</span>` : (vencDias <= 7 && vencDias >= 0 ? ` <span style="color:var(--warning);font-size:11px;">(em ${vencDias}d)</span>` : '')}`
+      : '—';
+    return `
+      <tr>
+        <td><strong>${t.nome || '—'}</strong><br><span class="muted" style="font-size:11px;">${t.cnpj || '—'}</span></td>
+        <td>${PLANO_LABEL[t.plano] || t.plano || '—'}</td>
+        <td>${fmtBRL(t.valorMensalidade)}</td>
+        <td>${vencTxt}</td>
+        <td>${sitBadge}</td>
+        <td>
+          <div class="action-btns">
+            <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function openTenantModal(tenantId) {
+  clearAlert('tenant-alert');
+  $('tenant-id').value = tenantId;
+
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tSnap.exists) { showAlert('tenant-alert', 'Tenant não encontrado.'); return; }
+    const t = tSnap.data();
+
+    $('modal-tenant-title').textContent = `Gestão · ${t.nome || tenantId}`;
+    $('tenant-nome').value = t.nome || '';
+    $('tenant-cnpj').value = t.cnpj || '';
+    $('tenant-plano').value = t.plano || 'trial';
+    $('tenant-valor').value = t.valorMensalidade ?? '';
+    $('tenant-proximo-venc').value = t.proximoVencimento || '';
+    $('tenant-trial-expira').value = t.trialExpira || '';
+    $('tenant-ativo').value = String(t.ativo !== false);
+    $('tenant-notas').value = t.notas || '';
+
+    // Admin do tenant
+    const adminSnap = await db.collection('users')
+      .where('tenantId', '==', tenantId).where('role', '==', 'admin').limit(1).get();
+    $('tenant-admin').value = adminSnap.empty ? '—' : (adminSnap.docs[0].data().email || '—');
+
+    // Métricas
+    await loadTenantMetricas(tenantId);
+
+    // Pagamentos
+    loadTenantPagamentos(tenantId);
+
+    // Limpa form de adicionar pagamento
+    $('pag-data').value = new Date().toISOString().slice(0, 10);
+    $('pag-metodo').value = 'pix';
+    $('pag-valor').value = '';
+    $('pag-obs').value = '';
+
+    $('modal-tenant').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir tenant:', err);
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+function closeTenantModal() {
+  $('modal-tenant').style.display = 'none';
+}
+
+async function loadTenantMetricas(tenantId) {
+  const container = $('tenant-metricas');
+  container.innerHTML = '<p class="muted">Carregando…</p>';
+  try {
+    const tref = db.collection('tenants').doc(tenantId);
+    const [imSnap, locSnap, ctSnap, balSnap] = await Promise.all([
+      tref.collection('imoveis').get(),
+      tref.collection('locatarios').get(),
+      tref.collection('contratos').where('status', '==', 'vigente').get(),
+      tref.collection('balancetes').get(),
+    ]);
+    container.innerHTML = `
+      <div class="stat-card"><div class="stat-card-icon stat-icon-amber">🏢</div>
+        <div class="stat-card-body"><div class="stat-card-value">${imSnap.size}</div><div class="stat-card-label">Imóveis</div></div></div>
+      <div class="stat-card"><div class="stat-card-icon stat-icon-purple">👤</div>
+        <div class="stat-card-body"><div class="stat-card-value">${locSnap.size}</div><div class="stat-card-label">Locatários</div></div></div>
+      <div class="stat-card"><div class="stat-card-icon stat-icon-teal">📝</div>
+        <div class="stat-card-body"><div class="stat-card-value">${ctSnap.size}</div><div class="stat-card-label">Contratos vigentes</div></div></div>
+      <div class="stat-card"><div class="stat-card-icon stat-icon-green">💰</div>
+        <div class="stat-card-body"><div class="stat-card-value">${balSnap.size}</div><div class="stat-card-label">Balancetes (total)</div></div></div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<p class="muted" style="color:var(--danger);">Erro ao carregar métricas.</p>`;
+  }
+}
+
+async function loadTenantPagamentos(tenantId) {
+  const tbody = $('tbody-pagamentos');
+  tbody.innerHTML = `<tr><td colspan="5" class="empty">Carregando…</td></tr>`;
+  try {
+    const snap = await db.collection('tenants').doc(tenantId).collection('pagamentos').orderBy('data', 'desc').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">Sem pagamentos registrados.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = snap.docs.map(d => {
+      const p = d.data();
+      return `<tr>
+        <td>${p.data ? fmtDataBR(p.data) : '—'}</td>
+        <td>${(p.metodo || '').toUpperCase()}</td>
+        <td>${fmtBRL(p.valor)}</td>
+        <td>${p.obs || '—'}</td>
+        <td><button class="btn-icon btn-icon-danger" onclick="deletePagamento('${tenantId}', '${d.id}')" title="Excluir">🗑</button></td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function addPagamento() {
+  const tenantId = $('tenant-id').value;
+  if (!tenantId) return;
+  const data = $('pag-data').value;
+  const metodo = $('pag-metodo').value;
+  const valor = parseFloat($('pag-valor').value);
+  const obs = $('pag-obs').value.trim();
+  if (!data || !valor) { showAlert('tenant-alert', 'Informe data e valor.'); return; }
+
+  try {
+    await db.collection('tenants').doc(tenantId).collection('pagamentos').add({
+      data, metodo, valor, obs: obs || null,
+      registradoPor: State.user.uid,
+      registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    $('pag-valor').value = '';
+    $('pag-obs').value = '';
+    showAlert('tenant-alert', '✓ Pagamento registrado.', 'success');
+    loadTenantPagamentos(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deletePagamento(tenantId, pagId) {
+  if (!confirm('Excluir este pagamento do histórico?')) return;
+  try {
+    await db.collection('tenants').doc(tenantId).collection('pagamentos').doc(pagId).delete();
+    loadTenantPagamentos(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function saveTenantManagement() {
+  const tenantId = $('tenant-id').value;
+  if (!tenantId) return;
+  const data = {
+    plano: $('tenant-plano').value,
+    valorMensalidade: parseFloat($('tenant-valor').value) || null,
+    proximoVencimento: $('tenant-proximo-venc').value || null,
+    trialExpira: $('tenant-trial-expira').value || null,
+    ativo: $('tenant-ativo').value === 'true',
+    notas: $('tenant-notas').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  const btn = $('btn-save-tenant');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    await db.collection('tenants').doc(tenantId).update(data);
+    closeTenantModal();
+    showAlert('login-alert', '', 'success'); // limpa
+    loadTenantsTable();
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar alterações';
+  }
+}
+
+// ----- "Atuar como" tenant -----
+async function atuarComoTenant() {
+  const tenantId = $('tenant-id').value;
+  if (!tenantId) return;
+  if (!State.isSuperAdmin) return;
+  try {
+    const snap = await db.collection('tenants').doc(tenantId).get();
+    if (!snap.exists) return;
+    // Guarda o tenant atual antes de trocar
+    if (!State.tenantOriginal) State.tenantOriginal = State.tenant;
+    State.tenant = { id: snap.id, ...snap.data() };
+    // Invalida todos os caches
+    invalidateLocadoresCache();
+    invalidateLocatariosCache();
+    invalidateImoveisCache();
+    invalidateGarantiasCache();
+    invalidateCompradoresCache();
+    closeTenantModal();
+    renderApp();
+    showSection('dashboard');
+    $('banner-atuando-como').style.display = 'flex';
+    $('banner-atuando-nome').textContent = State.tenant.nome || '—';
+    $('brand-tenant-name').textContent = State.tenant.nome || '—';
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+function voltarParaSuperAdmin() {
+  if (!State.tenantOriginal) return;
+  State.tenant = State.tenantOriginal;
+  State.tenantOriginal = null;
+  invalidateLocadoresCache();
+  invalidateLocatariosCache();
+  invalidateImoveisCache();
+  invalidateGarantiasCache();
+  invalidateCompradoresCache();
+  $('banner-atuando-como').style.display = 'none';
+  $('brand-tenant-name').textContent = State.tenant?.nome || 'Super Admin';
+  renderApp();
+  showSection('superadmin');
+}
+
+// Compat — função antiga usada em outras partes do código
 async function toggleTenantStatus(tenantId, ativo) {
   const acao = ativo ? 'reativar' : 'suspender';
   if (!confirm(`Confirma ${acao} este tenant?`)) return;
-
   try {
     await db.collection('tenants').doc(tenantId).update({
       ativo,

@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512i">
+  <link rel="stylesheet" href="styles.css?v=20260512j">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -166,6 +166,12 @@
 
     <!-- Main -->
     <main class="main">
+      <!-- Banner de "Atuando como" (super admin) -->
+      <div id="banner-atuando-como" class="banner-atuando" style="display:none;">
+        <span>👁 Você está atuando como <strong id="banner-atuando-nome">—</strong></span>
+        <button class="btn btn-sm" onclick="voltarParaSuperAdmin()">← Voltar ao Super Admin</button>
+      </div>
+
       <header class="topbar">
         <div class="topbar-title" id="topbar-title">Dashboard</div>
         <div class="topbar-user">
@@ -527,24 +533,62 @@
 
         <!-- Painel Super Admin (só visível para role=super_admin) -->
         <section class="section" id="section-superadmin" style="display:none;">
+          <!-- KPIs gerais -->
+          <div class="dashboard-grid" id="superadmin-kpis" style="margin-bottom: 22px;"></div>
+
           <div class="card">
-            <h3>Tenants cadastrados</h3>
-            <p style="color:var(--text-muted); margin-bottom: 14px; font-size:13px;">Imobiliárias que usam o DRG-Rently. Você pode suspender ou reativar a qualquer momento.</p>
-            <table class="table" id="table-tenants">
-              <thead>
-                <tr>
-                  <th>Razão social</th>
-                  <th>CNPJ</th>
-                  <th>Admin</th>
-                  <th>Criado em</th>
-                  <th>Status</th>
-                  <th>Ação</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-tenants">
-                <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-light);">Carregando…</td></tr>
-              </tbody>
-            </table>
+            <div class="section-header">
+              <div>
+                <h3>Imobiliárias clientes</h3>
+                <p class="muted">Gerencie todos os tenants do SaaS.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadTenantsTable()">🔄 Recarregar</button>
+            </div>
+
+            <div class="form-row" style="max-width:700px; margin-bottom:14px;">
+              <div class="form-group">
+                <label>Filtro</label>
+                <select id="filtro-tenant-status" onchange="renderTenantsTable()">
+                  <option value="">Todos</option>
+                  <option value="ativo">Ativos</option>
+                  <option value="suspenso">Suspensos</option>
+                  <option value="trial">Em trial</option>
+                  <option value="inadimplente">Inadimplentes</option>
+                  <option value="vencendo">Trial vencendo em 7d</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Plano</label>
+                <select id="filtro-tenant-plano" onchange="renderTenantsTable()">
+                  <option value="">Todos</option>
+                  <option value="trial">Trial</option>
+                  <option value="basic">Basic</option>
+                  <option value="pro">Pro</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Buscar</label>
+                <input type="text" id="filtro-tenant-busca" placeholder="Nome ou CNPJ" oninput="renderTenantsTable()">
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table" id="table-tenants">
+                <thead>
+                  <tr>
+                    <th>Razão social</th>
+                    <th>Plano</th>
+                    <th>Mensalidade</th>
+                    <th>Próximo venc.</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-tenants">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -1457,6 +1501,138 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <button class="btn btn-secondary" id="btn-gerar-balancete" onclick="gerarBalancete()" style="display:none;">📄 Gerar balancete</button>
         <button class="btn btn-secondary" id="btn-enviar-balancete" onclick="openEnvioBalancete()" style="display:none;">✉️ Enviar ao locador</button>
         <button class="btn btn-primary" id="btn-save-balancete" onclick="saveBalancete()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Gestão do Tenant (Super Admin) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-tenant" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-tenant-title">Gestão do tenant</h3>
+        <button class="modal-close" onclick="closeTenantModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="tenant-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="tenant-id">
+
+        <!-- Métricas -->
+        <h4 class="form-section-title">Métricas atuais</h4>
+        <div id="tenant-metricas" class="dashboard-grid" style="margin-bottom: 14px;"></div>
+
+        <!-- Dados cadastrais (read-only) -->
+        <h4 class="form-section-title">Dados da imobiliária</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Razão social</label>
+            <input type="text" id="tenant-nome" disabled>
+          </div>
+          <div class="form-group">
+            <label>CNPJ</label>
+            <input type="text" id="tenant-cnpj" disabled>
+          </div>
+          <div class="form-group">
+            <label>Admin</label>
+            <input type="text" id="tenant-admin" disabled>
+          </div>
+        </div>
+
+        <!-- Plano comercial (editável) -->
+        <h4 class="form-section-title">Plano comercial</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Plano</label>
+            <select id="tenant-plano">
+              <option value="trial">Trial (gratuito)</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor mensalidade (R$)</label>
+            <input type="number" id="tenant-valor" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Próximo vencimento</label>
+            <input type="date" id="tenant-proximo-venc">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Trial expira em</label>
+            <input type="date" id="tenant-trial-expira">
+            <p class="muted" style="font-size:11px;">Após essa data, alerta aparece. Suspensão é manual.</p>
+          </div>
+          <div class="form-group">
+            <label>Status</label>
+            <select id="tenant-ativo">
+              <option value="true">🟢 Ativo</option>
+              <option value="false">🔴 Suspenso</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Notas internas</h4>
+        <div class="form-group">
+          <textarea id="tenant-notas" rows="3" placeholder="Anotações sobre o cliente (não visível ao admin do tenant)"></textarea>
+        </div>
+
+        <!-- Histórico de pagamentos -->
+        <h4 class="form-section-title">Histórico de pagamentos</h4>
+
+        <div class="table-wrap" style="margin-bottom: 10px;">
+          <table class="table" style="font-size:12px;">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Método</th>
+                <th>Valor</th>
+                <th>Observação</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-pagamentos">
+              <tr><td colspan="5" class="empty">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="form-row" style="background: var(--bg); padding: 10px; border-radius: var(--radius-sm);">
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="pag-data">
+          </div>
+          <div class="form-group">
+            <label>Método</label>
+            <select id="pag-metodo">
+              <option value="pix">PIX</option>
+              <option value="boleto">Boleto</option>
+              <option value="cartao">Cartão</option>
+              <option value="transferencia">Transferência</option>
+              <option value="dinheiro">Dinheiro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor (R$)</label>
+            <input type="number" id="pag-valor" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Observação</label>
+            <input type="text" id="pag-obs" placeholder="Ex: Mensalidade Jan/2026">
+          </div>
+          <div class="form-group" style="display:flex; align-items:flex-end;">
+            <button class="btn btn-primary btn-sm" type="button" onclick="addPagamento()">+ Adicionar</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeTenantModal()">Cancelar</button>
+        <button class="btn btn-secondary" onclick="atuarComoTenant()">👁 Atuar como este tenant</button>
+        <button class="btn btn-primary" id="btn-save-tenant" onclick="saveTenantManagement()">Salvar alterações</button>
       </div>
     </div>
   </div>
@@ -2779,6 +2955,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512i"></script>
+  <script src="app.js?v=20260512j"></script>
 </body>
 </html>
