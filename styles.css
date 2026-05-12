@@ -1425,3 +1425,148 @@ label.required::after {
   list-style: disc inside;
   margin-top: 6px;
 }
+
+/* =============================================================
+   PORTAIS IMOBILIÁRIOS — cards de integração
+   ============================================================= */
+.portais-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.portal-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.06);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+.portal-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--primary);
+  box-shadow: 0 4px 8px rgba(15, 23, 42, 0.08), 0 12px 24px rgba(71, 85, 105, 0.18);
+}
+
+.portal-card-unavailable {
+  background: #fafafa;
+  opacity: 0.85;
+}
+
+.portal-card-unavailable:hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.portal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.portal-card-header h4 {
+  margin: 0 0 2px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.portal-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: #fff;
+  flex-shrink: 0;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+}
+
+.portal-card-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--primary-light);
+  color: var(--primary-dark);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.portal-card-desc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  margin: 0;
+  flex: 1;
+}
+
+.portal-card-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.portal-card-meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.portal-meta-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+}
+
+.portal-card-meta strong {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.portal-card-status {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.portal-card-status.status-soon {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px dashed #fcd34d;
+}
+
+.portal-card-status.status-unavailable {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.portal-card-status.status-active {
+  background: #d1fae5;
+  color: #065f46;
+  border: 1px solid #86efac;
+}
+
+@media (max-width: 600px) {
+  .portais-grid {
+    grid-template-columns: 1fr;
+  }
+}

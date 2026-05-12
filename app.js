@@ -33,6 +33,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
   { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação' },
+  { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
   { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração' },
   { id: 'importacao',    label: 'Importação CSV', grupo: 'Administração' },
   { id: 'configuracoes', label: 'Configurações', grupo: 'Administração' },
@@ -42,7 +43,7 @@ const MODULOS_DISPONIVEIS = [
 const OPERADOR_DEFAULT_MODULOS = [
   'dashboard','alertas','relatorios',
   'locadores','locatarios','compradores','garantias','imoveis',
-  'contratos','negociacoes','balancetes','vitrine'
+  'contratos','negociacoes','balancetes','vitrine','portais'
 ];
 
 // =============================================================
@@ -480,6 +481,7 @@ function showSection(name) {
     imoveis: 'Imóveis',
     contratos: 'Contratos',
     balancetes: 'Balancetes Mensais',
+    portais: 'Portais Imobiliários',
     superadmin: 'Super Admin — Tenants',
     configuracoes: 'Configurações',
   };
