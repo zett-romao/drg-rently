@@ -753,6 +753,7 @@ function showSection(name) {
     aplicarPermissoesDRG();
     if (userDRGPodeVerArea('drg_tenants_view')) loadTenantsTable();
     if (userDRGPodeVerArea('drg_equipe')) loadEquipeDRG();
+    if (State.isDRGMaster) loadDRGCobrancaConfig();
   }
   if (name === 'locadores' && State.tenant) {
     loadLocadores();
@@ -962,6 +963,9 @@ async function openTenantModal(tenantId) {
 
     // Pagamentos
     loadTenantPagamentos(tenantId);
+
+    // Cobrança Asaas (só super_admin)
+    if (State.isSuperAdmin) carregarBlocoAsaas(tenantId);
 
     // Limpa form de adicionar pagamento
     $('pag-data').value = new Date().toISOString().slice(0, 10);
@@ -8856,6 +8860,331 @@ async function deleteDRGPerfil() {
     showAlert('drg-perfil-alert', 'Erro: ' + err.message);
   }
 }
+
+// =============================================================
+// COBRANÇA AUTOMÁTICA — Integração Asaas (super_admin)
+// =============================================================
+// Configuração global armazenada em drgConfig/cobranca (Firestore).
+// Só super_admin lê/escreve via regras.
+
+let _drgCobrancaCache = null;
+
+async function loadDRGCobrancaConfig() {
+  if (!State.isDRGMaster) return;
+  try {
+    const snap = await db.collection('drgConfig').doc('cobranca').get();
+    const cfg = snap.exists ? snap.data() : {};
+    _drgCobrancaCache = cfg;
+    const urlEl = $('drg-cfg-asaas-url');
+    const tokEl = $('drg-cfg-asaas-token');
+    if (urlEl) urlEl.value = cfg.asaasWorkerUrl || '';
+    if (tokEl) tokEl.value = cfg.asaasAdminToken || '';
+    const status = $('drg-cobranca-status');
+    if (status) {
+      if (cfg.asaasWorkerUrl && cfg.asaasAdminToken) {
+        status.textContent = '✅ Cobrança automática configurada.';
+        status.style.color = 'var(--success)';
+      } else {
+        status.textContent = '⚠️ Configure URL e token pra habilitar cobrança automática.';
+        status.style.color = 'var(--warning)';
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar drgConfig/cobranca:', err);
+  }
+}
+
+let _drgCobrancaSaveDebounce = null;
+async function saveDRGCobrancaConfig() {
+  if (!State.isDRGMaster) return;
+  clearTimeout(_drgCobrancaSaveDebounce);
+  _drgCobrancaSaveDebounce = setTimeout(async () => {
+    try {
+      const data = {
+        asaasWorkerUrl: $('drg-cfg-asaas-url')?.value.trim() || '',
+        asaasAdminToken: $('drg-cfg-asaas-token')?.value.trim() || '',
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        atualizadoPor: State.user.uid,
+      };
+      await db.collection('drgConfig').doc('cobranca').set(data, { merge: true });
+      _drgCobrancaCache = data;
+      const status = $('drg-cobranca-status');
+      if (status) {
+        status.textContent = '✅ Configuração salva.';
+        status.style.color = 'var(--success)';
+      }
+    } catch (err) {
+      const status = $('drg-cobranca-status');
+      if (status) {
+        status.textContent = 'Erro: ' + err.message;
+        status.style.color = 'var(--danger)';
+      }
+    }
+  }, 800);
+}
+
+async function ensureCobrancaConfig() {
+  if (_drgCobrancaCache && _drgCobrancaCache.asaasWorkerUrl) return _drgCobrancaCache;
+  try {
+    const snap = await db.collection('drgConfig').doc('cobranca').get();
+    if (snap.exists) {
+      _drgCobrancaCache = snap.data();
+      return _drgCobrancaCache;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function chamarAsaas(method, path, body = null) {
+  const cfg = await ensureCobrancaConfig();
+  if (!cfg || !cfg.asaasWorkerUrl || !cfg.asaasAdminToken) {
+    throw new Error('Cobrança Asaas não configurada. Configure URL e token no painel Super Admin.');
+  }
+  const url = cfg.asaasWorkerUrl.replace(/\/+$/, '') + path;
+  const opts = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-DRG-Admin-Token': cfg.asaasAdminToken,
+    },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  return data;
+}
+
+// --- Carrega bloco Asaas no modal do tenant ---
+
+async function carregarBlocoAsaas(tenantId) {
+  const box = $('asaas-bloco-content');
+  if (!box || !State.isSuperAdmin) return;
+
+  const cfg = await ensureCobrancaConfig();
+  if (!cfg || !cfg.asaasWorkerUrl) {
+    box.innerHTML = `<p class="muted" style="font-size:12px; margin:0;">⚠️ Cobrança automática Asaas não está configurada. Configure no card superior do painel Super Admin.</p>`;
+    return;
+  }
+
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    if (!tSnap.exists) return;
+    const t = tSnap.data();
+    const asaas = t.asaas || {};
+
+    if (!asaas.customerId) {
+      // Tenant sem customer Asaas — botão "Criar cliente"
+      box.innerHTML = `
+        <p style="margin:0 0 10px; font-size:13px;">📌 Este tenant ainda <strong>não tem cliente Asaas vinculado</strong>.</p>
+        <p class="muted" style="font-size:12px; margin: 0 0 12px;">Ao criar, o tenant vira customer no Asaas com nome/CNPJ/CPF/email. Depois você cria a assinatura recorrente.</p>
+        <button class="btn btn-primary btn-sm" onclick="criarCustomerAsaas('${tenantId}')">+ Criar cliente Asaas</button>
+      `;
+      return;
+    }
+
+    if (!asaas.subscriptionId) {
+      // Tem customer mas sem subscription
+      box.innerHTML = `
+        <p style="margin:0 0 10px; font-size:13px;">📌 Cliente Asaas criado: <strong>${escapeHtml(asaas.customerId)}</strong></p>
+        <p class="muted" style="font-size:12px; margin: 0 0 12px;">Crie agora a assinatura recorrente (valor da mensalidade, periodicidade e método de cobrança).</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Método de cobrança</label>
+            <select id="asaas-billing-type">
+              <option value="PIX">PIX (sem boleto físico)</option>
+              <option value="BOLETO">Boleto</option>
+              <option value="UNDEFINED">Cliente escolhe na hora</option>
+              <option value="CREDIT_CARD">Cartão de crédito</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor mensal (R$)</label>
+            <input type="number" id="asaas-sub-valor" min="0" step="0.01" value="${t.valorMensalidade || ''}" placeholder="${t.valorMensalidade || '250.00'}">
+          </div>
+          <div class="form-group">
+            <label>Primeiro vencimento</label>
+            <input type="date" id="asaas-sub-data" value="${t.proximoVencimento || ''}">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="criarSubscriptionAsaas('${tenantId}')">+ Criar assinatura recorrente</button>
+      `;
+      return;
+    }
+
+    // Tem subscription ativa — mostra status + opção de cancelar
+    const statusLabel = {
+      ACTIVE: '🟢 Ativa',
+      INACTIVE: '🔴 Inativa',
+      EXPIRED: '⏰ Expirada',
+    }[asaas.subscriptionStatus] || asaas.subscriptionStatus || '—';
+
+    box.innerHTML = `
+      <p style="margin:0 0 6px; font-size:13px;"><strong>💳 Assinatura recorrente:</strong> ${statusLabel}</p>
+      <p class="muted" style="font-size:11px; margin: 0 0 4px;">
+        Customer: ${escapeHtml(asaas.customerId)}<br>
+        Subscription: ${escapeHtml(asaas.subscriptionId)}<br>
+        Valor: ${fmtBRL(asaas.subscriptionValue)} ${asaas.subscriptionCycle ? '· ' + asaas.subscriptionCycle : ''}
+      </p>
+      <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="atualizarStatusAsaas('${tenantId}')">🔄 Atualizar status</button>
+        <button class="btn btn-secondary btn-sm" onclick="listarPagamentosAsaas('${tenantId}')">📋 Ver pagamentos no Asaas</button>
+        <button class="btn btn-danger btn-sm" onclick="cancelarSubscriptionAsaas('${tenantId}')">🗑 Cancelar assinatura</button>
+      </div>
+    `;
+  } catch (err) {
+    box.innerHTML = `<p class="muted" style="color:var(--danger); font-size:12px; margin:0;">Erro: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function criarCustomerAsaas(tenantId) {
+  if (!confirm('Criar cliente Asaas pra este tenant? Os dados (nome, CNPJ/CPF, email, telefone) serão enviados.')) return;
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    const cpfCnpj = (t.cnpj || t.cpf || '').replace(/\D/g, '');
+    if (!cpfCnpj) throw new Error('Tenant não tem CPF nem CNPJ cadastrado.');
+
+    // Busca email do admin do tenant (no users)
+    let email = t.emailContato || '';
+    if (!email) {
+      const uSnap = await db.collection('users').where('tenantId', '==', tenantId).where('role', '==', 'admin').limit(1).get();
+      if (!uSnap.empty) email = uSnap.docs[0].data().email || '';
+    }
+    if (!email) throw new Error('Tenant não tem email cadastrado.');
+
+    const result = await chamarAsaas('POST', '/customers', {
+      name: t.nome,
+      email,
+      cpfCnpj,
+      phone: t.telefone || '',
+      tenantId,
+    });
+
+    // Salva no tenant
+    await db.collection('tenants').doc(tenantId).update({
+      'asaas.customerId': result.customer.id,
+      'asaas.customerCreatedAt': firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    logAuditoria('asaas_customer_create', 'tenant', tenantId, { customerId: result.customer.id });
+    showAlert('tenant-alert', `✅ Cliente Asaas criado: ${result.customer.id}`, 'success');
+    carregarBlocoAsaas(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function criarSubscriptionAsaas(tenantId) {
+  const billingType = $('asaas-billing-type').value;
+  const valor = parseFloat($('asaas-sub-valor').value);
+  const dataVenc = $('asaas-sub-data').value;
+  if (!valor || valor <= 0) { showAlert('tenant-alert', 'Informe o valor mensal.'); return; }
+  if (!dataVenc) { showAlert('tenant-alert', 'Informe a data do primeiro vencimento.'); return; }
+
+  if (!confirm(`Criar assinatura recorrente?\n\nValor: ${fmtBRL(valor)}/mês\nMétodo: ${billingType}\nPrimeiro vencimento: ${dataVenc}\n\nO cliente vai começar a receber cobranças automaticamente.`)) return;
+
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.customerId) throw new Error('Tenant não tem customer Asaas. Crie o cliente primeiro.');
+
+    const result = await chamarAsaas('POST', '/subscriptions', {
+      customer: t.asaas.customerId,
+      value: valor,
+      nextDueDate: dataVenc,
+      billingType,
+      cycle: 'MONTHLY',
+      description: `DRG-Rently - ${t.nome}`,
+      tenantId,
+    });
+
+    await db.collection('tenants').doc(tenantId).update({
+      'asaas.subscriptionId': result.subscription.id,
+      'asaas.subscriptionStatus': result.subscription.status,
+      'asaas.subscriptionValue': result.subscription.value,
+      'asaas.subscriptionCycle': result.subscription.cycle,
+      'asaas.subscriptionBillingType': billingType,
+      'asaas.subscriptionCreatedAt': firebase.firestore.FieldValue.serverTimestamp(),
+      valorMensalidade: valor,
+      proximoVencimento: dataVenc,
+    });
+    logAuditoria('asaas_subscription_create', 'tenant', tenantId, { subscriptionId: result.subscription.id, valor });
+    showAlert('tenant-alert', `✅ Assinatura criada! Cliente receberá ${billingType} todo mês.`, 'success');
+    loadTenantPagamentos(tenantId);
+    carregarBlocoAsaas(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function atualizarStatusAsaas(tenantId) {
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.subscriptionId) return;
+
+    const result = await chamarAsaas('GET', `/subscriptions/${t.asaas.subscriptionId}`);
+    await db.collection('tenants').doc(tenantId).update({
+      'asaas.subscriptionStatus': result.subscription.status,
+      'asaas.subscriptionValue': result.subscription.value,
+      'asaas.subscriptionNextDueDate': result.subscription.nextDueDate,
+    });
+    showAlert('tenant-alert', `Status atualizado: ${result.subscription.status}`, 'success');
+    carregarBlocoAsaas(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function listarPagamentosAsaas(tenantId) {
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.subscriptionId) return;
+
+    const result = await chamarAsaas('GET', `/subscriptions/${t.asaas.subscriptionId}/payments`);
+    const pgs = result.payments || [];
+    if (pgs.length === 0) {
+      alert('Nenhum pagamento gerado ainda pra essa assinatura.');
+      return;
+    }
+    const linhas = pgs.map(p =>
+      `${p.dueDate || '—'} · ${fmtBRL(p.value)} · ${p.status} ${p.invoiceUrl ? '· Link: ' + p.invoiceUrl : ''}`
+    ).join('\n');
+    alert(`Pagamentos da assinatura (${pgs.length}):\n\n${linhas}`);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function cancelarSubscriptionAsaas(tenantId) {
+  if (!confirm('⚠️ Cancelar assinatura recorrente no Asaas?\n\nO cliente para de receber cobranças automáticas. Pagamentos já gerados continuam válidos.')) return;
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.subscriptionId) return;
+
+    await chamarAsaas('DELETE', `/subscriptions/${t.asaas.subscriptionId}`);
+    await db.collection('tenants').doc(tenantId).update({
+      'asaas.subscriptionId': firebase.firestore.FieldValue.delete(),
+      'asaas.subscriptionStatus': 'CANCELLED',
+      'asaas.canceladoEm': firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    logAuditoria('asaas_subscription_cancel', 'tenant', tenantId, {});
+    showAlert('tenant-alert', '✅ Assinatura cancelada.', 'success');
+    carregarBlocoAsaas(tenantId);
+  } catch (err) {
+    showAlert('tenant-alert', 'Erro: ' + err.message);
+  }
+}
+
+// Expor globalmente
+window.saveDRGCobrancaConfig = saveDRGCobrancaConfig;
+window.criarCustomerAsaas = criarCustomerAsaas;
+window.criarSubscriptionAsaas = criarSubscriptionAsaas;
+window.atualizarStatusAsaas = atualizarStatusAsaas;
+window.listarPagamentosAsaas = listarPagamentosAsaas;
+window.cancelarSubscriptionAsaas = cancelarSubscriptionAsaas;
 
 // =============================================================
 // ASSINATURA ELETRÔNICA — Integração ZapSign

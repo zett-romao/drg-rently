@@ -66,6 +66,12 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    // ----------- DRG CONFIG (configurações globais da DRG: Asaas, etc.) -----------
+    // Apenas super_admin lê/escreve. Não é DRGTeam (operador_drg não vê tokens).
+    match /drgConfig/{docId} {
+      allow read, write: if isSuperAdmin();
+    }
+
     // ----------- TENANTS -----------
     match /tenants/{tenantId} {
       allow read;  // leitura pública dos campos públicos (nome, telefone, emailContato)

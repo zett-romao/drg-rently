@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260513g">
+  <link rel="stylesheet" href="styles.css?v=20260513h">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -584,6 +584,33 @@
         <section class="section" id="section-superadmin" style="display:none;">
           <!-- KPIs gerais -->
           <div class="dashboard-grid" id="superadmin-kpis" style="margin-bottom: 22px;"></div>
+
+          <!-- Configuração de cobrança Asaas (só super_admin) -->
+          <details class="card" style="margin-bottom: 14px;" id="asaas-config-card">
+            <summary style="cursor:pointer; font-weight:600;">💳 Configuração de cobrança Asaas (Super Admin)</summary>
+            <div style="margin-top: 12px;">
+              <p class="muted" style="font-size:12px; margin-bottom: 10px;">
+                Esses dados são usados pra cobrar mensalidade dos clientes do SaaS via Asaas.
+                Salvos em <code>drgConfig/cobranca</code> no Firestore (só visível pra super_admin).
+              </p>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>URL do Worker Asaas</label>
+                  <input type="url" id="drg-cfg-asaas-url" oninput="saveDRGCobrancaConfig()" placeholder="https://drg-rently-asaas.SEU-USUARIO.workers.dev">
+                </div>
+                <div class="form-group">
+                  <label>Token administrativo do Worker</label>
+                  <input type="text" id="drg-cfg-asaas-token" oninput="saveDRGCobrancaConfig()" placeholder="Mesmo WEBHOOK_TOKEN configurado no Worker" style="font-family:'Courier New',monospace; font-size:12px;">
+                </div>
+              </div>
+              <p class="muted" style="font-size:11px; margin: 8px 0 0;">
+                💡 O token deve ser o mesmo definido como <code>WEBHOOK_TOKEN</code> no Worker
+                (variável segura no Cloudflare). Não compartilhe. Veja instruções no arquivo
+                <code>cloudflare-worker-asaas.js</code>.
+              </p>
+              <p id="drg-cobranca-status" class="muted" style="font-size:12px; margin-top: 8px;"></p>
+            </div>
+          </details>
 
           <div class="card">
             <div class="section-header">
@@ -1940,6 +1967,14 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <h4 class="form-section-title">Notas internas</h4>
         <div class="form-group">
           <textarea id="tenant-notas" rows="3" placeholder="Anotações sobre o cliente (não visível ao admin do tenant)"></textarea>
+        </div>
+
+        <!-- Cobrança Recorrente Asaas -->
+        <h4 class="form-section-title">💳 Cobrança automática (Asaas)</h4>
+        <div id="asaas-bloco" style="background:linear-gradient(135deg,#eff6ff,#dbeafe); border:1px solid #c7d2fe; padding:14px; border-radius:8px; margin-bottom:14px;">
+          <div id="asaas-bloco-content">
+            <p class="muted" style="font-size:12px; margin:0;">Carregando status…</p>
+          </div>
         </div>
 
         <!-- Histórico de pagamentos -->
@@ -3565,6 +3600,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513g"></script>
+  <script src="app.js?v=20260513h"></script>
 </body>
 </html>
