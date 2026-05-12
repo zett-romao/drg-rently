@@ -119,7 +119,7 @@ Mesmo codebase atende três modos:
 ### Cadastros
 - 🏠 **Locadores** — proprietários (auto-fill por CNPJ via BrasilAPI)
 - 👤 **Locatários** — inquilinos (ficha sócio-econômica + documentos)
-- 🛒 **Compradores** — funil de vendas (interessados em compra)
+- ✍️ **Compradores** — funil de vendas (interessados em compra)
 - 🛡 **Garantias** — fiadores / caução / seguro fiança
 - 🏢 **Imóveis** — endereço (CEP automático via ViaCEP), fotos com watermark, documentos
 
