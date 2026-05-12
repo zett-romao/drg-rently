@@ -4152,6 +4152,7 @@ async function openImovelModal(id) {
   $('imovel-banheiros').value = '0';
   $('imovel-vagas').value = '0';
   $('imovel-mobiliado').value = 'nao';
+  $('imovel-multiplas-unidades').checked = false;
   $('imovel-cep-status').style.display = 'none';
   // Toggles de privacidade padrão
   ['pub-mostrar-valor', 'pub-mostrar-bairro', 'pub-mostrar-area', 'pub-mostrar-comodos'].forEach(id => {
@@ -4189,6 +4190,7 @@ async function openImovelModal(id) {
         $('imovel-banheiros').value = im.banheiros ?? 0;
         $('imovel-vagas').value = im.vagas ?? 0;
         $('imovel-mobiliado').value = im.mobiliado || 'nao';
+        $('imovel-multiplas-unidades').checked = !!im.multiplasUnidades;
 
         $('imovel-matricula').value = im.matricula || '';
         $('imovel-iptu').value = im.iptu || '';
@@ -4280,6 +4282,7 @@ async function saveImovel() {
     banheiros: parseInt($('imovel-banheiros').value, 10) || 0,
     vagas: parseInt($('imovel-vagas').value, 10) || 0,
     mobiliado: $('imovel-mobiliado').value,
+    multiplasUnidades: $('imovel-multiplas-unidades').checked,
     matricula: $('imovel-matricula').value.trim() || null,
     iptu: $('imovel-iptu').value.trim() || null,
     finalidade: $('imovel-finalidade').value,
@@ -4609,7 +4612,8 @@ async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
 
 function imovelPublicUrl(imovelId, tenantId) {
   const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
-  return `${base}imovel.html?id=${imovelId}&t=${tenantId}`;
+  const slugOrId = (State.tenant && State.tenant.slug) ? State.tenant.slug : tenantId;
+  return `${base}imovel.html?id=${imovelId}&t=${slugOrId}`;
 }
 
 async function onTogglePublicoImovel() {
@@ -4657,9 +4661,50 @@ function openImovelLink() {
 
 // ---------- Configurações da imobiliária ----------
 
-function vitrineUrl(tenantId) {
+function vitrineUrl(tenantIdOrSlug) {
   const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
-  return `${base}imoveis.html?t=${tenantId}`;
+  return `${base}imoveis.html?t=${tenantIdOrSlug}`;
+}
+
+function isSlugValid(slug) {
+  if (!slug) return true; // vazio é OK (desativa slug)
+  return /^[a-z0-9](?:[a-z0-9-]{0,28}[a-z0-9])?$/.test(slug);
+}
+
+let _slugCheckDebounce = null;
+function onSlugInput() {
+  const slug = $('cfg-slug').value.trim().toLowerCase();
+  $('cfg-slug').value = slug; // normaliza pra lowercase
+  const status = $('cfg-slug-status');
+  if (!slug) {
+    status.style.display = 'none';
+    return;
+  }
+  status.style.display = 'block';
+  if (!isSlugValid(slug)) {
+    status.textContent = '✗ Apenas letras minúsculas, números e hífen (3 a 30 caracteres)';
+    status.style.color = 'var(--danger)';
+    return;
+  }
+  status.textContent = 'Verificando disponibilidade…';
+  status.style.color = 'var(--text-muted)';
+
+  clearTimeout(_slugCheckDebounce);
+  _slugCheckDebounce = setTimeout(async () => {
+    try {
+      const snap = await db.collection('tenants').where('slug', '==', slug).limit(1).get();
+      const ocupado = !snap.empty && snap.docs[0].id !== State.tenant.id;
+      if (ocupado) {
+        status.textContent = '✗ Esse apelido já está em uso por outra imobiliária';
+        status.style.color = 'var(--danger)';
+      } else {
+        status.textContent = '✓ Disponível';
+        status.style.color = 'var(--success)';
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar slug:', err);
+    }
+  }, 400);
 }
 
 async function loadConfigImobiliaria() {
@@ -4669,7 +4714,9 @@ async function loadConfigImobiliaria() {
   $('cfg-creci').value = State.tenant.creci || '';
   $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
   $('cfg-email-contato').value = State.tenant.emailContato || '';
-  $('cfg-vitrine-url').value = vitrineUrl(State.tenant.id);
+  $('cfg-slug').value = State.tenant.slug || '';
+  $('cfg-vitrine-url').value = vitrineUrl(State.tenant.slug || State.tenant.id);
+  $('cfg-slug-status').style.display = 'none';
 
   try {
     const snap = await tenantPath().collection('config').doc('site').get();
@@ -4702,17 +4749,36 @@ async function saveConfigImobiliaria() {
   clearTimeout(_saveConfigDebounce);
   _saveConfigDebounce = setTimeout(async () => {
     try {
-      // Tenant doc — telefone e e-mail de contato (públicos)
+      // Tenant doc — telefone, e-mail e slug (públicos)
       const telefoneDigits = $('cfg-telefone').value.replace(/\D/g, '') || null;
       const emailContato = $('cfg-email-contato').value.trim() || null;
+      const slug = $('cfg-slug').value.trim().toLowerCase() || null;
+
+      // Valida slug se preenchido
+      if (slug) {
+        if (!isSlugValid(slug)) {
+          showAlert('cfg-alert', 'Slug inválido. Use apenas letras minúsculas, números e hífen (3 a 30 caracteres).');
+          return;
+        }
+        // Confere unicidade
+        const slugSnap = await db.collection('tenants').where('slug', '==', slug).limit(1).get();
+        if (!slugSnap.empty && slugSnap.docs[0].id !== State.tenant.id) {
+          showAlert('cfg-alert', 'Esse slug já está em uso por outra imobiliária.');
+          return;
+        }
+      }
+
       await tenantPath().update({
         telefone: telefoneDigits,
         emailContato,
+        slug,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
       // Sincroniza no State pra a UI usar imediatamente
       State.tenant.telefone = telefoneDigits;
       State.tenant.emailContato = emailContato;
+      State.tenant.slug = slug;
+      $('cfg-vitrine-url').value = vitrineUrl(slug || State.tenant.id);
 
       // Subdoc config/site — watermark default e templates de cláusulas
       await tenantPath().collection('config').doc('site').set({
@@ -5107,9 +5173,16 @@ async function saveContrato() {
 }
 
 // Atualiza imovel.status conforme o contrato muda de estado.
+// Pula a sincronização se o imóvel tem múltiplas unidades (caso de prédio de kitnet).
 async function syncImovelStatusFromContrato(imovelId, statusNovo, statusAnterior) {
   if (!imovelId) return;
   const imovelRef = tenantPath().collection('imoveis').doc(imovelId);
+  // Verifica flag multiplasUnidades antes de mexer no status
+  try {
+    const snap = await imovelRef.get();
+    if (snap.exists && snap.data().multiplasUnidades) return; // skip
+  } catch (_) {}
+
   if (statusNovo === 'vigente') {
     await imovelRef.update({ status: 'alugado' });
   } else if ((statusNovo === 'encerrado' || statusNovo === 'rescindido') && statusAnterior === 'vigente') {

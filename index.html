@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512d">
+  <link rel="stylesheet" href="styles.css?v=20260512e">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -592,6 +592,13 @@
                 Quando ativo, a logo da imobiliária é sobreposta às fotos ao fazer
                 upload. Você pode desativar caso a caso no upload de cada imóvel.
               </p>
+            </div>
+
+            <div class="form-group">
+              <label>Apelido amigável (slug) da vitrine</label>
+              <input type="text" id="cfg-slug" placeholder="drglobal" oninput="onSlugInput()" onblur="saveConfigImobiliaria()">
+              <span id="cfg-slug-status" class="input-status muted" style="display:none;"></span>
+              <p class="muted" style="font-size:11px;">Apenas letras minúsculas, números e hífen (ex: <code>drglobal</code>, <code>imoveis-sp</code>). Substitui o ID interno na URL pública. Deixe vazio para usar o ID padrão.</p>
             </div>
 
             <div class="form-group">
@@ -2130,6 +2137,17 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="imovel-multiplas-unidades">
+            <span>🏘 Imóvel com múltiplas unidades (ex: prédio de kitnets, casas geminadas)</span>
+          </label>
+          <p class="muted" style="font-size:11px; margin-top:4px;">
+            Quando ativo, o status "Alugado" NÃO é aplicado automaticamente ao criar contratos vigentes.
+            Permite múltiplos contratos simultâneos no mesmo imóvel.
+          </p>
+        </div>
+
         <h4 class="form-section-title">Registros legais</h4>
 
         <div class="form-row">
@@ -2487,6 +2505,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512d"></script>
+  <script src="app.js?v=20260512e"></script>
 </body>
 </html>

@@ -5,7 +5,22 @@
 // =============================================================
 
 const params = new URLSearchParams(window.location.search);
-const tenantId = params.get('t');
+const tenantIdOrSlug = params.get('t');
+let tenantId = null; // será resolvido no init
+
+async function resolveTenantId(slugOrId) {
+  if (!slugOrId) return null;
+  const db = firebase.firestore();
+  try {
+    const direct = await db.collection('tenants').doc(slugOrId).get();
+    if (direct.exists) return slugOrId;
+  } catch (_) {}
+  try {
+    const snap = await db.collection('tenants').where('slug', '==', slugOrId).limit(1).get();
+    if (!snap.empty) return snap.docs[0].id;
+  } catch (_) {}
+  return null;
+}
 
 const $$ = (id) => document.getElementById(id);
 
@@ -33,13 +48,16 @@ const SUBTIPO_LABEL = {
 let _allImoveis = []; // cache pra filtros
 
 (async function init() {
-  if (!tenantId) {
+  if (!tenantIdOrSlug) {
     showError('Link incompleto. Confira a URL.');
     return;
   }
 
   try {
     const db = firebase.firestore();
+
+    tenantId = await resolveTenantId(tenantIdOrSlug);
+    if (!tenantId) { showError('Imobiliária não encontrada.'); return; }
 
     const [tSnap, imSnap] = await Promise.all([
       db.collection('tenants').doc(tenantId).get(),
