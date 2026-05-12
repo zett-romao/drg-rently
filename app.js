@@ -239,6 +239,8 @@ async function loadProfileAndShow(user) {
 
     renderApp();
     showScreen('screen-app');
+    // Log de login bem-sucedido (não bloqueia o fluxo se falhar)
+    logAuditoria('login', 'sessao', user.uid, { email: user.email });
 
   } catch (err) {
     console.error('Erro carregando perfil:', err);
@@ -388,9 +390,10 @@ function renderApp() {
 
   $('nav-superadmin').style.display = State.isSuperAdmin ? 'flex' : 'none';
 
-  // Operador não vê Configurações (admin e super_admin veem)
+  // Operador não vê Configurações nem Auditoria (admin e super_admin veem)
   const podeVerConfig = State.isSuperAdmin || State.userDoc?.role === 'admin';
   $('nav-configuracoes').style.display = podeVerConfig ? 'flex' : 'none';
+  $('nav-auditoria').style.display = podeVerConfig ? 'flex' : 'none';
 
   showSection(State.currentSection || 'dashboard');
 }
@@ -456,6 +459,9 @@ function showSection(name) {
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
     loadUsuariosTenant();
+  }
+  if (name === 'auditoria' && State.tenant) {
+    loadAuditoria();
   }
 }
 
@@ -985,10 +991,12 @@ async function saveLocador() {
   try {
     if (id) {
       await tenantPath().collection('locadores').doc(id).update(data);
+      logAuditoria('update', 'locador', id, { nome: data.nome });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('locadores').add(data);
+      logAuditoria('create', 'locador', docRef.id, { nome: data.nome });
       // re-abrir em modo edição pra liberar uploads de docs
       btn.disabled = false;
       btn.textContent = 'Salvar';
@@ -1025,6 +1033,7 @@ async function deleteLocador() {
 
     // apagar doc do Firestore
     await tenantPath().collection('locadores').doc(id).delete();
+    logAuditoria('delete', 'locador', id);
     invalidateLocadoresCache();
     closeLocadorModal();
     loadLocadores();
@@ -1430,10 +1439,12 @@ async function saveLocatario() {
   try {
     if (id) {
       await tenantPath().collection('locatarios').doc(id).update(data);
+      logAuditoria('update', 'locatario', id, { nome: data.nome, status: data.status });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('locatarios').add(data);
+      logAuditoria('create', 'locatario', docRef.id, { nome: data.nome });
       btn.disabled = false;
       btn.textContent = 'Salvar';
       invalidateLocatariosCache();
@@ -1467,6 +1478,7 @@ async function deleteLocatario() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('locatarios').doc(id).delete();
+    logAuditoria('delete', 'locatario', id);
     invalidateLocatariosCache();
     closeLocatarioModal();
     loadLocatarios();
@@ -1944,10 +1956,12 @@ async function saveGarantia() {
   try {
     if (id) {
       await tenantPath().collection('garantias').doc(id).update(data);
+      logAuditoria('update', 'garantia', id, { tipo: data.tipo });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('garantias').add(data);
+      logAuditoria('create', 'garantia', docRef.id, { tipo: data.tipo });
       btn.disabled = false;
       btn.textContent = 'Salvar';
       invalidateGarantiasCache();
@@ -1981,6 +1995,7 @@ async function deleteGarantia() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('garantias').doc(id).delete();
+    logAuditoria('delete', 'garantia', id);
     invalidateGarantiasCache();
     closeGarantiaModal();
     loadGarantias();
@@ -2797,6 +2812,9 @@ async function saveBalancete() {
     }
     await tenantPath().collection('balancetes').doc(id).set(data, { merge: true });
     $('balancete-id').value = id;
+    logAuditoria(existing.exists ? 'update' : 'create', 'balancete', id, {
+      mes: data.mes, ano: data.ano, status: data.status, liquido: data.liquidoLocador,
+    });
 
     closeBalanceteModal();
     loadBalancetes();
@@ -3023,6 +3041,7 @@ async function sendBalanceteEmail() {
       emailEnviadoBcc: bcc || null,
     });
 
+    logAuditoria('send_email', 'balancete', id, { to, mes: b.mes, ano: b.ano });
     closeEnvioBalancete();
     showAlert('balancete-alert', `✓ E-mail enviado para ${to}!`, 'success');
     $('balancete-status').value = 'enviado';
@@ -3201,6 +3220,7 @@ async function deleteBalancete() {
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
     await tenantPath().collection('balancetes').doc(id).delete();
+    logAuditoria('delete', 'balancete', id);
     closeBalanceteModal();
     loadBalancetes();
   } catch (err) {
@@ -3491,10 +3511,12 @@ async function saveComprador() {
   try {
     if (id) {
       await tenantPath().collection('compradores').doc(id).update(data);
+      logAuditoria('update', 'comprador', id, { nome: data.nome, status: data.status });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('compradores').add(data);
+      logAuditoria('create', 'comprador', docRef.id, { nome: data.nome });
       btn.disabled = false; btn.textContent = 'Salvar';
       invalidateCompradoresCache();
       await openCompradorModal(docRef.id);
@@ -3524,6 +3546,7 @@ async function deleteComprador() {
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
     await tenantPath().collection('compradores').doc(id).delete();
+    logAuditoria('delete', 'comprador', id);
     invalidateCompradoresCache();
     closeCompradorModal();
     loadCompradores();
@@ -3790,11 +3813,13 @@ async function saveNegociacao() {
     let negociacaoId = id;
     if (id) {
       await tenantPath().collection('negociacoes').doc(id).update(data);
+      logAuditoria('update', 'negociacao', id, { status: data.status, valor: data.valor });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('negociacoes').add(data);
       negociacaoId = docRef.id;
+      logAuditoria('create', 'negociacao', negociacaoId, { status: data.status, valor: data.valor });
     }
     await syncImovelStatusFromNegociacao(imovelId, status, statusAnterior);
     invalidateImoveisCache();
@@ -3844,6 +3869,7 @@ async function deleteNegociacao() {
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
     await tenantPath().collection('negociacoes').doc(id).delete();
+    logAuditoria('delete', 'negociacao', id);
     closeNegociacaoModal();
     loadNegociacoes();
   } catch (err) {
@@ -4320,10 +4346,12 @@ async function saveImovel() {
   try {
     if (id) {
       await tenantPath().collection('imoveis').doc(id).update(data);
+      logAuditoria('update', 'imovel', id, { apelido: data.apelido, status: data.status });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('imoveis').add(data);
+      logAuditoria('create', 'imovel', docRef.id, { apelido: data.apelido });
       btn.disabled = false;
       btn.textContent = 'Salvar';
       invalidateImoveisCache();
@@ -4357,6 +4385,7 @@ async function deleteImovel() {
     } catch (_) { /* pasta pode não existir */ }
 
     await tenantPath().collection('imoveis').doc(id).delete();
+    logAuditoria('delete', 'imovel', id);
     invalidateImoveisCache();
     closeImovelModal();
     loadImoveis();
@@ -5154,11 +5183,13 @@ async function saveContrato() {
     let contratoId = id;
     if (id) {
       await tenantPath().collection('contratos').doc(id).update(data);
+      logAuditoria('update', 'contrato', id, { status: data.status, aluguel: data.aluguel });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('contratos').add(data);
       contratoId = docRef.id;
+      logAuditoria('create', 'contrato', contratoId, { status: data.status, aluguel: data.aluguel });
     }
 
     // Sincroniza status do imóvel
@@ -5226,6 +5257,7 @@ async function deleteContrato() {
     } catch (_) {}
 
     await tenantPath().collection('contratos').doc(id).delete();
+    logAuditoria('delete', 'contrato', id);
     closeContratoModal();
     loadContratos();
   } catch (err) {
@@ -5622,6 +5654,99 @@ function copyContratoTexto() {
 }
 
 // =============================================================
+// AUDITORIA — log de ações sensíveis (LGPD)
+// =============================================================
+
+// Registra uma ação no log de auditoria do tenant.
+// Falha silenciosamente pra não impactar o fluxo principal do usuário.
+async function logAuditoria(acao, entidade, entidadeId, detalhe = null) {
+  if (!State.tenant || !State.user) return;
+  try {
+    const safeDetalhe = detalhe ? JSON.parse(JSON.stringify(detalhe).slice(0, 5000)) : null;
+    await tenantPath().collection('auditoria').add({
+      acao,           // 'create' | 'update' | 'delete' | 'login' | 'send_email' | 'gerar_contrato'
+      entidade,       // 'locador' | 'locatario' | 'imovel' | etc.
+      entidadeId: entidadeId || null,
+      userId: State.user.uid,
+      userNome: State.userDoc?.nome || '',
+      userEmail: State.user.email || '',
+      userRole: State.userDoc?.role || '',
+      detalhe: safeDetalhe,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn('Falha ao logar auditoria (' + acao + '/' + entidade + '):', err);
+  }
+}
+
+const AUDIT_ACAO_LABEL = {
+  create: '✚ Criação',
+  update: '✎ Atualização',
+  delete: '✗ Exclusão',
+  login: '🔑 Login',
+  send_email: '✉️ E-mail enviado',
+  gerar_contrato: '📄 Contrato gerado',
+  toggle_ativo: '🔄 Status alterado',
+};
+
+const AUDIT_ENTIDADE_LABEL = {
+  locador: 'Locador',
+  locatario: 'Locatário',
+  comprador: 'Comprador',
+  garantia: 'Garantia',
+  imovel: 'Imóvel',
+  contrato: 'Contrato',
+  negociacao: 'Negociação',
+  balancete: 'Balancete',
+  usuario: 'Usuário',
+  config: 'Configurações',
+  sessao: 'Sessão',
+};
+
+async function loadAuditoria() {
+  const tbody = $('tbody-auditoria');
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+  if (!State.tenant) { tbody.innerHTML = `<tr><td colspan="6" class="empty">—</td></tr>`; return; }
+
+  const entFiltro = $('filtro-auditoria-entidade').value;
+  const acFiltro = $('filtro-auditoria-acao').value;
+
+  try {
+    let q = tenantPath().collection('auditoria').orderBy('timestamp', 'desc').limit(200);
+    const snap = await q.get();
+    let docs = snap.docs;
+    if (entFiltro) docs = docs.filter(d => d.data().entidade === entFiltro);
+    if (acFiltro)  docs = docs.filter(d => d.data().acao === acFiltro);
+
+    if (docs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum registro encontrado.</td></tr>`;
+      return;
+    }
+
+    const rows = docs.map(doc => {
+      const a = doc.data();
+      const dt = a.timestamp?.toDate ? a.timestamp.toDate() : null;
+      const dataTxt = dt ? `${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR')}` : '—';
+      const detalhe = a.detalhe ? (typeof a.detalhe === 'string' ? a.detalhe : JSON.stringify(a.detalhe).slice(0, 80) + '…') : '—';
+      return `
+        <tr>
+          <td><span style="font-family:'Courier New',monospace; font-size:12px;">${dataTxt}</span></td>
+          <td>${a.userNome || a.userEmail || '—'}</td>
+          <td>${AUDIT_ACAO_LABEL[a.acao] || a.acao}</td>
+          <td>${AUDIT_ENTIDADE_LABEL[a.entidade] || a.entidade}</td>
+          <td><span style="font-family:'Courier New',monospace; font-size:11px; color:var(--text-muted);">${a.entidadeId || '—'}</span></td>
+          <td style="font-size:11px; color:var(--text-muted); max-width:300px; overflow:hidden; text-overflow:ellipsis;">${detalhe}</td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar auditoria:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+// =============================================================
 // USUÁRIOS DO TENANT (operadores) — gerenciamento pelo admin
 // =============================================================
 
@@ -5772,6 +5897,7 @@ async function saveUsuarioTenant() {
       } catch (e) { console.warn('Falha ao enviar e-mail (usuário criado mesmo assim):', e); }
     }
 
+    logAuditoria('create', 'usuario', uid, { nome, email, role });
     closeUsuarioTenantModal();
     showAlert('cfg-alert', `✓ Usuário ${nome} criado. Senha inicial: ${senha}`, 'success');
     loadUsuariosTenant();
@@ -5788,6 +5914,7 @@ async function toggleUsuarioAtivo(uid, novoAtivo) {
   if (!confirm(`Confirma ${acao} este usuário?`)) return;
   try {
     await db.collection('users').doc(uid).update({ ativo: novoAtivo });
+    logAuditoria('toggle_ativo', 'usuario', uid, { ativo: novoAtivo });
     showAlert('cfg-alert', `Usuário ${novoAtivo ? 'reativado' : 'desativado'}.`, 'success');
     loadUsuariosTenant();
   } catch (err) {
