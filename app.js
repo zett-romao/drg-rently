@@ -2484,6 +2484,177 @@ function aplicarStatusBalancete() {
   $('balancete-taxa-adm').disabled = fechado;
 }
 
+// ----- Leitura de boleto via Gemini Vision -----
+
+let _boletoContexto = null; // { bloco, file }
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const base64 = result.substring(result.indexOf(',') + 1);
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Falha ao ler arquivo'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function lerBoletoLancamento(bloco) {
+  if ($('balancete-status').value !== 'aberto' && $('balancete-id').value) {
+    showAlert('balancete-alert', 'Reabra o balancete para adicionar lançamentos.');
+    return;
+  }
+
+  // Verifica se há URL do Worker configurada
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      showAlert('balancete-alert', 'Configure a URL do Worker Gemini em Configurações antes de usar a leitura de boleto.');
+      return;
+    }
+  } catch (_) {}
+
+  // Abre file picker programaticamente
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      showAlert('balancete-alert', 'Arquivo excede 4MB.');
+      return;
+    }
+    _boletoContexto = { bloco, file };
+    await processarBoleto(file, bloco);
+  };
+  input.click();
+}
+
+async function processarBoleto(file, bloco) {
+  showAlert('balancete-alert', '🤖 Lendo boleto com Gemini Vision... pode levar alguns segundos.', 'info');
+
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      showAlert('balancete-alert', 'Configure a URL do Worker Gemini em Configurações.');
+      return;
+    }
+
+    const fileBase64 = await fileToBase64(file);
+    const res = await fetch(cfg.workerGeminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileBase64,
+        mimeType: file.type || 'application/pdf',
+      }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    const result = await res.json();
+    if (!result.success || !result.data) {
+      throw new Error('Resposta inválida do Worker');
+    }
+
+    abrirBoletoRevisao(result.data, bloco, file);
+    clearAlert('balancete-alert');
+  } catch (err) {
+    console.error('Erro ao processar boleto:', err);
+    showAlert('balancete-alert', 'Erro ao ler boleto: ' + err.message);
+  }
+}
+
+function abrirBoletoRevisao(dados, bloco, file) {
+  _boletoContexto = { bloco, file, dadosOriginais: dados };
+
+  // Popula categorias do bloco
+  const cats = LANC_CATEGORIAS[bloco] || [];
+  const catSelect = $('boleto-categoria');
+  catSelect.innerHTML = cats.map(c => {
+    const sel = c === dados.categoria_sugerida ? ' selected' : '';
+    return `<option value="${c}"${sel}>${LANC_CATEGORIA_LABEL[c] || c}</option>`;
+  }).join('');
+
+  $('boleto-descricao').value = dados.descricao || '';
+  $('boleto-valor').value = dados.valor || '';
+  $('boleto-vencimento').value = dados.vencimento || '';
+  $('boleto-competencia').value = dados.competencia || '';
+  $('boleto-beneficiario').value = dados.beneficiario || '';
+  $('boleto-doc-benef').value = dados.documento_beneficiario || '';
+  $('boleto-linha-digitavel').value = dados.linha_digitavel || '';
+  $('boleto-arquivo-nome').textContent = file.name;
+
+  clearAlert('boleto-alert');
+  $('modal-boleto-revisao').style.display = 'flex';
+}
+
+function closeBoletoRevisao() {
+  $('modal-boleto-revisao').style.display = 'none';
+  _boletoContexto = null;
+}
+
+async function confirmarBoletoExtraido() {
+  if (!_boletoContexto) return;
+  const { bloco, file, dadosOriginais } = _boletoContexto;
+
+  const valor = parseFloat($('boleto-valor').value);
+  if (!valor || valor <= 0) {
+    showAlert('boleto-alert', 'Valor é obrigatório.');
+    return;
+  }
+
+  const categoria = $('boleto-categoria').value;
+  const descricao = $('boleto-descricao').value.trim() || LANC_CATEGORIA_LABEL[categoria] || categoria;
+
+  const lancId = cryptoRandomId();
+  _balanceteLancamentos.push({
+    id: lancId,
+    bloco,
+    categoria,
+    descricao,
+    valor,
+    comprovantePath: null,
+    comprovanteNome: null,
+    // metadados extras do boleto
+    boletoVencimento: $('boleto-vencimento').value || null,
+    boletoCompetencia: $('boleto-competencia').value || null,
+    boletoBeneficiario: $('boleto-beneficiario').value.trim() || null,
+    boletoDocBeneficiario: $('boleto-doc-benef').value.trim() || null,
+    boletoLinhaDigitavel: $('boleto-linha-digitavel').value.trim() || null,
+  });
+
+  // Faz upload do boleto como comprovante
+  const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
+  try {
+    const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `balancetes/${balanceteId}/comprovantes/${lancId}_${cleanName}`;
+    const ref = storageTenantRef().child(path);
+    await ref.put(file, { contentType: file.type });
+    const idx = _balanceteLancamentos.findIndex(l => l.id === lancId);
+    if (idx !== -1) {
+      _balanceteLancamentos[idx].comprovantePath = path;
+      _balanceteLancamentos[idx].comprovanteNome = file.name;
+    }
+  } catch (err) {
+    console.warn('Falha ao anexar boleto (lançamento criado mesmo assim):', err);
+  }
+
+  closeBoletoRevisao();
+  renderLancamentos();
+  recalcBalancete();
+  showAlert('balancete-alert', `✓ Lançamento criado: ${descricao} (${fmtBRL(valor)})`, 'success');
+}
+
 async function uploadLancComprovante(id, file) {
   if (!file) return;
   const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
@@ -4509,6 +4680,7 @@ async function loadConfigImobiliaria() {
     $('cfg-balancete-cabecalho').value = cfg.balanceteCabecalho || '';
     $('cfg-balancete-rodape').value = cfg.balanceteRodape || '';
     $('cfg-worker-url').value = cfg.workerUrl || '';
+    $('cfg-worker-gemini-url').value = cfg.workerGeminiUrl || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
@@ -4519,6 +4691,7 @@ async function loadConfigImobiliaria() {
     $('cfg-balancete-cabecalho').value = '';
     $('cfg-balancete-rodape').value = '';
     $('cfg-worker-url').value = '';
+    $('cfg-worker-gemini-url').value = '';
     $('cfg-email-from').value = 'onboarding@resend.dev';
     $('cfg-email-template').value = '';
   }
@@ -4549,6 +4722,7 @@ async function saveConfigImobiliaria() {
         balanceteCabecalho: $('cfg-balancete-cabecalho').value,
         balanceteRodape: $('cfg-balancete-rodape').value,
         workerUrl: $('cfg-worker-url').value.trim(),
+        workerGeminiUrl: $('cfg-worker-gemini-url').value.trim(),
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),

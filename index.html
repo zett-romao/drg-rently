@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260512c">
+  <link rel="stylesheet" href="styles.css?v=20260512d">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -653,6 +653,14 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <span class="muted" style="font-size:11px;">Endpoint do Worker que envia e-mails via Resend. Veja instruções em <code>cloudflare-worker-resend.js</code> no repo.</span>
             </div>
 
+            <h4 class="form-section-title">Leitura automática de boletos (Gemini Vision)</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare proxy do Gemini)</label>
+              <input type="url" id="cfg-worker-gemini-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-gemini.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint do Worker que extrai dados de boletos via Gemini Vision. Veja instruções em <code>cloudflare-worker-gemini.js</code> no repo.</span>
+            </div>
+
             <div class="form-group">
               <label>Remetente (e-mail "from")</label>
               <input type="email" id="cfg-email-from" oninput="saveConfigImobiliaria()" placeholder="onboarding@resend.dev">
@@ -1138,7 +1146,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="balancete-bloco">
           <div class="balancete-bloco-header bloco-despesa-loc">
             <h4>⬇ Despesas do locador (descontadas do repasse)</h4>
-            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locador')">+ Adicionar</button>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="lerBoletoLancamento('despesa_locador')">🤖 Ler de boleto</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locador')">+ Adicionar</button>
+            </div>
           </div>
           <div id="lanc-despesa-locador-list" class="lanc-list"></div>
           <div class="balancete-bloco-total">Total despesas do locador: <strong id="total-despesas-locador">R$ 0,00</strong></div>
@@ -1148,7 +1159,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="balancete-bloco">
           <div class="balancete-bloco-header bloco-despesa-loct">
             <h4>⬇ Despesas do locatário (pagas pela imobiliária — informativo)</h4>
-            <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locatario')">+ Adicionar</button>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="lerBoletoLancamento('despesa_locatario')">🤖 Ler de boleto</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="addLancamento('despesa_locatario')">+ Adicionar</button>
+            </div>
           </div>
           <div id="lanc-despesa-locatario-list" class="lanc-list"></div>
           <div class="balancete-bloco-total">Total despesas do locatário: <strong id="total-despesas-locatario">R$ 0,00</strong></div>
@@ -1220,6 +1234,76 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <button class="btn btn-secondary" id="btn-gerar-balancete" onclick="gerarBalancete()" style="display:none;">📄 Gerar balancete</button>
         <button class="btn btn-secondary" id="btn-enviar-balancete" onclick="openEnvioBalancete()" style="display:none;">✉️ Enviar ao locador</button>
         <button class="btn btn-primary" id="btn-save-balancete" onclick="saveBalancete()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Revisão do boleto lido pelo Gemini -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-boleto-revisao" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🤖 Dados extraídos do boleto</h3>
+        <button class="modal-close" onclick="closeBoletoRevisao()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="boleto-alert" class="alert alert-error" style="display:none;"></div>
+
+        <p class="muted" style="font-size:12px; margin-bottom:14px;">
+          Revise os campos extraídos pelo Gemini. Você pode editar antes de confirmar.
+          Ao confirmar, será criado um lançamento e o boleto anexado como comprovante.
+        </p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Categoria sugerida</label>
+            <select id="boleto-categoria"></select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Descrição</label>
+            <input type="text" id="boleto-descricao">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Valor (R$)</label>
+            <input type="number" id="boleto-valor" min="0" step="0.01">
+          </div>
+          <div class="form-group">
+            <label>Vencimento</label>
+            <input type="date" id="boleto-vencimento">
+          </div>
+          <div class="form-group">
+            <label>Competência</label>
+            <input type="month" id="boleto-competencia">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Beneficiário</label>
+            <input type="text" id="boleto-beneficiario">
+          </div>
+          <div class="form-group">
+            <label>CNPJ/CPF do beneficiário</label>
+            <input type="text" id="boleto-doc-benef">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Linha digitável</label>
+          <input type="text" id="boleto-linha-digitavel" style="font-family: 'Courier New', monospace; font-size: 12px;">
+        </div>
+
+        <p class="muted" style="font-size:11px;">
+          📎 Arquivo carregado: <strong id="boleto-arquivo-nome">—</strong>
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeBoletoRevisao()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-boleto" onclick="confirmarBoletoExtraido()">✓ Confirmar e adicionar</button>
       </div>
     </div>
   </div>
@@ -2403,6 +2487,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260512c"></script>
+  <script src="app.js?v=20260512d"></script>
 </body>
 </html>
