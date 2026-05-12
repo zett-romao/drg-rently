@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260511k">
+  <link rel="stylesheet" href="styles.css?v=20260511l">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -642,6 +642,25 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <textarea id="cfg-balancete-rodape" rows="3" oninput="saveConfigImobiliaria()" placeholder="Ex: Valores conferem com os comprovantes em anexo. Qualquer divergência deve ser informada em até 5 dias úteis. {{tenant.nome}} — CRECI {{tenant.creci}}"></textarea>
             </div>
 
+            <h4 class="form-section-title">Envio automático por e-mail</h4>
+
+            <div class="form-group">
+              <label>URL do Worker (Cloudflare proxy do Resend)</label>
+              <input type="url" id="cfg-worker-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-resend.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Endpoint do Worker que envia e-mails via Resend. Veja instruções em <code>cloudflare-worker-resend.js</code> no repo.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Remetente (e-mail "from")</label>
+              <input type="email" id="cfg-email-from" oninput="saveConfigImobiliaria()" placeholder="onboarding@resend.dev">
+              <span class="muted" style="font-size:11px;">Use <code>onboarding@resend.dev</code> até verificar seu domínio em resend.com.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Mensagem padrão do e-mail (vai no corpo, antes do balancete)</label>
+              <textarea id="cfg-email-template" rows="3" oninput="saveConfigImobiliaria()" placeholder="Ex: Prezado(a) {{locador.nome}}, segue o balancete referente ao período. Em caso de dúvidas, entre em contato. Atenciosamente, {{tenant.nome}}."></textarea>
+            </div>
+
             <div class="form-group">
               <label>Template de contrato de COMPRA E VENDA</label>
               <textarea id="cfg-template-venda" rows="10" oninput="saveConfigImobiliaria()" placeholder="Ex:
@@ -1184,7 +1203,59 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <button class="btn btn-secondary" onclick="closeBalanceteModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-balancete" onclick="deleteBalancete()" style="display:none;">Excluir</button>
         <button class="btn btn-secondary" id="btn-gerar-balancete" onclick="gerarBalancete()" style="display:none;">📄 Gerar balancete</button>
+        <button class="btn btn-secondary" id="btn-enviar-balancete" onclick="openEnvioBalancete()" style="display:none;">✉️ Enviar ao locador</button>
         <button class="btn btn-primary" id="btn-save-balancete" onclick="saveBalancete()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Envio do Balancete por e-mail -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-envio-balancete" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Enviar balancete ao locador</h3>
+        <button class="modal-close" onclick="closeEnvioBalancete()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="envio-alert" class="alert alert-error" style="display:none;"></div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Destinatário (e-mail do locador)</label>
+            <input type="email" id="envio-to" required>
+            <span class="muted" style="font-size:11px;">Você pode editar antes de enviar.</span>
+          </div>
+          <div class="form-group">
+            <label>Cópia (BCC, opcional)</label>
+            <input type="email" id="envio-bcc" placeholder="seu-email@exemplo.com">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="required">Assunto</label>
+          <input type="text" id="envio-subject">
+        </div>
+
+        <div class="form-group">
+          <label>Mensagem inicial (vai antes do balancete)</label>
+          <textarea id="envio-mensagem" rows="4"></textarea>
+        </div>
+
+        <details style="margin-top: 12px;">
+          <summary style="cursor: pointer; font-size: 13px; color: var(--primary); font-weight: 600;">Pré-visualizar o que será enviado</summary>
+          <div id="envio-preview" class="contrato-preview" style="margin-top: 12px; max-height: 400px; overflow-y: auto;"></div>
+        </details>
+
+        <p class="muted" style="font-size:11px; margin-top: 16px;">
+          O e-mail será enviado pelo Cloudflare Worker (Resend). Ao confirmar, o
+          balancete será marcado como "Enviado".
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEnvioBalancete()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-envio" onclick="sendBalanceteEmail()">✉️ Enviar agora</button>
       </div>
     </div>
   </div>
@@ -2317,6 +2388,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260511k"></script>
+  <script src="app.js?v=20260511l"></script>
 </body>
 </html>

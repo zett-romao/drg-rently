@@ -2109,6 +2109,7 @@ async function openBalanceteModal(id) {
 
   let selectedContratoId = null;
   $('btn-gerar-balancete').style.display = id ? 'inline-block' : 'none';
+  $('btn-enviar-balancete').style.display = id ? 'inline-block' : 'none';
 
   if (id) {
     try {
@@ -2429,6 +2430,234 @@ async function saveBalancete() {
     showAlert('balancete-alert', 'Erro: ' + err.message);
   } finally {
     btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+// ----- Envio do balancete por e-mail -----
+
+let _envioBalanceteContexto = null;
+
+async function openEnvioBalancete() {
+  const id = $('balancete-id').value;
+  if (!id) { showAlert('balancete-alert', 'Salve o balancete antes de enviar.'); return; }
+  clearAlert('envio-alert');
+
+  try {
+    // Carrega tudo necessário
+    const bSnap = await tenantPath().collection('balancetes').doc(id).get();
+    if (!bSnap.exists) { showAlert('balancete-alert', 'Balancete não encontrado.'); return; }
+    const b = bSnap.data();
+
+    const [contratoSnap, locadorSnap, locatarioSnap, imovelSnap, configSnap] = await Promise.all([
+      b.contratoId  ? tenantPath().collection('contratos').doc(b.contratoId).get()  : Promise.resolve(null),
+      b.locadorId   ? tenantPath().collection('locadores').doc(b.locadorId).get()   : Promise.resolve(null),
+      b.locatarioId ? tenantPath().collection('locatarios').doc(b.locatarioId).get() : Promise.resolve(null),
+      b.imovelId    ? tenantPath().collection('imoveis').doc(b.imovelId).get()    : Promise.resolve(null),
+      tenantPath().collection('config').doc('site').get(),
+    ]);
+
+    const contrato  = (contratoSnap  && contratoSnap.exists)  ? contratoSnap.data()  : {};
+    const locador   = (locadorSnap   && locadorSnap.exists)   ? locadorSnap.data()   : {};
+    const locatario = (locatarioSnap && locatarioSnap.exists) ? locatarioSnap.data() : {};
+    const imovel    = (imovelSnap    && imovelSnap.exists)    ? imovelSnap.data()    : {};
+    const cfg = configSnap.exists ? configSnap.data() : {};
+
+    if (!cfg.workerUrl) {
+      showAlert('balancete-alert', 'Configure a URL do Worker em Configurações antes de enviar.');
+      return;
+    }
+    if (!locador.email) {
+      showAlert('balancete-alert', `O locador "${locador.nome || 'sem nome'}" não tem e-mail cadastrado.`);
+      return;
+    }
+
+    _envioBalanceteContexto = { id, b, contrato, locador, locatario, imovel, cfg };
+
+    // Preenche campos do modal
+    const mesAno = fmtMesAno(b.mes, b.ano);
+    $('envio-to').value = locador.email;
+    $('envio-bcc').value = '';
+    $('envio-subject').value = `Balancete ${mesAno} — ${imovel.apelido || 'Imóvel'} — ${State.tenant.nome}`;
+
+    const dadosMsg = {
+      tenant: { nome: State.tenant.nome },
+      locador: { nome: locador.nome || '' },
+      imovel: { apelido: imovel.apelido || '' },
+      periodo: mesAno,
+    };
+    const mensagemPadrao = cfg.emailTemplate ||
+      `Prezado(a) {{locador.nome}},\n\nSegue em anexo o balancete do mês {{periodo}} referente ao imóvel "{{imovel.apelido}}".\n\nQualquer dúvida ficamos à disposição.\n\nAtenciosamente,\n{{tenant.nome}}`;
+    $('envio-mensagem').value = mergeTemplate(mensagemPadrao, dadosMsg);
+
+    // Preview HTML
+    const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
+    const rodape = mergeTemplate(cfg.balanceteRodape || '', { tenant: State.tenant });
+    const htmlBalancete = buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, rodape);
+    $('envio-preview').innerHTML = htmlBalancete;
+
+    $('modal-envio-balancete').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao preparar envio:', err);
+    showAlert('balancete-alert', 'Erro: ' + err.message);
+  }
+}
+
+function closeEnvioBalancete() {
+  $('modal-envio-balancete').style.display = 'none';
+}
+
+// HTML otimizado pra e-mail (estilos inline pra Gmail/Outlook)
+function buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabecalho, mensagem) {
+  const tenant = State.tenant || {};
+  const mesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const periodoTxt = `${mesNomes[b.mes - 1]} de ${b.ano}`;
+
+  const rowsBloco = (bloco) => {
+    const linhas = (b.lancamentos || []).filter(l => l.bloco === bloco);
+    if (linhas.length === 0) return `<tr><td colspan="3" style="text-align:center;color:#888;padding:8px;">—</td></tr>`;
+    return linhas.map(l => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;">${escapeHtml(LANC_CATEGORIA_LABEL[l.categoria] || l.categoria || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;">${escapeHtml(l.descricao || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:right;white-space:nowrap;">${fmtBRL(l.valor)}</td>
+      </tr>
+    `).join('');
+  };
+
+  const mensagemHtml = textToHtml(mensagem || '');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Balancete</title></head>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;color:#111;">
+  <div style="max-width:680px;margin:0 auto;background:white;padding:30px;">
+
+    <div style="text-align:center;border-bottom:2px solid #475569;padding-bottom:14px;margin-bottom:20px;">
+      <h1 style="margin:0;color:#334155;font-size:20px;">BALANCETE DE LOCAÇÃO</h1>
+      <p style="margin:4px 0 0;color:#666;font-size:14px;">${escapeHtml(periodoTxt)}</p>
+      <p style="margin:8px 0 0;font-weight:bold;color:#475569;">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+    </div>
+
+    <div style="margin-bottom:20px;font-size:14px;color:#333;">
+      ${mensagemHtml}
+    </div>
+
+    ${cabecalho ? `<div style="margin-bottom:18px;font-size:13px;color:#444;padding:12px;background:#f8fafc;border-left:3px solid #475569;">${textToHtml(cabecalho)}</div>` : ''}
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:13px;">
+      <tr><td style="padding:3px 0;color:#666;width:120px;">Locador:</td><td style="padding:3px 0;">${escapeHtml(locador.nome || '—')}</td></tr>
+      <tr><td style="padding:3px 0;color:#666;">Locatário:</td><td style="padding:3px 0;">${escapeHtml(locatario.nome || '—')}</td></tr>
+      <tr><td style="padding:3px 0;color:#666;">Imóvel:</td><td style="padding:3px 0;">${escapeHtml(imovel.apelido || '—')}</td></tr>
+      <tr><td style="padding:3px 0;color:#666;">Endereço:</td><td style="padding:3px 0;">${escapeHtml(formatEnderecoCompleto(imovel.endereco))}</td></tr>
+    </table>
+
+    <h3 style="margin:24px 0 8px;color:#15803d;font-size:14px;">⬆ ENTRADAS</h3>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f0f0f0;">
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Categoria</th>
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Descrição</th>
+        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;">Valor</th>
+      </tr></thead>
+      <tbody>
+        ${rowsBloco('entrada')}
+        <tr style="background:#f9f9f9;font-weight:bold;border-top:2px solid #000;">
+          <td colspan="2" style="padding:8px;">Total entradas</td>
+          <td style="padding:8px;text-align:right;">${fmtBRL(b.totalEntradas)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin:24px 0 8px;color:#b91c1c;font-size:14px;">⬇ DESPESAS DO LOCADOR</h3>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f0f0f0;">
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Categoria</th>
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Descrição</th>
+        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;">Valor</th>
+      </tr></thead>
+      <tbody>
+        ${rowsBloco('despesa_locador')}
+        <tr style="background:#f9f9f9;font-weight:bold;border-top:2px solid #000;">
+          <td colspan="2" style="padding:8px;">Total despesas do locador</td>
+          <td style="padding:8px;text-align:right;">${fmtBRL(b.totalDespesasLocador)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div style="border:2px solid #000;padding:14px 18px;margin:24px 0;background:#fafafa;">
+      <table style="width:100%;font-size:13px;">
+        <tr><td style="padding:4px 0;">Total de entradas</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalEntradas)}</td></tr>
+        <tr><td style="padding:4px 0;">(−) Despesas do locador</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalDespesasLocador)}</td></tr>
+        <tr><td style="padding:4px 0;">(−) Taxa de administração (${b.taxaAdm}% sobre ${fmtBRL(b.aluguelBase)})</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.taxaAdmValor)}</td></tr>
+        <tr style="border-top:2px solid #000;"><td style="padding:10px 0;font-size:15px;font-weight:bold;">LÍQUIDO A REPASSAR AO LOCADOR</td><td style="text-align:right;padding:10px 0;font-size:18px;font-weight:bold;color:#15803d;">${fmtBRL(b.liquidoLocador)}</td></tr>
+      </table>
+    </div>
+
+    ${b.obs ? `<div style="margin-bottom:20px;font-size:13px;"><strong>Observações:</strong><br>${textToHtml(b.obs)}</div>` : ''}
+
+    <p style="margin-top:30px;font-size:11px;color:#888;text-align:center;border-top:1px solid #ddd;padding-top:14px;">
+      Enviado por ${escapeHtml(tenant.nome || 'DRG-Rently')} via DRG-Rently<br>
+      ${tenant.cnpj ? 'CNPJ ' + escapeHtml(maskCNPJ(tenant.cnpj)) : ''}${tenant.creci ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}
+    </p>
+  </div>
+</body></html>`;
+}
+
+async function sendBalanceteEmail() {
+  if (!_envioBalanceteContexto) return;
+  const { id, b, contrato, locador, locatario, imovel, cfg } = _envioBalanceteContexto;
+
+  const to = $('envio-to').value.trim();
+  const bcc = $('envio-bcc').value.trim();
+  const subject = $('envio-subject').value.trim();
+  const mensagem = $('envio-mensagem').value;
+
+  if (!to) { showAlert('envio-alert', 'Destinatário é obrigatório.'); return; }
+  if (!subject) { showAlert('envio-alert', 'Assunto é obrigatório.'); return; }
+
+  const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
+  const html = buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabecalho, mensagem);
+
+  const btn = $('btn-confirmar-envio');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+
+  try {
+    const res = await fetch(cfg.workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: cfg.emailFrom || 'onboarding@resend.dev',
+        fromName: State.tenant.nome || 'DRG-Rently',
+        to,
+        bcc: bcc || undefined,
+        replyTo: cfg.emailFrom !== 'onboarding@resend.dev' ? cfg.emailFrom : undefined,
+        subject,
+        html,
+      }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    // Marca balancete como enviado
+    await tenantPath().collection('balancetes').doc(id).update({
+      status: 'enviado',
+      emailEnviadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      emailEnviadoPara: to,
+      emailEnviadoBcc: bcc || null,
+    });
+
+    closeEnvioBalancete();
+    showAlert('balancete-alert', `✓ E-mail enviado para ${to}!`, 'success');
+    $('balancete-status').value = 'enviado';
+    aplicarStatusBalancete();
+    loadBalancetes();
+  } catch (err) {
+    console.error('Erro ao enviar e-mail:', err);
+    showAlert('envio-alert', 'Falha ao enviar: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✉️ Enviar agora';
   }
 }
 
@@ -4087,6 +4316,9 @@ async function loadConfigImobiliaria() {
     $('cfg-template-venda').value = cfg.templateVenda || '';
     $('cfg-balancete-cabecalho').value = cfg.balanceteCabecalho || '';
     $('cfg-balancete-rodape').value = cfg.balanceteRodape || '';
+    $('cfg-worker-url').value = cfg.workerUrl || '';
+    $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
+    $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
     console.warn('Sem config de site ainda:', err);
     $('cfg-watermark-default').checked = true;
@@ -4094,6 +4326,9 @@ async function loadConfigImobiliaria() {
     $('cfg-template-venda').value = '';
     $('cfg-balancete-cabecalho').value = '';
     $('cfg-balancete-rodape').value = '';
+    $('cfg-worker-url').value = '';
+    $('cfg-email-from').value = 'onboarding@resend.dev';
+    $('cfg-email-template').value = '';
   }
 }
 
@@ -4121,6 +4356,9 @@ async function saveConfigImobiliaria() {
         templateVenda: $('cfg-template-venda').value,
         balanceteCabecalho: $('cfg-balancete-cabecalho').value,
         balanceteRodape: $('cfg-balancete-rodape').value,
+        workerUrl: $('cfg-worker-url').value.trim(),
+        emailFrom: $('cfg-email-from').value.trim(),
+        emailTemplate: $('cfg-email-template').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
 
