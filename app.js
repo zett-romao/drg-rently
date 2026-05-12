@@ -5990,6 +5990,10 @@ async function loadConfigImobiliaria() {
     $('cfg-worker-gemini-url').value = cfg.workerGeminiUrl || '';
     const feedEl = $('cfg-worker-feed-url');
     if (feedEl) feedEl.value = cfg.workerFeedUrl || '';
+    const zsUrl = $('cfg-worker-zapsign-url');
+    if (zsUrl) zsUrl.value = cfg.workerZapsignUrl || '';
+    const zsTok = $('cfg-zapsign-token');
+    if (zsTok) zsTok.value = cfg.zapsignToken || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
@@ -6003,6 +6007,10 @@ async function loadConfigImobiliaria() {
     $('cfg-worker-gemini-url').value = '';
     const feedEl = $('cfg-worker-feed-url');
     if (feedEl) feedEl.value = '';
+    const zsUrl = $('cfg-worker-zapsign-url');
+    if (zsUrl) zsUrl.value = '';
+    const zsTok = $('cfg-zapsign-token');
+    if (zsTok) zsTok.value = '';
     $('cfg-email-from').value = 'onboarding@resend.dev';
     $('cfg-email-template').value = '';
   }
@@ -6054,6 +6062,8 @@ async function saveConfigImobiliaria() {
         workerUrl: $('cfg-worker-url').value.trim(),
         workerGeminiUrl: $('cfg-worker-gemini-url').value.trim(),
         workerFeedUrl: $('cfg-worker-feed-url')?.value.trim() || '',
+        workerZapsignUrl: $('cfg-worker-zapsign-url')?.value.trim() || '',
+        zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -6666,6 +6676,9 @@ async function openContratoModal(id) {
   $('modal-contrato-title').textContent = id ? 'Editar Contrato' : 'Novo Contrato';
   $('btn-delete-contrato').style.display = id ? 'inline-block' : 'none';
   $('btn-gerar-contrato').style.display = id ? 'inline-block' : 'none';
+
+  // Status ZapSign (carrega assíncrono — não bloqueia abertura)
+  carregarStatusZapSign(id).catch(() => {});
 
   // Limpar
   ['contrato-inicio', 'contrato-fim', 'contrato-aluguel', 'contrato-multa',
@@ -8843,6 +8856,416 @@ async function deleteDRGPerfil() {
     showAlert('drg-perfil-alert', 'Erro: ' + err.message);
   }
 }
+
+// =============================================================
+// ASSINATURA ELETRÔNICA — Integração ZapSign
+// =============================================================
+
+let _zapsignContexto = null; // { contratoId, signers: [...] }
+
+// Abre o modal de envio: monta signatários a partir do contrato atual
+async function abrirEnvioZapSign() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) {
+    showAlert('contrato-alert', 'Salve o contrato antes de enviar pra assinatura.');
+    return;
+  }
+
+  // Confere config ZapSign
+  const cfgSnap = await tenantPath().collection('config').doc('site').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.workerZapsignUrl || !cfg.zapsignToken) {
+    showAlert('contrato-alert', 'Configure URL do Worker ZapSign + Token em Configurações → Assinatura Eletrônica.');
+    return;
+  }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) { showAlert('contrato-alert', 'Contrato não encontrado.'); return; }
+    const c = cSnap.data();
+
+    // Busca dados dos signatários
+    const [locadorSnap, locatarioSnap, garantiaSnap, imovelSnap] = await Promise.all([
+      c.locadorId   ? tenantPath().collection('locadores').doc(c.locadorId).get()   : Promise.resolve(null),
+      c.locatarioId ? tenantPath().collection('locatarios').doc(c.locatarioId).get() : Promise.resolve(null),
+      c.garantiaId  ? tenantPath().collection('garantias').doc(c.garantiaId).get()  : Promise.resolve(null),
+      c.imovelId    ? tenantPath().collection('imoveis').doc(c.imovelId).get()    : Promise.resolve(null),
+    ]);
+    const locador = locadorSnap && locadorSnap.exists ? locadorSnap.data() : null;
+    const locatario = locatarioSnap && locatarioSnap.exists ? locatarioSnap.data() : null;
+    const garantia = garantiaSnap && garantiaSnap.exists ? garantiaSnap.data() : null;
+    const imovel = imovelSnap && imovelSnap.exists ? imovelSnap.data() : null;
+
+    const signers = [];
+    if (locador && locador.email) {
+      signers.push({ name: locador.nome, email: locador.email, cpf: (locador.documento || '').replace(/\D/g, ''), role: 'Locador' });
+    }
+    if (locatario && locatario.email) {
+      signers.push({ name: locatario.nome, email: locatario.email, cpf: (locatario.cpf || '').replace(/\D/g, ''), role: 'Locatário' });
+    }
+    // Se garantia for fiador com e-mail, adiciona
+    if (garantia && garantia.tipo === 'fiador' && garantia.fiadorEmail) {
+      signers.push({ name: garantia.fiadorNome || 'Fiador', email: garantia.fiadorEmail, cpf: (garantia.fiadorCpf || '').replace(/\D/g, ''), role: 'Fiador' });
+    }
+
+    _zapsignContexto = { contratoId, signers, contrato: c, imovel };
+
+    $('zapsign-doc-name').value = `Contrato de Locação - ${imovel?.apelido || 'Imóvel'}`;
+    $('zapsign-message').value = 'Por favor, leia e assine o contrato de locação. Em caso de dúvidas, entre em contato com nossa imobiliária.';
+
+    renderSignersZapSign();
+    clearAlert('zapsign-alert');
+    $('modal-zapsign').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir modal ZapSign:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+function closeEnvioZapSign() {
+  $('modal-zapsign').style.display = 'none';
+  _zapsignContexto = null;
+}
+
+function renderSignersZapSign() {
+  if (!_zapsignContexto) return;
+  const container = $('zapsign-signers-list');
+  container.innerHTML = _zapsignContexto.signers.map((s, idx) => `
+    <div class="zapsign-signer-row" data-idx="${idx}">
+      <div class="form-row" style="margin-bottom:6px;">
+        <div class="form-group">
+          <label>Nome ${s.role ? `(${s.role})` : ''}</label>
+          <input type="text" value="${escapeHtml(s.name || '')}" onchange="updateSignerZapSign(${idx}, 'name', this.value)">
+        </div>
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" value="${escapeHtml(s.email || '')}" onchange="updateSignerZapSign(${idx}, 'email', this.value)">
+        </div>
+        <div class="form-group" style="max-width:160px;">
+          <label>CPF (opcional)</label>
+          <input type="text" value="${escapeHtml(s.cpf || '')}" onchange="updateSignerZapSign(${idx}, 'cpf', this.value)">
+        </div>
+        <div class="form-group" style="max-width:40px; display:flex; align-items:flex-end;">
+          <button class="btn btn-danger btn-sm" type="button" onclick="removerSignerZapSign(${idx})" title="Remover">×</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addSignerZapSign() {
+  if (!_zapsignContexto) return;
+  _zapsignContexto.signers.push({ name: '', email: '', cpf: '', role: 'Testemunha' });
+  renderSignersZapSign();
+}
+
+function updateSignerZapSign(idx, campo, valor) {
+  if (!_zapsignContexto) return;
+  if (!_zapsignContexto.signers[idx]) return;
+  _zapsignContexto.signers[idx][campo] = valor;
+}
+
+function removerSignerZapSign(idx) {
+  if (!_zapsignContexto) return;
+  _zapsignContexto.signers.splice(idx, 1);
+  renderSignersZapSign();
+}
+
+async function enviarParaZapSign() {
+  if (!_zapsignContexto) return;
+  clearAlert('zapsign-alert');
+  const docName = $('zapsign-doc-name').value.trim();
+  const message = $('zapsign-message').value.trim();
+
+  if (!docName) { showAlert('zapsign-alert', 'Nome do documento é obrigatório.'); return; }
+  const signers = _zapsignContexto.signers.filter(s => s.name && s.email);
+  if (signers.length === 0) { showAlert('zapsign-alert', 'Pelo menos 1 signatário com nome e e-mail é obrigatório.'); return; }
+
+  const btn = $('btn-enviar-zapsign');
+  btn.disabled = true; btn.textContent = '⏳ Gerando PDF...';
+
+  try {
+    // 1) Gera o HTML do contrato (chama função existente sem mostrar modal)
+    showAlert('zapsign-alert', '📄 Gerando PDF do contrato...', 'info');
+    const pdfBase64 = await gerarPdfContratoBase64();
+    if (!pdfBase64) throw new Error('Falha ao gerar PDF do contrato. Tente gerar manualmente primeiro (botão 📄 Gerar contrato).');
+
+    btn.textContent = '⏳ Enviando ao ZapSign...';
+    showAlert('zapsign-alert', '✍️ Enviando ao ZapSign...', 'info');
+
+    // 2) Busca config
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.data();
+
+    // 3) Chama Worker
+    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
+    const res = await fetch(`${workerUrl}/docs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-ZapSign-Token': cfg.zapsignToken,
+      },
+      body: JSON.stringify({
+        name: docName,
+        pdfBase64,
+        signers: signers.map(s => ({
+          name: s.name,
+          email: s.email,
+          cpf: s.cpf || undefined,
+        })),
+        externalId: _zapsignContexto.contratoId,
+        brandColor: '#475569',
+      }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Erro ${res.status} ao chamar ZapSign`);
+    }
+
+    const result = await res.json();
+
+    // 4) Salva no contrato
+    await tenantPath().collection('contratos').doc(_zapsignContexto.contratoId).update({
+      zapsign: {
+        openId: result.openId,
+        token: result.token,
+        name: result.name,
+        status: result.status || 'pending',
+        signers: result.signers || [],
+        enviadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        enviadoPor: State.user.uid,
+        externalId: _zapsignContexto.contratoId,
+      },
+    });
+
+    logAuditoria('zapsign_envio', 'contrato', _zapsignContexto.contratoId, { signers: signers.length });
+
+    closeEnvioZapSign();
+    // Recarrega status no modal
+    await carregarStatusZapSign(_zapsignContexto.contratoId);
+    showAlert('contrato-alert', `✅ Contrato enviado pra ZapSign! ${signers.length} signatário(s) vão receber e-mail.`, 'success');
+  } catch (err) {
+    console.error('Erro ao enviar ZapSign:', err);
+    showAlert('zapsign-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '📧 Enviar para assinatura';
+  }
+}
+
+// Gera o PDF do contrato em base64 usando html2pdf.js
+async function gerarPdfContratoBase64() {
+  // 1) Garante que o HTML do contrato está renderizado em #contrato-preview-content
+  const preview = $('contrato-preview-content');
+  if (!preview || !preview.innerHTML.trim()) {
+    // Tenta gerar (chama a função existente, mas fechamos o modal imediato)
+    try {
+      await gerarContratoLocacao();
+      $('modal-contrato-preview').style.display = 'none'; // não queremos abrir o preview pro usuário
+    } catch (_) {
+      return null;
+    }
+  }
+  if (!preview.innerHTML.trim()) return null;
+  if (!window.html2pdf) {
+    showAlert('zapsign-alert', 'Biblioteca html2pdf não carregou. Recarregue a página.');
+    return null;
+  }
+
+  // 2) Cria container temporário com o conteúdo do preview (estilos inline pra pdf)
+  const wrapper = document.createElement('div');
+  wrapper.style.width = '210mm';
+  wrapper.style.padding = '20mm';
+  wrapper.style.background = '#fff';
+  wrapper.style.color = '#111';
+  wrapper.style.fontFamily = 'Georgia, "Times New Roman", serif';
+  wrapper.style.fontSize = '12pt';
+  wrapper.style.lineHeight = '1.6';
+  wrapper.innerHTML = preview.innerHTML;
+
+  const opt = {
+    margin: 0,
+    filename: 'contrato.pdf',
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  };
+
+  // 3) Gera PDF como Blob → converte pra base64
+  const pdfBlob = await html2pdf().set(opt).from(wrapper).outputPdf('blob');
+  return await blobToBase64(pdfBlob);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      // remove o prefixo "data:application/pdf;base64,"
+      const base64 = result.substring(result.indexOf(',') + 1);
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Falha ao converter blob'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Carrega e exibe status atual da assinatura ZapSign do contrato
+async function carregarStatusZapSign(contratoId) {
+  const box = $('zapsign-status-box');
+  const btnEnviar = $('btn-zapsign-contrato');
+  const btnStatus = $('btn-zapsign-status');
+  if (!box || !btnEnviar) return;
+
+  if (!contratoId) {
+    box.style.display = 'none';
+    btnEnviar.style.display = 'none';
+    btnStatus.style.display = 'none';
+    return;
+  }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) return;
+    const c = cSnap.data();
+
+    // Verifica config ZapSign
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    const zapsignConfigurado = !!(cfg.workerZapsignUrl && cfg.zapsignToken);
+
+    if (!zapsignConfigurado) {
+      btnEnviar.style.display = 'none';
+      btnStatus.style.display = 'none';
+      box.style.display = 'none';
+      return;
+    }
+
+    // Sem assinatura enviada ainda → mostra botão "Enviar pra assinatura"
+    if (!c.zapsign || !c.zapsign.openId) {
+      btnEnviar.style.display = 'inline-block';
+      btnStatus.style.display = 'none';
+      box.style.display = 'none';
+      return;
+    }
+
+    // Já tem envio → mostra status + botão atualizar
+    btnEnviar.style.display = 'none';
+    btnStatus.style.display = 'inline-block';
+    box.style.display = 'block';
+
+    const zs = c.zapsign;
+    const statusLabels = { pending: '⏳ Aguardando assinaturas', signed: '✅ Totalmente assinado', refused: '❌ Recusado', expired: '⏰ Expirado' };
+    const statusLabel = statusLabels[zs.status] || zs.status;
+
+    const signersHtml = (zs.signers || []).map(s => {
+      const ico = s.status === 'signed' ? '✅' : s.status === 'refused' ? '❌' : '⏳';
+      return `<div style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px;">
+        ${ico} <strong>${escapeHtml(s.name)}</strong>
+        <span class="muted">${escapeHtml(s.email)}</span>
+        <span style="margin-left:auto; font-size:11px;">${s.status === 'signed' ? 'Assinou' : s.status === 'refused' ? 'Recusou' : 'Pendente'}</span>
+      </div>`;
+    }).join('');
+
+    let downloadBtn = '';
+    if (zs.status === 'signed' || zs.signedFileUrl) {
+      const url = zs.signedFileUrl;
+      downloadBtn = url
+        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:8px;">📄 Baixar PDF assinado</a>`
+        : `<button class="btn btn-primary btn-sm" onclick="baixarPdfAssinadoZapSign()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
+    }
+
+    $('zapsign-status-content').innerHTML = `
+      <div style="margin-bottom:8px;"><strong>Status:</strong> ${statusLabel}</div>
+      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')}</div>
+      ${signersHtml}
+      ${downloadBtn}
+    `;
+  } catch (err) {
+    console.warn('Erro ao carregar status ZapSign:', err);
+  }
+}
+
+async function atualizarStatusZapSign() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) return;
+  const btn = $('btn-zapsign-status');
+  btn.disabled = true; btn.textContent = '⏳ Consultando...';
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    const c = cSnap.data();
+    if (!c.zapsign || !c.zapsign.openId) { showAlert('contrato-alert', 'Sem assinatura registrada.'); return; }
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.data();
+    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
+
+    const res = await fetch(`${workerUrl}/docs/${c.zapsign.openId}`, {
+      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Erro ao consultar status');
+    }
+    const data = await res.json();
+
+    // Atualiza Firestore
+    const updateData = {
+      'zapsign.status': data.status,
+      'zapsign.signers': data.signers || [],
+    };
+    if (data.signedFileUrl) updateData['zapsign.signedFileUrl'] = data.signedFileUrl;
+    await tenantPath().collection('contratos').doc(contratoId).update(updateData);
+
+    // Se totalmente assinado, atualiza status do contrato pra vigente (se ainda for rascunho)
+    if (data.status === 'signed' && c.status === 'rascunho') {
+      await tenantPath().collection('contratos').doc(contratoId).update({ status: 'vigente' });
+      logAuditoria('zapsign_signed', 'contrato', contratoId, {});
+    }
+
+    await carregarStatusZapSign(contratoId);
+    showAlert('contrato-alert', `Status atualizado: ${data.status === 'signed' ? '✅ Totalmente assinado' : '⏳ Aguardando assinaturas'}`, 'success');
+  } catch (err) {
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '🔄 Atualizar status';
+  }
+}
+
+async function baixarPdfAssinadoZapSign() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) return;
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    const c = cSnap.data();
+    if (!c.zapsign || !c.zapsign.openId) return;
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.data();
+    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
+
+    const res = await fetch(`${workerUrl}/docs/${c.zapsign.openId}/pdf`, {
+      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.signedFileUrl) {
+      throw new Error(data.error || 'PDF assinado ainda não disponível.');
+    }
+    window.open(data.signedFileUrl, '_blank');
+  } catch (err) {
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+// Exposição global pra onclick funcionar
+window.abrirEnvioZapSign = abrirEnvioZapSign;
+window.closeEnvioZapSign = closeEnvioZapSign;
+window.addSignerZapSign = addSignerZapSign;
+window.updateSignerZapSign = updateSignerZapSign;
+window.removerSignerZapSign = removerSignerZapSign;
+window.enviarParaZapSign = enviarParaZapSign;
+window.atualizarStatusZapSign = atualizarStatusZapSign;
+window.baixarPdfAssinadoZapSign = baixarPdfAssinadoZapSign;
 
 // =============================================================
 // Init

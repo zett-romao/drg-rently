@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260513f">
+  <link rel="stylesheet" href="styles.css?v=20260513g">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -28,6 +28,9 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
   <script src="firebase-config.js?v=20260510b"></script>
+
+  <!-- html2pdf.js: usado pra converter contrato HTML em PDF (ZapSign integration) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
 </head>
 <body>
 
@@ -1209,6 +1212,24 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <input type="url" id="cfg-worker-feed-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-feed.SEU-USUARIO.workers.dev">
               <span class="muted" style="font-size:11px;">Endpoint que expõe seus imóveis publicados em XML para ZAP/Viva/OLX/etc. Veja instruções em <code>cloudflare-worker-feed.js</code> no repo.</span>
             </div>
+
+            <h4 class="form-section-title">✍️ Assinatura Eletrônica (ZapSign)</h4>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>URL do Worker (ZapSign proxy)</label>
+                <input type="url" id="cfg-worker-zapsign-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-zapsign.SEU-USUARIO.workers.dev">
+                <span class="muted" style="font-size:11px;">Worker que conecta ao ZapSign. Veja <code>cloudflare-worker-zapsign.js</code>.</span>
+              </div>
+              <div class="form-group">
+                <label>Seu token ZapSign (API)</label>
+                <input type="text" id="cfg-zapsign-token" oninput="saveConfigImobiliaria()" placeholder="Token da sua conta ZapSign" style="font-family:'Courier New',monospace; font-size:12px;">
+                <span class="muted" style="font-size:11px;">Pegue em <a href="https://app.zapsign.com.br" target="_blank" rel="noopener">app.zapsign.com.br</a> → Configurações → API. <strong>Cada tenant usa o próprio token</strong> (não compartilhe).</span>
+              </div>
+            </div>
+            <p class="muted" style="font-size:12px; margin-bottom:14px; background:#eff6ff; padding:10px; border-radius:6px; border-left:3px solid var(--primary);">
+              💡 Com ZapSign configurado, ao gerar um contrato você terá o botão <strong>✍️ Enviar pra assinatura</strong>. Os signatários (locador, locatário, fiador) recebem e-mail e assinam online. O contrato volta automaticamente assinado e com certificado digital ICP-Brasil.
+            </p>
 
             <div class="form-group">
               <label>Remetente (e-mail "from")</label>
@@ -3461,7 +3482,60 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
         <button class="btn btn-secondary" id="btn-gerar-contrato" onclick="gerarContratoLocacao()" style="display:none;">📄 Gerar contrato</button>
+        <button class="btn btn-secondary" id="btn-zapsign-contrato" onclick="abrirEnvioZapSign()" style="display:none;">✍️ Enviar pra assinatura</button>
+        <button class="btn btn-secondary" id="btn-zapsign-status" onclick="atualizarStatusZapSign()" style="display:none;">🔄 Atualizar status</button>
         <button class="btn btn-primary" id="btn-save-contrato" onclick="saveContrato()">Salvar</button>
+      </div>
+
+      <!-- Bloco de status da assinatura ZapSign (aparece após envio) -->
+      <div id="zapsign-status-box" style="display:none; margin: 12px 24px 0; padding: 14px; background: linear-gradient(135deg, #eef2ff, #e0e7ff); border: 1px solid #c7d2fe; border-radius: 8px;">
+        <strong style="color: var(--primary-dark); font-size: 13px;">✍️ Status da assinatura eletrônica</strong>
+        <div id="zapsign-status-content" style="margin-top: 8px; font-size: 13px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Envio para ZapSign -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-zapsign" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>✍️ Enviar contrato para assinatura</h3>
+        <button class="modal-close" onclick="closeEnvioZapSign()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="zapsign-alert" class="alert alert-error" style="display:none;"></div>
+
+        <p class="muted" style="font-size:13px; margin-bottom:14px;">
+          O contrato será enviado pra <strong>ZapSign</strong>. Cada signatário recebe um e-mail com o link pra assinar online (com certificado digital ICP-Brasil).
+        </p>
+
+        <h4 class="form-section-title">📄 Documento</h4>
+        <div class="form-group">
+          <label>Nome do documento</label>
+          <input type="text" id="zapsign-doc-name" placeholder="Ex: Contrato de Locação - Apto 301">
+        </div>
+
+        <h4 class="form-section-title">👥 Signatários</h4>
+        <p class="muted" style="font-size:11px; margin-bottom:8px;">
+          Confira nome e e-mail de cada um. Você pode remover ou adicionar manualmente.
+        </p>
+        <div id="zapsign-signers-list"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addSignerZapSign()" style="margin-top:8px;">+ Adicionar signatário</button>
+
+        <h4 class="form-section-title">💬 Mensagem</h4>
+        <div class="form-group">
+          <textarea id="zapsign-message" rows="3" placeholder="Mensagem que vai junto no e-mail (opcional)">Por favor, leia e assine o contrato de locação. Em caso de dúvidas, entre em contato.</textarea>
+        </div>
+
+        <p class="muted" style="font-size:11px; background:#fef3c7; padding:10px; border-radius:6px; border-left:3px solid #fcd34d;">
+          ⚠️ <strong>Atenção:</strong> uma vez enviado, o documento não pode ser editado no ZapSign — só cancelado e reenviado. Confira tudo antes!
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeEnvioZapSign()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-enviar-zapsign" onclick="enviarParaZapSign()">📧 Enviar para assinatura</button>
       </div>
     </div>
   </div>
@@ -3491,6 +3565,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513f"></script>
+  <script src="app.js?v=20260513g"></script>
 </body>
 </html>
