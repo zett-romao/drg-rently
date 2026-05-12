@@ -615,6 +615,7 @@ window.setTipoPessoaSignup = setTipoPessoaSignup;
 // Multi-comprovante (chamadas via onclick no HTML)
 window.lerMultiComprovantes = function() { return lerMultiComprovantes(); };
 window.toggleMultiLancar = function(id, checked) { return toggleMultiLancar(id, checked); };
+window.toggleVincularContrato = function(id, checked) { return toggleVincularContrato(id, checked); };
 window.updateMultiCampo = function(id, campo, valor) { return updateMultiCampo(id, campo, valor); };
 window.confirmarMultiComprovantes = function() { return confirmarMultiComprovantes(); };
 
@@ -3053,9 +3054,14 @@ async function onBalanceteContratoChange() {
   await refreshBalancetePixInfo();
 }
 
+// Cache do contrato + locatário do balancete atual.
+// Usado pra match automático nos cards multi-comprovante.
+let _balanceteMatchInfo = null;
+
 async function refreshBalanceteContratoInfo() {
   const contratoId = $('balancete-contrato').value;
   const info = $('balancete-contrato-info');
+  _balanceteMatchInfo = null;
   if (!contratoId) { info.style.display = 'none'; $('balancete-aluguel-base').value = ''; $('balancete-taxa-adm').value = ''; recalcBalancete(); return; }
 
   try {
@@ -3064,6 +3070,24 @@ async function refreshBalanceteContratoInfo() {
     const c = snap.data();
     $('balancete-aluguel-base').value = (c.aluguel ?? 0).toFixed(2);
     if (!$('balancete-taxa-adm').value) $('balancete-taxa-adm').value = c.taxaAdm ?? 10;
+
+    // Carrega dados do locatário + imóvel pra match no multi-comprovante
+    try {
+      const [locSnap, imSnap] = await Promise.all([
+        c.locatarioId ? tenantPath().collection('locatarios').doc(c.locatarioId).get() : null,
+        c.imovelId ? tenantPath().collection('imoveis').doc(c.imovelId).get() : null,
+      ]);
+      _balanceteMatchInfo = {
+        contratoId,
+        aluguelEsperado: c.aluguel || 0,
+        diaVencimento: c.diaVencimento || null,
+        locatarioId: c.locatarioId,
+        locatarioNome: locSnap && locSnap.exists ? (locSnap.data().nome || '') : '',
+        locatarioCpf: locSnap && locSnap.exists ? String(locSnap.data().cpf || '').replace(/\D/g, '') : '',
+        imovelId: c.imovelId,
+        imovelApelido: imSnap && imSnap.exists ? (imSnap.data().apelido || '') : '',
+      };
+    } catch (_) {}
 
     // Garante linha de Aluguel nas Entradas se ainda não tiver
     const jaTemAluguel = _balanceteLancamentos.some(l => l.bloco === 'entrada' && l.categoria === 'aluguel');
@@ -3113,8 +3137,23 @@ function renderLancRow(l) {
   const fileLabel = hasFile ? '📎 ' + (l.comprovanteNome || 'anexado').slice(0, 14) : '📎 Anexar';
   const fileClass = hasFile ? 'lanc-comprovante-btn has-file' : 'lanc-comprovante-btn';
 
+  // Badge de vinculação ao contrato (se gerado por IA com match)
+  let badge = '';
+  if (l.contratoId) {
+    const score = l.matchScore;
+    if (score >= 2) {
+      badge = '<span class="lanc-vinc-badge vinc-ok" title="Vinculado automaticamente ao contrato">🔗</span>';
+    } else if (score === 1) {
+      badge = '<span class="lanc-vinc-badge vinc-parcial" title="Match parcial — verificar">🔗⚠</span>';
+    }
+  } else if (l.iaConfidence != null) {
+    // Foi criado por IA mas sem vinculação
+    badge = '<span class="lanc-vinc-badge vinc-ia" title="Criado por IA">🤖</span>';
+  }
+
   return `
     <div class="lanc-row" data-id="${l.id}">
+      ${badge}
       <select onchange="updateLanc('${l.id}', 'categoria', this.value)">${catOptions}</select>
       <input type="text" value="${(l.descricao || '').replace(/"/g, '&quot;')}" placeholder="Descrição" oninput="updateLanc('${l.id}', 'descricao', this.value)">
       <input type="number" min="0" step="0.01" value="${l.valor ?? ''}" placeholder="0,00" oninput="updateLanc('${l.id}', 'valor', parseFloat(this.value) || 0)">
@@ -3333,6 +3372,48 @@ function closeBoletoRevisao() {
 
 let _multiContexto = null; // { file, comprovantes: [...] }
 
+// Tenta detectar se um comprovante de pagamento bate com o contrato do balancete.
+// Retorna um objeto { score: 0..3, motivos: [...], deveriaVincular: bool }
+// Critérios:
+//   +1 se a direção é "entrada" e categoria sugerida é "aluguel"
+//   +1 se valor está dentro de ±5% do aluguel esperado
+//   +1 se CPF do pagador bate (ignorando formatação)
+function tentarMatchContrato(comp) {
+  if (!_balanceteMatchInfo) return { score: 0, motivos: [], deveriaVincular: false };
+  const info = _balanceteMatchInfo;
+  const motivos = [];
+  let score = 0;
+
+  // Critério 1: categoria + direção
+  if (comp.direcao === 'entrada' && comp.categoria_sugerida === 'aluguel') {
+    score += 1;
+    motivos.push('Pagamento de aluguel (entrada)');
+  }
+
+  // Critério 2: valor próximo ao aluguel esperado (±5%)
+  const valor = parseFloat(comp.valor) || 0;
+  if (valor > 0 && info.aluguelEsperado > 0) {
+    const diff = Math.abs(valor - info.aluguelEsperado) / info.aluguelEsperado;
+    if (diff <= 0.05) {
+      score += 1;
+      motivos.push(`Valor bate com aluguel (R$ ${valor.toFixed(2)} vs R$ ${info.aluguelEsperado.toFixed(2)})`);
+    }
+  }
+
+  // Critério 3: CPF do pagador
+  const cpfPagador = String(comp.pagador_documento || '').replace(/\D/g, '');
+  if (cpfPagador && info.locatarioCpf && cpfPagador === info.locatarioCpf) {
+    score += 1;
+    motivos.push(`CPF bate com locatário (${info.locatarioNome})`);
+  }
+
+  return {
+    score,
+    motivos,
+    deveriaVincular: score >= 2, // 2 de 3 critérios = vincula automaticamente
+  };
+}
+
 // Mapeia categoria sugerida pelo Gemini → bloco do balancete
 function blocoDeCategoria(categoria, direcao) {
   if (direcao === 'entrada') return 'entrada';
@@ -3441,6 +3522,9 @@ function abrirRevisaoMulti(comprovantes, observacoes, file) {
     c.bloco = blocoDeCategoria(c.categoria_sugerida, c.direcao);
     c.confidence_score = typeof c.confidence_score === 'number' ? c.confidence_score : 0.7;
     c.campos_duvidosos = c.campos_duvidosos || [];
+    // Match com o contrato do balancete (se houver)
+    c._match = tentarMatchContrato(c);
+    c._vincularContrato = c._match.deveriaVincular; // default: vincula se match score >= 2
   });
   _multiContexto = { file, comprovantes };
 
@@ -3496,6 +3580,40 @@ function renderMultiCards() {
       `<option value="${k}"${k === catSel ? ' selected' : ''}>${LANC_CATEGORIA_LABEL[k] || k}</option>`
     ).join('');
 
+    // Bloco de vinculação ao contrato (só quando há contrato selecionado no balancete)
+    let vincBox = '';
+    if (_balanceteMatchInfo && c._match) {
+      const m = c._match;
+      if (m.score >= 2) {
+        // Match forte — vincular automaticamente
+        vincBox = `
+          <div class="vinculacao-box vinc-forte">
+            <label class="vinc-toggle">
+              <input type="checkbox" ${c._vincularContrato ? 'checked' : ''} onchange="toggleVincularContrato('${c._id}', this.checked)">
+              <span>🔗 <strong>Vincular ao contrato</strong> — ${escapeHtml(_balanceteMatchInfo.imovelApelido)} / ${escapeHtml(_balanceteMatchInfo.locatarioNome)}</span>
+            </label>
+            <ul class="vinc-motivos">${m.motivos.map(mt => `<li>✓ ${escapeHtml(mt)}</li>`).join('')}</ul>
+          </div>`;
+      } else if (m.score === 1) {
+        // Match parcial — sugerir mas operador decide
+        vincBox = `
+          <div class="vinculacao-box vinc-parcial">
+            <label class="vinc-toggle">
+              <input type="checkbox" ${c._vincularContrato ? 'checked' : ''} onchange="toggleVincularContrato('${c._id}', this.checked)">
+              <span>🔗 Vincular ao contrato? — ${escapeHtml(_balanceteMatchInfo.imovelApelido)} / ${escapeHtml(_balanceteMatchInfo.locatarioNome)}</span>
+            </label>
+            <p class="vinc-aviso">⚠️ Match parcial (${m.score}/3 critérios). Confirme antes de vincular:</p>
+            <ul class="vinc-motivos">${m.motivos.map(mt => `<li>✓ ${escapeHtml(mt)}</li>`).join('')}</ul>
+          </div>`;
+      } else if (c.direcao === 'entrada' && c.categoria_sugerida === 'aluguel') {
+        // É um aluguel mas não bateu nada — alerta amarelo
+        vincBox = `
+          <div class="vinculacao-box vinc-nenhum">
+            <p>⚠️ Este parece ser um pagamento de aluguel, mas <strong>não bate</strong> com o contrato deste balancete (valor ou CPF diferentes). Verifique antes de confirmar.</p>
+          </div>`;
+      }
+    }
+
     return `
       <div class="multi-card ${c._lancar ? 'multi-card-active' : 'multi-card-skip'}" data-id="${c._id}">
         <div class="multi-card-header">
@@ -3508,6 +3626,7 @@ function renderMultiCards() {
             <span>Lançar este</span>
           </label>
         </div>
+        ${vincBox}
         ${!c.eh_pagamento_efetivado ? `<p style="background:#fef3c7; color:#92400e; padding:6px 10px; border-radius:6px; font-size:12px; margin:0 0 10px;">⚠️ Este documento é apenas <strong>${tipoInfo.label}</strong> — não é comprovante de pagamento. Marque "Lançar" só se você confirmou que foi pago.</p>` : ''}
         <div class="form-row">
           <div class="form-group">
@@ -3586,6 +3705,13 @@ function toggleMultiLancar(id, checked) {
   atualizarContadorMulti();
 }
 
+function toggleVincularContrato(id, checked) {
+  if (!_multiContexto) return;
+  const c = _multiContexto.comprovantes.find(x => x._id === id);
+  if (!c) return;
+  c._vincularContrato = !!checked;
+}
+
 function updateMultiCampo(id, campo, valor) {
   if (!_multiContexto) return;
   const c = _multiContexto.comprovantes.find(x => x._id === id);
@@ -3632,6 +3758,16 @@ async function confirmarMultiComprovantes() {
     const categoria = mapearCategoria(c.categoria_sugerida, bloco);
     const descricao = c.descricao || LANC_CATEGORIA_LABEL[categoria] || categoria;
 
+    // Decide se vincula ao contrato do balancete (se operador marcou)
+    let contratoIdVinculado = null;
+    let matchScore = null;
+    let matchMotivos = null;
+    if (c._vincularContrato && _balanceteMatchInfo) {
+      contratoIdVinculado = _balanceteMatchInfo.contratoId;
+      matchScore = c._match?.score || null;
+      matchMotivos = c._match?.motivos || null;
+    }
+
     _balanceteLancamentos.push({
       id: lancId,
       bloco,
@@ -3650,6 +3786,10 @@ async function confirmarMultiComprovantes() {
       metodoPagamento: c.metodo || null,
       dataPagamento: c.data_pagamento || null,
       iaConfidence: c.confidence_score || null,
+      // Vinculação ao contrato (Fase 3)
+      contratoId: contratoIdVinculado,
+      matchScore,
+      matchMotivos,
     });
     lancIds.push(lancId);
   }

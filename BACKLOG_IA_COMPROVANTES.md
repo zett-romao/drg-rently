@@ -1,24 +1,29 @@
 # 📋 Backlog — IA de Leitura de Comprovantes (Locação)
 
-**Status:** ✅ Fases 1, 2 e 4 implementadas em 2026-05-13 · Fase 3 pendente
+**Status:** ✅ Fases 1, 2, 3 e 4 TODAS implementadas em 2026-05-13 🎉
 **Solicitado em:** 2026-05-12
 **Prioridade:** Alta — feature comercial chave
 
-## ✅ Já implementado (commit `[próximo]`)
+## ✅ Já implementado
 
 - ✅ **Fase 1**: Worker Gemini com prompt multi-comprovante
 - ✅ **Fase 2**: Modal multi-card com cards individuais editáveis
 - ✅ **Fase 2**: Botão "🤖 Ler comprovante" também em Entradas
 - ✅ **Fase 2**: Botão "📂 Analisar arquivo" geral no topo do balancete
+- ✅ **Fase 3**: Vinculação automática do lançamento ao contrato (match valor+CPF)
+- ✅ **Fase 3**: Badge visual nos cards (verde/amarelo/vermelho por confiança)
+- ✅ **Fase 3**: Badge 🔗 nos lançamentos da lista quando vinculados a contrato
 - ✅ **Fase 4**: Card "Apuração em tempo real" sempre atualizado
 
-## 🟡 Pendente (próxima sessão)
+## 🔮 Refinamentos futuros (não-urgentes)
 
-- 🟡 **Fase 3**: Vinculação automática do lançamento ao contrato específico
-  - Match por valor (±5%) + CPF do locatário
-  - Suporte a prédio com múltiplas unidades (kitnet)
-  - Filtro de balancete por contrato (não só por imóvel/mês)
-  - Requer ajuste na estrutura do balancete (adicionar `contratoId` no lançamento)
+- Filtro/agrupamento do balancete por contrato (caso uma imobiliária queira ver
+  consolidado de múltiplas unidades de um prédio)
+- Detecção de duplicidade: avisar se o mesmo comprovante já foi lançado antes
+  (comparar valor + data + pagador)
+- Reconhecimento de DARF/DAS (impostos)
+- OCR de cheques
+- Auto-categorização baseada no histórico do tenant
 
 ---
 
