@@ -327,10 +327,145 @@ body.public-page {
 
 .lightbox-close:hover { background: rgba(255,255,255,0.22); }
 
+/* ----- Vitrine (lista de imóveis) ----- */
+.vitrine-filtros {
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+
+.filtros-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 10px;
+}
+
+.filtros-row input,
+.filtros-row select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+}
+
+.filtros-row input:focus,
+.filtros-row select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(71,85,105,0.12);
+}
+
+.vitrine-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.vitrine-empty {
+  grid-column: 1 / -1;
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  background: white;
+  border-radius: var(--radius);
+  border: 1px dashed var(--border);
+}
+
+.vitrine-card {
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-decoration: none;
+  color: var(--text);
+  box-shadow: var(--shadow);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.vitrine-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.vitrine-card-cover {
+  aspect-ratio: 16 / 11;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.vitrine-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.vitrine-card-noimg {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: var(--text-light);
+  background: linear-gradient(135deg, var(--bg) 0%, var(--primary-light) 100%);
+}
+
+.vitrine-card-noimg span {
+  font-size: 12px;
+  margin-top: 6px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.vitrine-card-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vitrine-card-tipo {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.vitrine-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.vitrine-card-specs {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.vitrine-card-price {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary-dark);
+}
+
 /* Mobile */
 @media (max-width: 640px) {
   .public-hero h1 { font-size: 24px; }
   .public-price strong { font-size: 22px; }
   .public-header-inner { padding: 0 14px; }
   .public-container { padding: 0 14px; }
+  .filtros-row { grid-template-columns: 1fr; }
 }

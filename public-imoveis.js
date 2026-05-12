@@ -1,0 +1,148 @@
+// =============================================================
+// DRG-Rently — public-imoveis.js
+// Vitrine geral pública do tenant
+// URL: imoveis.html?t=<tenantId>
+// =============================================================
+
+const params = new URLSearchParams(window.location.search);
+const tenantId = params.get('t');
+
+const $$ = (id) => document.getElementById(id);
+
+function fmtBRL(n) {
+  if (n == null || isNaN(n)) return 'A consultar';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function showError(msg) {
+  $$('loading').style.display = 'none';
+  $$('content').style.display = 'none';
+  $$('error-state').style.display = 'block';
+  if (msg) {
+    const p = $$('error-state').querySelector('p');
+    if (p) p.textContent = msg;
+  }
+}
+
+const TIPO_LABEL = { residencial: 'Residencial', comercial: 'Comercial' };
+const SUBTIPO_LABEL = {
+  apartamento: 'Apartamento', casa: 'Casa', sobrado: 'Sobrado', kitnet: 'Kitnet',
+  sala: 'Sala', loja: 'Loja', galpao: 'Galpão', terreno: 'Terreno', outro: 'Imóvel'
+};
+
+let _allImoveis = []; // cache pra filtros
+
+(async function init() {
+  if (!tenantId) {
+    showError('Link incompleto. Confira a URL.');
+    return;
+  }
+
+  try {
+    const db = firebase.firestore();
+
+    const [tSnap, imSnap] = await Promise.all([
+      db.collection('tenants').doc(tenantId).get(),
+      db.collection('tenants').doc(tenantId).collection('imoveis').where('linkPublico', '==', true).get(),
+    ]);
+
+    if (!tSnap.exists) { showError('Imobiliária não encontrada.'); return; }
+    const tenant = tSnap.data();
+
+    // Renderiza header
+    $$('header-empresa').textContent = tenant.nome || 'DRG-Rently';
+    $$('footer-empresa').textContent = tenant.nome || 'DRG-Rently';
+    $$('ano-rodape').textContent = new Date().getFullYear();
+
+    // SEO
+    document.title = `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`;
+    $$('meta-desc').setAttribute('content', `Imóveis disponíveis para locação na ${tenant.nome || 'imobiliária'}`);
+    $$('og-title').setAttribute('content', `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`);
+    $$('og-desc').setAttribute('content', `Confira nossos imóveis disponíveis para locação`);
+
+    // Carrega imóveis + suas primeiras fotos
+    _allImoveis = await Promise.all(imSnap.docs.map(async (doc) => {
+      const data = { id: doc.id, ...doc.data() };
+      try {
+        const fotoSnap = await db.collection('tenants').doc(tenantId)
+          .collection('imoveis').doc(doc.id).collection('fotos')
+          .orderBy('ordem').limit(1).get();
+        data.coverUrl = fotoSnap.empty ? null : fotoSnap.docs[0].data().url;
+      } catch (_) { data.coverUrl = null; }
+      return data;
+    }));
+
+    $$('vitrine-count').textContent = _allImoveis.length;
+    renderLista(_allImoveis);
+
+    // Filtros
+    $$('filtro-busca').addEventListener('input', applyFiltros);
+    $$('filtro-tipo').addEventListener('change', applyFiltros);
+    $$('filtro-quartos').addEventListener('change', applyFiltros);
+
+    $$('loading').style.display = 'none';
+    $$('content').style.display = 'block';
+  } catch (err) {
+    console.error('Erro ao carregar vitrine:', err);
+    showError('Erro ao carregar: ' + err.message);
+  }
+})();
+
+function applyFiltros() {
+  const busca = $$('filtro-busca').value.trim().toLowerCase();
+  const tipo = $$('filtro-tipo').value;
+  const quartosMin = parseInt($$('filtro-quartos').value, 10) || 0;
+
+  const filtered = _allImoveis.filter(im => {
+    if (tipo && im.tipo !== tipo) return false;
+    if (quartosMin && (im.quartos || 0) < quartosMin) return false;
+    if (busca) {
+      const end = im.endereco || {};
+      const haystack = [im.apelido, end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
+      if (!haystack.includes(busca)) return false;
+    }
+    return true;
+  });
+
+  $$('vitrine-count').textContent = filtered.length;
+  renderLista(filtered);
+}
+
+function renderLista(imoveis) {
+  const el = $$('lista-imoveis');
+  if (imoveis.length === 0) {
+    el.innerHTML = `
+      <div class="vitrine-empty">
+        <p>Nenhum imóvel encontrado com esses filtros.</p>
+      </div>
+    `;
+    return;
+  }
+
+  el.innerHTML = imoveis.map(im => {
+    const end = im.endereco || {};
+    const cidadeUf = [end.cidade, end.uf].filter(Boolean).join(' / ');
+    const subt = SUBTIPO_LABEL[im.subtipo] || TIPO_LABEL[im.tipo] || '';
+    const cover = im.coverUrl
+      ? `<img src="${im.coverUrl}" alt="${(im.apelido || 'Imóvel').replace(/"/g, '&quot;')}" loading="lazy">`
+      : `<div class="vitrine-card-noimg">🏢<br><span>Sem foto</span></div>`;
+
+    const specs = [];
+    if (im.areaUtil) specs.push(`📐 ${im.areaUtil} m²`);
+    if (im.quartos)  specs.push(`🛏 ${im.quartos}`);
+    if (im.banheiros) specs.push(`🚿 ${im.banheiros}`);
+    if (im.vagas)    specs.push(`🚗 ${im.vagas}`);
+
+    return `
+      <a class="vitrine-card" href="imovel.html?id=${im.id}&t=${tenantId}">
+        <div class="vitrine-card-cover">${cover}</div>
+        <div class="vitrine-card-body">
+          <div class="vitrine-card-tipo">${subt}${cidadeUf ? ' · ' + cidadeUf : ''}</div>
+          <div class="vitrine-card-title">${im.apelido || 'Imóvel'}</div>
+          <div class="vitrine-card-specs">${specs.join(' · ') || ''}</div>
+          <div class="vitrine-card-price">${fmtBRL(im.aluguelSugerido)}</div>
+        </div>
+      </a>
+    `;
+  }).join('');
+}

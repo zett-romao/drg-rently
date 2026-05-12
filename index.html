@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRG-Rently — Gestão de Locações</title>
-  <link rel="icon" type="image/png" href="logo.png?v=20260511e">
-  <link rel="apple-touch-icon" href="logo.png?v=20260511e">
-  <link rel="stylesheet" href="styles.css?v=20260511e">
+  <link rel="icon" type="image/png" href="logo.png?v=20260511f">
+  <link rel="apple-touch-icon" href="logo.png?v=20260511f">
+  <link rel="stylesheet" href="styles.css?v=20260511f">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -22,7 +22,7 @@
   <!-- ============================================ -->
   <div id="screen-login" class="screen active">
     <div class="auth-card">
-      <img src="logo.png?v=20260511e" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511f" alt="D.R. Global" class="auth-logo">
       <h1>DRG-Rently</h1>
       <p class="subtitle">Gestão de locações residenciais e comerciais</p>
 
@@ -51,7 +51,7 @@
   <!-- ============================================ -->
   <div id="screen-signup" class="screen">
     <div class="auth-card">
-      <img src="logo.png?v=20260511e" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511f" alt="D.R. Global" class="auth-logo">
       <h1>Cadastrar imobiliária</h1>
       <p class="subtitle">Crie a conta da sua empresa no DRG-Rently</p>
 
@@ -118,7 +118,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="logo.png?v=20260511e" alt="DRG" class="brand-logo">
+        <img src="logo.png?v=20260511f" alt="DRG" class="brand-logo">
         <div class="brand-info">
           <h2>DRG-Rently</h2>
           <div class="brand-sub" id="brand-tenant-name">—</div>
@@ -143,6 +143,7 @@
           <div class="nav-group-title">Operação</div>
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
+          <a class="nav-link" onclick="openVitrinePublica()"><span class="nav-ico">🌐</span><span>Vitrine Pública</span></a>
         </div>
 
         <div class="nav-group">
@@ -428,6 +429,21 @@
               </div>
             </div>
 
+            <h4 class="form-section-title">Contato público (aparece nos links e na vitrine)</h4>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>Telefone / WhatsApp</label>
+                <input type="text" id="cfg-telefone" placeholder="(00) 00000-0000" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Usado nos botões 💬 WhatsApp e 📞 Ligar</span>
+              </div>
+              <div class="form-group">
+                <label>E-mail de contato</label>
+                <input type="email" id="cfg-email-contato" placeholder="contato@imobiliaria.com.br" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Usado no botão ✉️ E-mail</span>
+              </div>
+            </div>
+
             <h4 class="form-section-title">Página pública dos imóveis</h4>
 
             <div class="form-group">
@@ -439,6 +455,16 @@
                 Quando ativo, a logo da imobiliária é sobreposta às fotos ao fazer
                 upload. Você pode desativar caso a caso no upload de cada imóvel.
               </p>
+            </div>
+
+            <div class="form-group">
+              <label>Link da sua vitrine</label>
+              <div class="link-display">
+                <input type="text" id="cfg-vitrine-url" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyVitrineUrl()">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica()">↗ Abrir</button>
+              </div>
+              <p class="muted" style="font-size:11px;">Compartilhe esse link em WhatsApp, redes sociais ou portais para divulgar todos os imóveis publicados.</p>
             </div>
           </div>
         </section>
@@ -1531,6 +1557,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260511e"></script>
+  <script src="app.js?v=20260511f"></script>
 </body>
 </html>

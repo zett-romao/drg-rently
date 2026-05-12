@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Imóveis disponíveis — DRG-Rently</title>
+  <meta name="description" id="meta-desc" content="Imóveis disponíveis para locação">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" id="og-title" content="Imóveis disponíveis">
+  <meta property="og:description" id="og-desc" content="Confira nossos imóveis disponíveis para locação">
+  <meta property="og:image" id="og-image" content="logo.png">
+
+  <link rel="icon" type="image/png" href="logo.png?v=20260511f">
+  <link rel="stylesheet" href="styles.css?v=20260511f">
+  <link rel="stylesheet" href="public.css?v=20260511f">
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js?v=20260510b"></script>
+</head>
+<body class="public-page">
+
+  <div id="loading" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Carregando imóveis…</p>
+  </div>
+
+  <div id="error-state" class="error-state" style="display:none;">
+    <img src="logo.png" alt="DR Global" class="error-logo">
+    <h1>Imobiliária não encontrada</h1>
+    <p>O link pode estar incorreto. Confira a URL.</p>
+  </div>
+
+  <main id="content" style="display:none;">
+
+    <header class="public-header">
+      <div class="public-header-inner">
+        <img src="logo.png" alt="D.R. Global" class="public-logo">
+        <div class="public-header-text">
+          <h2 id="header-empresa">—</h2>
+          <p>Imóveis residenciais e comerciais para locação</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="public-hero">
+      <div class="public-container">
+        <div class="public-breadcrumb">Vitrine</div>
+        <h1>Imóveis disponíveis</h1>
+        <p style="color: rgba(255,255,255,0.85); margin-top:6px;">
+          <span id="vitrine-count">—</span> imóveis publicados
+        </p>
+      </div>
+    </section>
+
+    <!-- Filtros simples -->
+    <section class="vitrine-filtros">
+      <div class="public-container">
+        <div class="filtros-row">
+          <input type="text" id="filtro-busca" placeholder="🔍 Buscar por apelido, bairro, cidade…">
+          <select id="filtro-tipo">
+            <option value="">Todos os tipos</option>
+            <option value="residencial">Residencial</option>
+            <option value="comercial">Comercial</option>
+          </select>
+          <select id="filtro-quartos">
+            <option value="">Quartos (todos)</option>
+            <option value="1">1+ quarto</option>
+            <option value="2">2+ quartos</option>
+            <option value="3">3+ quartos</option>
+            <option value="4">4+ quartos</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Lista de cards -->
+    <section class="public-section">
+      <div class="public-container">
+        <div id="lista-imoveis" class="vitrine-grid"></div>
+      </div>
+    </section>
+
+    <footer class="public-footer">
+      <div class="public-container">
+        <p>© <span id="ano-rodape"></span> <span id="footer-empresa">DRG-Rently</span> · Todos os direitos reservados</p>
+        <p class="muted" style="font-size:11px;">Powered by <a href="https://github.com/zett-romao/drg-rently" target="_blank">DRG-Rently</a></p>
+      </div>
+    </footer>
+
+  </main>
+
+  <script src="public-imoveis.js?v=20260511f"></script>
+</body>
+</html>

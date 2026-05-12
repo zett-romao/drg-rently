@@ -2553,11 +2553,19 @@ function openImovelLink() {
 
 // ---------- Configurações da imobiliária ----------
 
+function vitrineUrl(tenantId) {
+  const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+  return `${base}imoveis.html?t=${tenantId}`;
+}
+
 async function loadConfigImobiliaria() {
   if (!State.tenant) return;
   $('cfg-razao').value = State.tenant.nome || '';
   $('cfg-cnpj').value = State.tenant.cnpj || '';
   $('cfg-creci').value = State.tenant.creci || '';
+  $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
+  $('cfg-email-contato').value = State.tenant.emailContato || '';
+  $('cfg-vitrine-url').value = vitrineUrl(State.tenant.id);
 
   try {
     const snap = await tenantPath().collection('config').doc('site').get();
@@ -2574,16 +2582,46 @@ async function saveConfigImobiliaria() {
   clearTimeout(_saveConfigDebounce);
   _saveConfigDebounce = setTimeout(async () => {
     try {
+      // Tenant doc — telefone e e-mail de contato (públicos)
+      const telefoneDigits = $('cfg-telefone').value.replace(/\D/g, '') || null;
+      const emailContato = $('cfg-email-contato').value.trim() || null;
+      await tenantPath().update({
+        telefone: telefoneDigits,
+        emailContato,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      // Sincroniza no State pra a UI usar imediatamente
+      State.tenant.telefone = telefoneDigits;
+      State.tenant.emailContato = emailContato;
+
+      // Subdoc config/site — watermark default
       await tenantPath().collection('config').doc('site').set({
         watermarkDefault: $('cfg-watermark-default').checked,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
+
       showAlert('cfg-alert', 'Configuração salva.', 'success');
     } catch (err) {
       console.error('Erro ao salvar config:', err);
       showAlert('cfg-alert', 'Erro: ' + err.message);
     }
-  }, 400);
+  }, 600);
+}
+
+function copyVitrineUrl() {
+  const input = $('cfg-vitrine-url');
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    showAlert('cfg-alert', 'Link da vitrine copiado!', 'success');
+  }).catch(() => {
+    document.execCommand('copy');
+    showAlert('cfg-alert', 'Link da vitrine copiado!', 'success');
+  });
+}
+
+function openVitrinePublica() {
+  if (!State.tenant) return;
+  window.open(vitrineUrl(State.tenant.id), '_blank');
 }
 
 // =============================================================
@@ -3120,4 +3158,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Máscara — Imóvel
   bindMask('imovel-cep', maskCEP);
+
+  // Máscara — Configurações
+  bindMask('cfg-telefone', maskTelefone);
 });
