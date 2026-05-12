@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DRG-Rently — Gestão de Locações</title>
-  <link rel="icon" type="image/png" href="logo.png?v=20260511d">
-  <link rel="apple-touch-icon" href="logo.png?v=20260511d">
-  <link rel="stylesheet" href="styles.css?v=20260511d">
+  <link rel="icon" type="image/png" href="logo.png?v=20260511e">
+  <link rel="apple-touch-icon" href="logo.png?v=20260511e">
+  <link rel="stylesheet" href="styles.css?v=20260511e">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -22,7 +22,7 @@
   <!-- ============================================ -->
   <div id="screen-login" class="screen active">
     <div class="auth-card">
-      <img src="logo.png?v=20260511d" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511e" alt="D.R. Global" class="auth-logo">
       <h1>DRG-Rently</h1>
       <p class="subtitle">Gestão de locações residenciais e comerciais</p>
 
@@ -51,7 +51,7 @@
   <!-- ============================================ -->
   <div id="screen-signup" class="screen">
     <div class="auth-card">
-      <img src="logo.png?v=20260511d" alt="D.R. Global" class="auth-logo">
+      <img src="logo.png?v=20260511e" alt="D.R. Global" class="auth-logo">
       <h1>Cadastrar imobiliária</h1>
       <p class="subtitle">Crie a conta da sua empresa no DRG-Rently</p>
 
@@ -118,7 +118,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img src="logo.png?v=20260511d" alt="DRG" class="brand-logo">
+        <img src="logo.png?v=20260511e" alt="DRG" class="brand-logo">
         <div class="brand-info">
           <h2>DRG-Rently</h2>
           <div class="brand-sub" id="brand-tenant-name">—</div>
@@ -409,6 +409,10 @@
         <section class="section" id="section-configuracoes" style="display:none;">
           <div class="card">
             <h3>Configurações da imobiliária</h3>
+
+            <div id="cfg-alert" class="alert alert-error" style="display:none;"></div>
+
+            <h4 class="form-section-title">Dados cadastrais</h4>
             <div class="form-group">
               <label>Razão social</label>
               <input type="text" id="cfg-razao" disabled>
@@ -423,7 +427,19 @@
                 <input type="text" id="cfg-creci" disabled>
               </div>
             </div>
-            <p style="color:var(--text-muted); font-size:12px;">Edição liberada na próxima iteração.</p>
+
+            <h4 class="form-section-title">Página pública dos imóveis</h4>
+
+            <div class="form-group">
+              <label class="toggle-row" style="cursor:pointer;">
+                <input type="checkbox" id="cfg-watermark-default" onchange="saveConfigImobiliaria()">
+                <span>Aplicar marca d'água nas fotos por padrão</span>
+              </label>
+              <p class="muted" style="font-size:12px; margin-top:6px;">
+                Quando ativo, a logo da imobiliária é sobreposta às fotos ao fazer
+                upload. Você pode desativar caso a caso no upload de cada imóvel.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -1251,8 +1267,8 @@
             <input type="text" id="imovel-matricula">
           </div>
           <div class="form-group">
-            <label>Inscrição imobiliária (IPTU)</label>
-            <input type="text" id="imovel-iptu">
+            <label>Número do IPTU</label>
+            <input type="text" id="imovel-iptu" placeholder="Inscrição imobiliária">
           </div>
         </div>
 
@@ -1275,9 +1291,54 @@
           <textarea id="imovel-obs" rows="3"></textarea>
         </div>
 
+        <!-- Publicação pública -->
+        <div id="imovel-publicacao-section" style="display:none;">
+          <h4 class="form-section-title">Publicação pública</h4>
+          <div class="publicacao-box">
+            <label class="toggle-row">
+              <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()">
+              <span>🌐 Publicar este imóvel (gera link compartilhável)</span>
+            </label>
+            <p class="muted" style="font-size:12px; margin-top:6px;">
+              Quando ativo, qualquer pessoa com o link consegue visualizar as fotos
+              e a descrição. Dados sensíveis (locador, valores internos, endereço
+              exato) ficam ocultos.
+            </p>
+            <div id="imovel-link-actions" style="display:none; margin-top:10px;">
+              <div class="link-display">
+                <input type="text" id="imovel-link-url" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyImovelLink()">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openImovelLink()">↗ Abrir</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Fotos do imóvel (galeria pública) -->
+        <div id="imovel-fotos-section" style="display:none;">
+          <h4 class="form-section-title">Fotos do imóvel</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">
+            Imagens que aparecem na página pública. Sem limite de quantidade.
+          </p>
+
+          <div id="imovel-fotos-grid" class="fotos-grid">
+            <p class="empty">Carregando fotos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="imovel-foto-input" multiple accept=".jpg,.jpeg,.png,.webp">
+            <button class="btn btn-secondary btn-sm" onclick="uploadImovelFotos()">📷 Adicionar fotos</button>
+            <label class="toggle-row" style="margin-left:auto; font-size:12px;">
+              <input type="checkbox" id="imovel-foto-watermark" checked>
+              <span>Aplicar marca d'água</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Documentos legais -->
         <div id="imovel-docs-section" style="display:none;">
-          <h4 class="form-section-title">Documentos</h4>
-          <p class="muted" style="font-size:12px; margin-bottom:10px;">Escritura, IPTU, planta, autorização de administração, fotos, etc.</p>
+          <h4 class="form-section-title">Documentos legais</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Escritura, IPTU, planta, autorização de administração, etc. (não aparecem no link público)</p>
 
           <div id="imovel-docs-list" class="docs-list">
             <p class="empty">Carregando documentos…</p>
@@ -1470,6 +1531,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260511d"></script>
+  <script src="app.js?v=20260511e"></script>
 </body>
 </html>

@@ -122,24 +122,43 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
-    // tenants
+    // tenants — leitura pública dos campos públicos (nome, telefone, emailContato)
+    // usada pelas páginas públicas; a regra continua restritiva para escrita.
     match /tenants/{tenantId} {
-      allow read: if belongsToTenant(tenantId);
-      allow read: if isSuperAdmin();
+      allow read;
       allow create: if isSignedIn(); // primeiro tenant no signup
       allow update: if belongsToTenant(tenantId) && userDoc().role == 'admin';
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
-      // subcoleções (locadores, locatarios, imoveis, contratos, etc.)
+      // subcoleções genéricas (locadores, locatarios, garantias, contratos, config)
       match /{collection}/{docId} {
         allow read, write: if belongsToTenant(tenantId);
         allow read, write: if isSuperAdmin();
+      }
+
+      // Imóveis: leitura pública SE linkPublico === true
+      match /imoveis/{imovelId} {
+        allow read: if resource.data.linkPublico == true;
+        allow read, write: if belongsToTenant(tenantId);
+        allow read, write: if isSuperAdmin();
+
+        // Fotos do imóvel: leitura sempre pública (galeria)
+        match /fotos/{fotoId} {
+          allow read;
+          allow write: if belongsToTenant(tenantId);
+          allow write: if isSuperAdmin();
+        }
       }
     }
   }
 }
 ```
+
+> ⚠️ Sobre `allow read` em `/tenants/{tenantId}`: leitura pública é segura porque
+> o tenant doc só guarda nome, CNPJ, CRECI, plano e status. Dados sensíveis ficam
+> nas subcoleções, que continuam protegidas. CNPJ é considerado público (sai em
+> nota fiscal, site corporativo, etc.).
 
 ## Regras Storage (aplicar no Console)
 

@@ -433,9 +433,7 @@ function showSection(name) {
     loadContratos();
   }
   if (name === 'configuracoes' && State.tenant) {
-    $('cfg-razao').value = State.tenant.nome || '';
-    $('cfg-cnpj').value = State.tenant.cnpj || '';
-    $('cfg-creci').value = State.tenant.creci || '';
+    loadConfigImobiliaria();
   }
 }
 
@@ -2121,10 +2119,32 @@ async function openImovelModal(id) {
       showAlert('imovel-alert', 'Erro ao carregar dados: ' + err.message);
     }
     $('imovel-docs-section').style.display = 'block';
+    $('imovel-fotos-section').style.display = 'block';
+    $('imovel-publicacao-section').style.display = 'block';
     loadImovelDocs(id);
+    loadImovelFotos(id);
+
+    // Estado do toggle de publicação
+    try {
+      const docSnap = await tenantPath().collection('imoveis').doc(id).get();
+      const linkAtivo = !!(docSnap.data() || {}).linkPublico;
+      $('imovel-link-publico').checked = linkAtivo;
+      updateLinkPublicoUI(linkAtivo, id);
+    } catch (_) {}
+
+    // Default do checkbox de marca d'água conforme config global
+    try {
+      const cfgSnap = await tenantPath().collection('config').doc('site').get();
+      const wm = cfgSnap.exists ? cfgSnap.data().watermarkDefault !== false : true;
+      $('imovel-foto-watermark').checked = wm;
+    } catch (_) {
+      $('imovel-foto-watermark').checked = true;
+    }
   } else {
     await populateLocadorSelect($('imovel-locador'), null);
     $('imovel-docs-section').style.display = 'none';
+    $('imovel-fotos-section').style.display = 'none';
+    $('imovel-publicacao-section').style.display = 'none';
   }
 
   $('modal-imovel').style.display = 'flex';
@@ -2313,6 +2333,257 @@ async function deleteImovelDoc(imovelId, filename) {
     console.error('Erro ao excluir doc:', err);
     showAlert('imovel-alert', 'Erro: ' + err.message);
   }
+}
+
+// ---------- Fotos do Imóvel (galeria pública) ----------
+
+async function loadImovelFotos(imovelId) {
+  const grid = $('imovel-fotos-grid');
+  grid.innerHTML = `<p class="empty">Carregando fotos…</p>`;
+
+  try {
+    const snap = await tenantPath().collection('imoveis').doc(imovelId)
+      .collection('fotos').orderBy('ordem').get();
+
+    if (snap.empty) {
+      grid.innerHTML = `<p class="empty">Nenhuma foto adicionada. Sem fotos, o imóvel publicado fica menos atrativo.</p>`;
+      return;
+    }
+
+    grid.innerHTML = snap.docs.map(doc => {
+      const f = doc.data();
+      return `
+        <div class="foto-item" onclick="window.open('${f.url}', '_blank')">
+          <img src="${f.url}" alt="${f.nome || ''}" loading="lazy">
+          <button class="foto-del" title="Excluir" onclick="event.stopPropagation(); deleteImovelFoto('${imovelId}','${doc.id}','${f.path || ''}');">×</button>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao listar fotos:', err);
+    grid.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+// Aplica logo como marca d'água no canto inferior direito da imagem
+async function applyWatermark(file, logoImg) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        // Tamanho da logo: 12% da menor dimensão
+        const logoSize = Math.min(canvas.width, canvas.height) * 0.12;
+        const padding = logoSize * 0.4;
+        const x = canvas.width - logoSize - padding;
+        const y = canvas.height - logoSize - padding;
+
+        // Fundo branco semi-transparente atrás da logo (pra contraste)
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath();
+        ctx.arc(x + logoSize/2, y + logoSize/2, logoSize/2 + 4, 0, Math.PI*2);
+        ctx.fill();
+
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(logoImg, x, y, logoSize, logoSize);
+        ctx.globalAlpha = 1;
+
+        canvas.toBlob(blob => {
+          if (!blob) return reject(new Error('Falha ao gerar imagem'));
+          resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+        }, 'image/jpeg', 0.88);
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('Falha ao carregar imagem'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Carrega a logo uma vez e mantém em memória
+let _logoImageCache = null;
+function getLogoImage() {
+  if (_logoImageCache) return Promise.resolve(_logoImageCache);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { _logoImageCache = img; resolve(img); };
+    img.onerror = () => reject(new Error('Falha ao carregar logo'));
+    img.src = 'logo.png?v=20260511d';
+  });
+}
+
+async function uploadImovelFotos() {
+  const imovelId = $('imovel-id').value;
+  if (!imovelId) {
+    showAlert('imovel-alert', 'Salve o imóvel antes de anexar fotos.');
+    return;
+  }
+
+  const input = $('imovel-foto-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) {
+    showAlert('imovel-alert', 'Selecione ao menos uma foto.');
+    return;
+  }
+
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) {
+    showAlert('imovel-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+    return;
+  }
+
+  const useWatermark = $('imovel-foto-watermark').checked;
+  let logoImg = null;
+  if (useWatermark) {
+    try { logoImg = await getLogoImage(); }
+    catch (e) {
+      console.warn('Logo não carregou — upload sem marca d\'água:', e);
+    }
+  }
+
+  const folderRef = storageTenantRef().child(`imoveis/${imovelId}/fotos`);
+  const fotosColl = tenantPath().collection('imoveis').doc(imovelId).collection('fotos');
+
+  // Pega ordem atual pra continuar a sequência
+  const existSnap = await fotosColl.orderBy('ordem', 'desc').limit(1).get();
+  let nextOrdem = existSnap.empty ? 0 : (existSnap.docs[0].data().ordem || 0) + 1;
+
+  try {
+    for (const original of files) {
+      const fileToUpload = (useWatermark && logoImg)
+        ? await applyWatermark(original, logoImg)
+        : original;
+
+      const cleanName = original.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const finalName = `${Date.now()}_${cleanName}`;
+      const fileRef = folderRef.child(finalName);
+
+      await fileRef.put(fileToUpload, {
+        contentType: fileToUpload.type || 'image/jpeg',
+        customMetadata: { uploadedBy: State.user.uid, watermarked: useWatermark ? 'true' : 'false' },
+      });
+      const url = await fileRef.getDownloadURL();
+
+      await fotosColl.add({
+        url,
+        nome: original.name,
+        path: `imoveis/${imovelId}/fotos/${finalName}`,
+        watermark: useWatermark,
+        ordem: nextOrdem++,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    input.value = '';
+    showAlert('imovel-alert', `${files.length} foto(s) enviada(s).`, 'success');
+    loadImovelFotos(imovelId);
+  } catch (err) {
+    console.error('Erro no upload de fotos:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
+  if (!confirm('Excluir esta foto?')) return;
+  try {
+    await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId).delete();
+    if (storagePath) {
+      try { await storage.ref().child(storagePath).delete(); } catch (_) {}
+    }
+    loadImovelFotos(imovelId);
+  } catch (err) {
+    console.error('Erro ao excluir foto:', err);
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+// ---------- Publicação pública do Imóvel ----------
+
+function imovelPublicUrl(imovelId, tenantId) {
+  const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+  return `${base}imovel.html?id=${imovelId}&t=${tenantId}`;
+}
+
+async function onTogglePublicoImovel() {
+  const imovelId = $('imovel-id').value;
+  if (!imovelId) return;
+  const ativo = $('imovel-link-publico').checked;
+
+  try {
+    await tenantPath().collection('imoveis').doc(imovelId).update({
+      linkPublico: ativo,
+      linkPublicoEm: ativo ? firebase.firestore.FieldValue.serverTimestamp() : null,
+    });
+    updateLinkPublicoUI(ativo, imovelId);
+  } catch (err) {
+    console.error('Erro ao atualizar publicação:', err);
+    $('imovel-link-publico').checked = !ativo;
+    showAlert('imovel-alert', 'Erro: ' + err.message);
+  }
+}
+
+function updateLinkPublicoUI(ativo, imovelId) {
+  const actions = $('imovel-link-actions');
+  if (ativo) {
+    actions.style.display = 'block';
+    $('imovel-link-url').value = imovelPublicUrl(imovelId, State.tenant.id);
+  } else {
+    actions.style.display = 'none';
+  }
+}
+
+function copyImovelLink() {
+  const input = $('imovel-link-url');
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    showAlert('imovel-alert', 'Link copiado!', 'success');
+  }).catch(() => {
+    document.execCommand('copy');
+    showAlert('imovel-alert', 'Link copiado!', 'success');
+  });
+}
+
+function openImovelLink() {
+  window.open($('imovel-link-url').value, '_blank');
+}
+
+// ---------- Configurações da imobiliária ----------
+
+async function loadConfigImobiliaria() {
+  if (!State.tenant) return;
+  $('cfg-razao').value = State.tenant.nome || '';
+  $('cfg-cnpj').value = State.tenant.cnpj || '';
+  $('cfg-creci').value = State.tenant.creci || '';
+
+  try {
+    const snap = await tenantPath().collection('config').doc('site').get();
+    const cfg = snap.exists ? snap.data() : {};
+    $('cfg-watermark-default').checked = cfg.watermarkDefault !== false; // default true
+  } catch (err) {
+    console.warn('Sem config de site ainda:', err);
+    $('cfg-watermark-default').checked = true;
+  }
+}
+
+let _saveConfigDebounce = null;
+async function saveConfigImobiliaria() {
+  clearTimeout(_saveConfigDebounce);
+  _saveConfigDebounce = setTimeout(async () => {
+    try {
+      await tenantPath().collection('config').doc('site').set({
+        watermarkDefault: $('cfg-watermark-default').checked,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+      showAlert('cfg-alert', 'Configuração salva.', 'success');
+    } catch (err) {
+      console.error('Erro ao salvar config:', err);
+      showAlert('cfg-alert', 'Erro: ' + err.message);
+    }
+  }, 400);
 }
 
 // =============================================================
