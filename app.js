@@ -390,10 +390,11 @@ function renderApp() {
 
   $('nav-superadmin').style.display = State.isSuperAdmin ? 'flex' : 'none';
 
-  // Operador não vê Configurações nem Auditoria (admin e super_admin veem)
+  // Operador não vê Configurações, Auditoria nem Importação (admin e super_admin veem)
   const podeVerConfig = State.isSuperAdmin || State.userDoc?.role === 'admin';
   $('nav-configuracoes').style.display = podeVerConfig ? 'flex' : 'none';
   $('nav-auditoria').style.display = podeVerConfig ? 'flex' : 'none';
+  $('nav-importacao').style.display = podeVerConfig ? 'flex' : 'none';
 
   showSection(State.currentSection || 'dashboard');
 }
@@ -5658,6 +5659,300 @@ function copyContratoTexto() {
     document.body.removeChild(ta);
     showAlert('contrato-alert', 'Texto do contrato copiado!', 'success');
   });
+}
+
+// =============================================================
+// IMPORTAÇÃO CSV — cadastro em massa
+// =============================================================
+
+const IMPORT_SCHEMAS = {
+  locadores: {
+    label: 'Locadores',
+    cols: ['tipo','nome','documento','rg','nascimento','estado_civil','profissao','email','telefone','cep','logradouro','numero','complemento','bairro','cidade','uf','pix','banco','obs'],
+    sample: ['PF','João Silva','12345678901','12345678','1980-05-15','casado','Engenheiro','joao@exemplo.com','11999998888','01310100','Av. Paulista','100','Apto 50','Bela Vista','São Paulo','SP','12345678901','341 / 1234 / 56789-0','Cliente preferencial'],
+    obrigatorios: ['tipo','nome','documento'],
+  },
+  locatarios: {
+    label: 'Locatários',
+    cols: ['tipo','nome','documento','rg','nascimento','estado_civil','profissao','email','telefone','cep','logradouro','numero','complemento','bairro','cidade','uf','empresa','cargo','renda','dependentes','status','obs'],
+    sample: ['PF','Maria Santos','98765432101','98765432','1990-03-22','solteiro','Analista','maria@exemplo.com','11988887777','04567000','Rua das Flores','200','','Vila Mariana','São Paulo','SP','Empresa X','Gerente','8500','0','aprovado','Boa pagadora'],
+    obrigatorios: ['tipo','nome','documento'],
+  },
+  imoveis: {
+    label: 'Imóveis',
+    cols: ['apelido','tipo','subtipo','finalidade','cep','logradouro','numero','complemento','bairro','cidade','uf','area_util','area_total','quartos','banheiros','vagas','mobiliado','andar','matricula','iptu','valor_mercado','aluguel_sugerido','valor_venda','locador_email','obs'],
+    sample: ['Apto 301 Solar do Lago','residencial','apartamento','locacao','01310100','Av. Paulista','100','Apto 301','Bela Vista','São Paulo','SP','75','85','2','1','1','nao','3','12345-RI','98765432','450000','2500','','joao@exemplo.com','Pronto para alugar'],
+    obrigatorios: ['apelido','tipo','locador_email'],
+  },
+};
+
+let _importParsed = null; // { rows, errosPorLinha, valid }
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 1) return { header: [], rows: [] };
+  const parseLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current); current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current);
+    return result;
+  };
+  const header = parseLine(lines[0]).map(h => h.trim().toLowerCase().replace(/^﻿/, ''));
+  const rows = lines.slice(1).map(l => {
+    const cols = parseLine(l);
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = (cols[i] || '').trim(); });
+    return obj;
+  });
+  return { header, rows };
+}
+
+function onImportTipoChange() {
+  cancelarImportacao();
+}
+
+function baixarTemplateImport() {
+  const tipo = $('import-tipo').value;
+  const sch = IMPORT_SCHEMAS[tipo];
+  if (!sch) return;
+  const csv = [sch.cols.join(','), sch.sample.map(v => {
+    const s = String(v);
+    if (s.includes(',') || s.includes('"')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }).join(',')].join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `template_${tipo}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function processarArquivoImport() {
+  const file = $('import-arquivo').files?.[0];
+  if (!file) return;
+  const tipo = $('import-tipo').value;
+  const sch = IMPORT_SCHEMAS[tipo];
+  if (!sch) return;
+
+  const text = await file.text();
+  const { header, rows } = parseCSV(text);
+
+  if (rows.length === 0) { alert('Arquivo vazio ou sem dados.'); return; }
+  if (rows.length > 100) { alert('Limite de 100 linhas por importação. Divida o arquivo.'); return; }
+
+  // Valida cada linha
+  const errosPorLinha = rows.map(row => {
+    const erros = [];
+    sch.obrigatorios.forEach(col => {
+      if (!row[col] || row[col].trim() === '') erros.push(`Campo obrigatório '${col}' vazio`);
+    });
+    if (row.tipo && !['PF','PJ'].includes(row.tipo.toUpperCase())) erros.push('Tipo deve ser PF ou PJ');
+    return erros;
+  });
+
+  _importParsed = { tipo, schema: sch, rows, errosPorLinha };
+  renderImportPreview();
+}
+
+function renderImportPreview() {
+  const { tipo, schema, rows, errosPorLinha } = _importParsed;
+  $('import-preview-container').style.display = 'block';
+  $('import-preview-titulo').textContent = `Pré-visualização — ${schema.label} (${rows.length} linhas)`;
+
+  const totalValidas = errosPorLinha.filter(e => e.length === 0).length;
+  const totalErros = rows.length - totalValidas;
+
+  $('import-stats').innerHTML = `
+    <div class="linha"><span>Linhas válidas (serão importadas)</span><strong style="color:#15803d;">${totalValidas}</strong></div>
+    <div class="linha"><span>Linhas com erro (serão ignoradas)</span><strong style="color:#b91c1c;">${totalErros}</strong></div>
+    <div class="linha final"><span>Total no arquivo</span><strong>${rows.length}</strong></div>
+  `;
+
+  const cols = schema.cols.slice(0, 6); // mostra 6 primeiras pra caber
+  $('import-thead').innerHTML = '<tr>' +
+    '<th style="width:30px;">#</th>' +
+    '<th style="width:60px;">Status</th>' +
+    cols.map(c => `<th>${c}</th>`).join('') +
+    '<th>Erros</th></tr>';
+
+  $('import-tbody').innerHTML = rows.map((r, i) => {
+    const erros = errosPorLinha[i];
+    const ok = erros.length === 0;
+    const statusBadge = ok
+      ? '<span style="color:#15803d;">✓</span>'
+      : '<span style="color:#b91c1c;">✗</span>';
+    return `<tr style="${ok ? '' : 'background: var(--danger-light);'}">
+      <td>${i + 2}</td>
+      <td>${statusBadge}</td>
+      ${cols.map(c => `<td>${(r[c] || '').slice(0, 40)}</td>`).join('')}
+      <td style="color:var(--danger); font-size:11px;">${erros.join('; ') || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  $('btn-confirmar-import').disabled = totalValidas === 0;
+  $('btn-confirmar-import').textContent = `✓ Importar ${totalValidas} linha(s) válida(s)`;
+}
+
+function cancelarImportacao() {
+  _importParsed = null;
+  $('import-preview-container').style.display = 'none';
+  $('import-arquivo').value = '';
+}
+
+async function confirmarImportacao() {
+  if (!_importParsed) return;
+  const { tipo, schema, rows, errosPorLinha } = _importParsed;
+
+  const validas = rows.filter((_, i) => errosPorLinha[i].length === 0);
+  if (validas.length === 0) { alert('Nenhuma linha válida pra importar.'); return; }
+
+  if (!confirm(`Importar ${validas.length} registro(s) de ${schema.label}? Esta ação não pode ser desfeita.`)) return;
+
+  const btn = $('btn-confirmar-import');
+  btn.disabled = true; btn.textContent = 'Importando…';
+
+  let sucesso = 0, falhas = 0;
+
+  try {
+    // Pra imóveis, precisa resolver locador_email → locadorId
+    let locadorByEmail = {};
+    if (tipo === 'imoveis') {
+      const locs = await ensureLocadoresCache();
+      locadorByEmail = Object.fromEntries(locs.filter(l => l.email).map(l => [l.email.toLowerCase(), l.id]));
+    }
+
+    for (const row of validas) {
+      try {
+        if (tipo === 'locadores') {
+          await tenantPath().collection('locadores').add({
+            tipo: row.tipo.toUpperCase(),
+            nome: row.nome,
+            documento: row.documento.replace(/\D/g, ''),
+            rg: row.rg || null,
+            nascimento: row.nascimento || null,
+            estadoCivil: row.estado_civil || null,
+            profissao: row.profissao || null,
+            email: row.email || null,
+            telefone: row.telefone ? row.telefone.replace(/\D/g, '') : null,
+            endereco: {
+              cep: row.cep ? row.cep.replace(/\D/g, '') : null,
+              logradouro: row.logradouro || null,
+              numero: row.numero || null,
+              complemento: row.complemento || null,
+              bairro: row.bairro || null,
+              cidade: row.cidade || null,
+              uf: row.uf ? row.uf.toUpperCase() : null,
+            },
+            pix: row.pix || null,
+            banco: row.banco || null,
+            obs: row.obs || null,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            criadoPor: State.user.uid,
+            importadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        } else if (tipo === 'locatarios') {
+          await tenantPath().collection('locatarios').add({
+            tipo: row.tipo.toUpperCase(),
+            nome: row.nome,
+            documento: row.documento.replace(/\D/g, ''),
+            rg: row.rg || null,
+            nascimento: row.nascimento || null,
+            estadoCivil: row.estado_civil || null,
+            profissao: row.profissao || null,
+            email: row.email || null,
+            telefone: row.telefone ? row.telefone.replace(/\D/g, '') : null,
+            endereco: {
+              cep: row.cep ? row.cep.replace(/\D/g, '') : null,
+              logradouro: row.logradouro || null,
+              numero: row.numero || null,
+              complemento: row.complemento || null,
+              bairro: row.bairro || null,
+              cidade: row.cidade || null,
+              uf: row.uf ? row.uf.toUpperCase() : null,
+            },
+            empresa: row.empresa || null,
+            cargo: row.cargo || null,
+            renda: parseFloat(row.renda) || null,
+            dependentes: parseInt(row.dependentes, 10) || 0,
+            status: row.status || 'pendente_analise',
+            obs: row.obs || null,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            criadoPor: State.user.uid,
+            importadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        } else if (tipo === 'imoveis') {
+          const locadorId = locadorByEmail[(row.locador_email || '').toLowerCase()];
+          if (!locadorId) { falhas++; continue; }
+          await tenantPath().collection('imoveis').add({
+            apelido: row.apelido,
+            tipo: row.tipo || 'residencial',
+            subtipo: row.subtipo || null,
+            finalidade: row.finalidade || 'locacao',
+            locadorId,
+            endereco: {
+              cep: row.cep ? row.cep.replace(/\D/g, '') : null,
+              logradouro: row.logradouro || null,
+              numero: row.numero || null,
+              complemento: row.complemento || null,
+              bairro: row.bairro || null,
+              cidade: row.cidade || null,
+              uf: row.uf ? row.uf.toUpperCase() : null,
+            },
+            areaUtil: parseFloat(row.area_util) || null,
+            areaTotal: parseFloat(row.area_total) || null,
+            quartos: parseInt(row.quartos, 10) || 0,
+            banheiros: parseInt(row.banheiros, 10) || 0,
+            vagas: parseInt(row.vagas, 10) || 0,
+            mobiliado: row.mobiliado || 'nao',
+            andar: row.andar || null,
+            matricula: row.matricula || null,
+            iptu: row.iptu || null,
+            valorMercado: parseFloat(row.valor_mercado) || null,
+            aluguelSugerido: parseFloat(row.aluguel_sugerido) || null,
+            valorVenda: parseFloat(row.valor_venda) || null,
+            status: 'disponivel',
+            obs: row.obs || null,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+            criadoPor: State.user.uid,
+            importadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        sucesso++;
+      } catch (err) {
+        console.error('Erro na linha:', err, row);
+        falhas++;
+      }
+    }
+
+    // Invalidar caches
+    if (tipo === 'locadores') invalidateLocadoresCache();
+    if (tipo === 'locatarios') invalidateLocatariosCache();
+    if (tipo === 'imoveis') invalidateImoveisCache();
+
+    logAuditoria('create', tipo === 'imoveis' ? 'imovel' : tipo.slice(0, -1), null, { importacao: true, sucesso, falhas });
+
+    alert(`✓ Importação concluída.\n${sucesso} registro(s) criado(s).\n${falhas} falha(s).`);
+    cancelarImportacao();
+  } catch (err) {
+    console.error('Erro na importação:', err);
+    alert('Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // =============================================================
