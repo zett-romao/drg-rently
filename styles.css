@@ -533,8 +533,13 @@ label.required::after {
 .badge-status.pendente_analise { background: var(--warning-light); color: var(--warning); }
 .badge-status.disponivel { background: var(--success-light); color: var(--success); }
 .badge-status.alugado { background: var(--primary-light); color: var(--primary-dark); }
+.badge-status.vendido { background: #FEF3C7; color: #B45309; }
 .badge-status.em_reforma { background: var(--warning-light); color: var(--warning); }
 .badge-status.indisponivel { background: var(--danger-light); color: var(--danger); }
+.badge-status.em_negociacao { background: #EDE9FE; color: #6D28D9; }
+.badge-status.aceita { background: var(--success-light); color: var(--success); }
+.badge-status.fechada { background: #FEF3C7; color: #B45309; }
+.badge-status.recusada { background: var(--danger-light); color: var(--danger); }
 .badge-status.rascunho { background: #ECEFF1; color: #455A64; }
 .badge-status.vigente { background: var(--success-light); color: var(--success); }
 .badge-status.encerrado { background: var(--primary-light); color: var(--primary-dark); }

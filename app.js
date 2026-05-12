@@ -423,6 +423,12 @@ function showSection(name) {
   if (name === 'locatarios' && State.tenant) {
     loadLocatarios();
   }
+  if (name === 'compradores' && State.tenant) {
+    loadCompradores();
+  }
+  if (name === 'negociacoes' && State.tenant) {
+    loadNegociacoes();
+  }
   if (name === 'garantias' && State.tenant) {
     loadGarantias();
   }
@@ -506,18 +512,19 @@ async function toggleTenantStatus(tenantId, ativo) {
 async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis', 'stat-imoveis-venda',
-               'stat-contratos-vigentes', 'stat-garantias-ativas'];
+               'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
 
   try {
-    const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap] = await Promise.all([
+    const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap, negociacoesSnap] = await Promise.all([
       tenantPath().collection('locadores').get(),
       tenantPath().collection('locatarios').get(),
       tenantPath().collection('imoveis').get(),
       tenantPath().collection('contratos').get(),
       tenantPath().collection('garantias').get(),
+      tenantPath().collection('negociacoes').get(),
     ]);
 
     const imoveisAlugados = imoveisSnap.docs.filter(d => d.data().status === 'alugado').length;
@@ -528,6 +535,10 @@ async function loadDashboard() {
     }).length;
     const contratosVigentes = contratosSnap.docs.filter(d => d.data().status === 'vigente').length;
     const garantiasAtivas = garantiasSnap.docs.filter(d => (d.data().status || 'ativa') === 'ativa').length;
+    const negociacoesAndamento = negociacoesSnap.docs.filter(d => {
+      const s = d.data().status;
+      return s === 'em_negociacao' || s === 'aceita' || s === 'rascunho';
+    }).length;
 
     $('stat-locadores').textContent = locadoresSnap.size;
     $('stat-locatarios').textContent = locatariosSnap.size;
@@ -536,6 +547,7 @@ async function loadDashboard() {
     $('stat-imoveis-venda').textContent = imoveisVenda;
     $('stat-contratos-vigentes').textContent = contratosVigentes;
     $('stat-garantias-ativas').textContent = garantiasAtivas;
+    $('stat-negociacoes').textContent = negociacoesAndamento;
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
@@ -1928,6 +1940,801 @@ async function deleteGarantiaDoc(garantiaId, filename) {
   } catch (err) {
     console.error('Erro ao excluir doc:', err);
     showAlert('garantia-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// COMPRADORES — CRUD + análise + documentos
+// =============================================================
+
+const COMPRADOR_STATUS_LABEL = {
+  pendente_analise: 'Pendente',
+  aprovado: 'Aprovado',
+  reprovado: 'Reprovado',
+};
+
+const FORMA_PAGAMENTO_LABEL = {
+  a_vista: 'À vista',
+  financiado: 'Financiado',
+  fgts: 'FGTS',
+  consorcio: 'Consórcio',
+  permuta: 'Permuta',
+  parcelado: 'Parcelado direto',
+};
+
+let _compradoresCache = null;
+async function ensureCompradoresCache() {
+  if (_compradoresCache) return _compradoresCache;
+  const snap = await tenantPath().collection('compradores').orderBy('nome').get();
+  _compradoresCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return _compradoresCache;
+}
+function invalidateCompradoresCache() { _compradoresCache = null; }
+
+async function loadCompradores() {
+  const tbody = $('tbody-compradores');
+  tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
+
+  try {
+    const snap = await tenantPath().collection('compradores').orderBy('nome').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum comprador cadastrado.</td></tr>`;
+      return;
+    }
+    const rows = snap.docs.map((doc, i) => {
+      const c = doc.data();
+      const docFmt = c.documento ? (c.tipo === 'PJ' ? maskCNPJ(c.documento) : maskCPF(c.documento)) : '—';
+      const telFmt = c.telefone ? maskTelefone(c.telefone) : '—';
+      const status = c.status || 'pendente_analise';
+      const forma = FORMA_PAGAMENTO_LABEL[c.formaPagamento] || '—';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${c.nome || '—'}</strong>${c.tipo === 'PJ' ? ' <span class="muted" style="font-size:11px;">(PJ)</span>' : ''}</td>
+          <td>${docFmt}</td>
+          <td>${telFmt}</td>
+          <td>${forma}</td>
+          <td><span class="badge-status ${status}">${COMPRADOR_STATUS_LABEL[status] || status}</span></td>
+          <td><div class="action-btns"><button class="btn btn-sm btn-secondary" onclick="openCompradorModal('${doc.id}')">Editar</button></div></td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar compradores:', err);
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function buscarCEPComprador() {
+  const input = $('comprador-cep');
+  const status = $('comprador-cep-status');
+  const cepRaw = (input.value || '').replace(/\D/g, '');
+  if (cepRaw.length === 0) return;
+  if (cepRaw.length !== 8) { showAlert('comprador-alert', 'CEP deve ter 8 dígitos.'); return; }
+
+  input.value = cepRaw.replace(/(\d{5})(\d{3})/, '$1-$2');
+  status.style.display = 'block';
+  status.textContent = 'Buscando…';
+  status.style.color = 'var(--primary)';
+  try {
+    const res = await fetch(`https://viacep.com.br/ws/${cepRaw}/json/`);
+    const data = await res.json();
+    if (data.erro) { status.textContent = 'CEP não encontrado'; status.style.color = 'var(--danger)'; return; }
+    if (data.logradouro) $('comprador-logradouro').value = data.logradouro;
+    if (data.bairro)     $('comprador-bairro').value     = data.bairro;
+    if (data.localidade) $('comprador-cidade').value     = data.localidade;
+    if (data.uf)         $('comprador-uf').value         = data.uf;
+    status.textContent = '✓';
+    status.style.color = 'var(--success)';
+    $('comprador-numero').focus();
+  } catch (err) {
+    status.textContent = 'Erro de conexão';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+function onCompradorTipoChange() {
+  const tipo = $('comprador-tipo').value;
+  const isPJ = tipo === 'PJ';
+  $('comprador-nome-label').textContent = isPJ ? 'Razão social' : 'Nome completo';
+  $('comprador-doc-label').textContent = isPJ ? 'CNPJ' : 'CPF';
+  $('comprador-documento').placeholder = isPJ ? '00.000.000/0000-00' : '000.000.000-00';
+  $('comprador-rg-group').style.display = isPJ ? 'none' : 'block';
+  $('comprador-nascimento-group').style.display = isPJ ? 'none' : 'block';
+  $('comprador-pf-extra').style.display = isPJ ? 'none' : 'grid';
+  const docInput = $('comprador-documento');
+  docInput.value = isPJ ? maskCNPJ(docInput.value) : maskCPF(docInput.value);
+  onCompradorDocumentoInput();
+}
+
+function onCompradorDocumentoInput() {
+  const tipo = $('comprador-tipo').value;
+  const digits = $('comprador-documento').value.replace(/\D/g, '');
+  const status = $('comprador-doc-status');
+  if (digits.length === 0) { status.style.display = 'none'; return; }
+  status.style.display = 'block';
+  const isPJ = tipo === 'PJ';
+  const max = isPJ ? 14 : 11;
+  const valido = isPJ ? isCNPJValid(digits) : isCPFValid(digits);
+  if (digits.length < max) {
+    status.textContent = `${digits.length}/${max} dígitos`;
+    status.style.color = 'var(--text-muted)';
+  } else if (valido) {
+    status.textContent = `✓ ${isPJ ? 'CNPJ' : 'CPF'} válido`;
+    status.style.color = 'var(--success)';
+  } else {
+    status.textContent = `✗ ${isPJ ? 'CNPJ' : 'CPF'} inválido`;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function onCompradorDocumentoBlur() {
+  if ($('comprador-tipo').value !== 'PJ') return;
+  const digits = $('comprador-documento').value.replace(/\D/g, '');
+  if (digits.length !== 14 || !isCNPJValid(digits)) return;
+  const nomeAtual = $('comprador-nome').value.trim();
+  if (nomeAtual && !confirm('Buscar dados na Receita Federal pode sobrescrever a razão social e o endereço. Deseja prosseguir?')) return;
+  const status = $('comprador-doc-status');
+  status.style.display = 'block';
+  status.textContent = 'Buscando na Receita…';
+  status.style.color = 'var(--primary)';
+  try {
+    const data = await fetchCNPJ(digits);
+    $('comprador-nome').value = data.razao_social || nomeAtual;
+    if (data.logradouro)  $('comprador-logradouro').value  = data.logradouro;
+    if (data.numero)      $('comprador-numero').value      = data.numero;
+    if (data.complemento) $('comprador-complemento').value = data.complemento;
+    if (data.bairro)      $('comprador-bairro').value      = data.bairro;
+    if (data.municipio)   $('comprador-cidade').value      = data.municipio;
+    if (data.uf)          $('comprador-uf').value          = data.uf;
+    if (data.cep)         $('comprador-cep').value         = maskCEP(String(data.cep));
+    if (data.email && !$('comprador-email').value)         $('comprador-email').value    = data.email;
+    if (data.ddd_telefone_1 && !$('comprador-telefone').value) {
+      $('comprador-telefone').value = maskTelefone(String(data.ddd_telefone_1));
+    }
+    const situacao = (data.descricao_situacao_cadastral || '').toUpperCase();
+    if (situacao === 'ATIVA') {
+      status.textContent = '✓ CNPJ ativo na Receita';
+      status.style.color = 'var(--success)';
+    } else if (situacao) {
+      status.textContent = `⚠ Situação: ${situacao}`;
+      status.style.color = 'var(--warning)';
+    }
+  } catch (err) {
+    status.textContent = 'Erro: ' + err.message;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+function onCompradorFormaChange() {
+  const forma = $('comprador-forma-pagamento').value;
+  $('comprador-financiado-extra').style.display = (forma === 'financiado' || forma === 'consorcio') ? 'grid' : 'none';
+}
+
+async function openCompradorModal(id) {
+  clearAlert('comprador-alert');
+  $('comprador-id').value = id || '';
+  $('modal-comprador-title').textContent = id ? 'Editar Comprador' : 'Novo Comprador';
+  $('btn-delete-comprador').style.display = id ? 'inline-block' : 'none';
+
+  ['comprador-nome', 'comprador-documento', 'comprador-rg', 'comprador-nascimento',
+   'comprador-profissao', 'comprador-email', 'comprador-telefone',
+   'comprador-cep', 'comprador-logradouro', 'comprador-numero', 'comprador-complemento',
+   'comprador-bairro', 'comprador-cidade', 'comprador-uf',
+   'comprador-renda', 'comprador-banco-fin', 'comprador-valor-entrada',
+   'comprador-obs', 'comprador-motivo-status'].forEach(f => $(f).value = '');
+  $('comprador-tipo').value = 'PF';
+  $('comprador-estado-civil').value = '';
+  $('comprador-nacionalidade').value = 'Brasileira';
+  $('comprador-forma-pagamento').value = 'a_vista';
+  $('comprador-status').value = 'pendente_analise';
+  $('comprador-cep-status').style.display = 'none';
+  $('comprador-doc-status').style.display = 'none';
+  onCompradorTipoChange();
+  onCompradorFormaChange();
+
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('compradores').doc(id).get();
+      if (snap.exists) {
+        const c = snap.data();
+        $('comprador-status').value = c.status || 'pendente_analise';
+        $('comprador-motivo-status').value = c.motivoStatus || '';
+        $('comprador-tipo').value = c.tipo || 'PF';
+        $('comprador-nome').value = c.nome || '';
+        $('comprador-documento').value = c.documento ? (c.tipo === 'PJ' ? maskCNPJ(c.documento) : maskCPF(c.documento)) : '';
+        $('comprador-rg').value = c.rg || '';
+        $('comprador-nascimento').value = c.nascimento || '';
+        $('comprador-estado-civil').value = c.estadoCivil || '';
+        $('comprador-profissao').value = c.profissao || '';
+        $('comprador-nacionalidade').value = c.nacionalidade || 'Brasileira';
+        $('comprador-email').value = c.email || '';
+        $('comprador-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
+        onCompradorTipoChange();
+        const end = c.endereco || {};
+        $('comprador-cep').value = end.cep ? maskCEP(end.cep) : '';
+        $('comprador-logradouro').value = end.logradouro || '';
+        $('comprador-numero').value = end.numero || '';
+        $('comprador-complemento').value = end.complemento || '';
+        $('comprador-bairro').value = end.bairro || '';
+        $('comprador-cidade').value = end.cidade || '';
+        $('comprador-uf').value = end.uf || '';
+        $('comprador-forma-pagamento').value = c.formaPagamento || 'a_vista';
+        $('comprador-renda').value = c.renda ?? '';
+        $('comprador-banco-fin').value = c.bancoFinanceira || '';
+        $('comprador-valor-entrada').value = c.valorEntrada ?? '';
+        $('comprador-obs').value = c.obs || '';
+        onCompradorFormaChange();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar comprador:', err);
+      showAlert('comprador-alert', 'Erro ao carregar: ' + err.message);
+    }
+    $('comprador-docs-section').style.display = 'block';
+    loadCompradorDocs(id);
+  } else {
+    $('comprador-docs-section').style.display = 'none';
+  }
+  $('modal-comprador').style.display = 'flex';
+}
+
+function closeCompradorModal() {
+  $('modal-comprador').style.display = 'none';
+}
+
+async function saveComprador() {
+  clearAlert('comprador-alert');
+  const id = $('comprador-id').value;
+  const nome = $('comprador-nome').value.trim();
+  const documento = $('comprador-documento').value.trim();
+  if (!nome) { showAlert('comprador-alert', 'Nome / Razão social é obrigatório.'); return; }
+  if (!documento) { showAlert('comprador-alert', 'CPF / CNPJ é obrigatório.'); return; }
+
+  const data = {
+    status: $('comprador-status').value,
+    motivoStatus: $('comprador-motivo-status').value.trim() || null,
+    tipo: $('comprador-tipo').value,
+    nome,
+    documento: documento.replace(/\D/g, ''),
+    rg: $('comprador-rg').value.trim() || null,
+    nascimento: $('comprador-nascimento').value || null,
+    estadoCivil: $('comprador-estado-civil').value || null,
+    profissao: $('comprador-profissao').value.trim() || null,
+    nacionalidade: $('comprador-nacionalidade').value.trim() || null,
+    email: $('comprador-email').value.trim() || null,
+    telefone: $('comprador-telefone').value.replace(/\D/g, '') || null,
+    endereco: {
+      cep: $('comprador-cep').value.replace(/\D/g, '') || null,
+      logradouro: $('comprador-logradouro').value.trim() || null,
+      numero: $('comprador-numero').value.trim() || null,
+      complemento: $('comprador-complemento').value.trim() || null,
+      bairro: $('comprador-bairro').value.trim() || null,
+      cidade: $('comprador-cidade').value.trim() || null,
+      uf: $('comprador-uf').value.trim().toUpperCase() || null,
+    },
+    formaPagamento: $('comprador-forma-pagamento').value,
+    renda: parseFloat($('comprador-renda').value) || null,
+    bancoFinanceira: $('comprador-banco-fin').value.trim() || null,
+    valorEntrada: parseFloat($('comprador-valor-entrada').value) || null,
+    obs: $('comprador-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-comprador');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    if (id) {
+      await tenantPath().collection('compradores').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('compradores').add(data);
+      btn.disabled = false; btn.textContent = 'Salvar';
+      invalidateCompradoresCache();
+      await openCompradorModal(docRef.id);
+      showAlert('comprador-alert', 'Comprador criado. Agora você pode anexar documentos.', 'success');
+      loadCompradores();
+      return;
+    }
+    invalidateCompradoresCache();
+    closeCompradorModal();
+    loadCompradores();
+  } catch (err) {
+    console.error('Erro ao salvar comprador:', err);
+    showAlert('comprador-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function deleteComprador() {
+  const id = $('comprador-id').value;
+  if (!id) return;
+  if (!confirm('Excluir este comprador? Os documentos anexados também serão removidos.')) return;
+  try {
+    const folderRef = storageTenantRef().child(`compradores/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) {}
+    await tenantPath().collection('compradores').doc(id).delete();
+    invalidateCompradoresCache();
+    closeCompradorModal();
+    loadCompradores();
+  } catch (err) {
+    console.error('Erro ao excluir:', err);
+    showAlert('comprador-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadCompradorDocs(id) {
+  const container = $('comprador-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+  try {
+    const folderRef = storageTenantRef().child(`compradores/${id}`);
+    const list = await folderRef.listAll();
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteCompradorDoc('${id}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadCompradorDocs() {
+  const id = $('comprador-id').value;
+  if (!id) { showAlert('comprador-alert', 'Salve o comprador antes de anexar documentos.'); return; }
+  const input = $('comprador-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) { showAlert('comprador-alert', 'Selecione ao menos um arquivo.'); return; }
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) { showAlert('comprador-alert', `Arquivo "${tooBig.name}" excede 10MB.`); return; }
+  const folderRef = storageTenantRef().child(`compradores/${id}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('comprador-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadCompradorDocs(id);
+  } catch (err) {
+    showAlert('comprador-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteCompradorDoc(id, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`compradores/${id}/${filename}`).delete();
+    loadCompradorDocs(id);
+  } catch (err) {
+    showAlert('comprador-alert', 'Erro: ' + err.message);
+  }
+}
+
+// =============================================================
+// NEGOCIAÇÕES — propostas e contratos de compra/venda
+// =============================================================
+
+const NEGOCIACAO_STATUS_LABEL = {
+  rascunho: 'Rascunho',
+  em_negociacao: 'Em negociação',
+  aceita: 'Aceita',
+  fechada: 'Fechada',
+  recusada: 'Recusada',
+};
+
+async function loadNegociacoes() {
+  const tbody = $('tbody-negociacoes');
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+  try {
+    const [snap, imoveis, compradores] = await Promise.all([
+      tenantPath().collection('negociacoes').orderBy('criadoEm', 'desc').get(),
+      ensureImoveisCache(),
+      ensureCompradoresCache(),
+    ]);
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhuma negociação cadastrada.</td></tr>`;
+      return;
+    }
+    const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
+    const compMap = Object.fromEntries(compradores.map(c => [c.id, c.nome]));
+    const rows = snap.docs.map((doc, i) => {
+      const n = doc.data();
+      const status = n.status || 'rascunho';
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><strong>${imMap[n.imovelId] || '⚠ imóvel apagado'}</strong></td>
+          <td>${compMap[n.compradorId] || '⚠ comprador apagado'}</td>
+          <td>${fmtBRL(n.valor)}</td>
+          <td><span class="badge-status ${status}">${NEGOCIACAO_STATUS_LABEL[status] || status}</span></td>
+          <td><div class="action-btns"><button class="btn btn-sm btn-secondary" onclick="openNegociacaoModal('${doc.id}')">Editar</button></div></td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar negociações:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+async function populateNegociacaoSelects(selected) {
+  const [locadores, compradores, imoveis] = await Promise.all([
+    ensureLocadoresCache(),
+    ensureCompradoresCache(),
+    ensureImoveisCache(),
+  ]);
+
+  // Imóveis: apenas com finalidade venda ou ambos
+  const imoveisVenda = imoveis.filter(i => i.finalidade === 'venda' || i.finalidade === 'ambos');
+  $('negociacao-imovel').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(imoveisVenda.map(i => `<option value="${i.id}"${i.id === selected?.imovelId ? ' selected' : ''}>${i.apelido} · ${fmtBRL(i.valorVenda)}</option>`))
+    .join('');
+
+  $('negociacao-vendedor').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(locadores.map(l => `<option value="${l.id}"${l.id === selected?.vendedorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
+    .join('');
+
+  $('negociacao-comprador').innerHTML = ['<option value="">— Selecione —</option>']
+    .concat(compradores.map(c => {
+      const ico = c.status === 'aprovado' ? ' ✓' : c.status === 'reprovado' ? ' ✗' : ' ⏳';
+      return `<option value="${c.id}"${c.id === selected?.compradorId ? ' selected' : ''}>${c.nome}${ico}</option>`;
+    }))
+    .join('');
+}
+
+function onNegociacaoImovelChange() {
+  const imovelId = $('negociacao-imovel').value;
+  const info = $('negociacao-imovel-info');
+  if (!imovelId) { info.style.display = 'none'; $('negociacao-valor-info').textContent = 'Anunciado: —'; return; }
+  const imovel = (_imoveisCache || []).find(i => i.id === imovelId);
+  if (!imovel) { info.style.display = 'none'; return; }
+  if (imovel.locadorId) $('negociacao-vendedor').value = imovel.locadorId;
+  const valorInput = $('negociacao-valor');
+  if (!valorInput.value && imovel.valorVenda) {
+    valorInput.value = imovel.valorVenda;
+  }
+  $('negociacao-valor-info').textContent = `Anunciado: ${fmtBRL(imovel.valorVenda)}`;
+  const end = imovel.endereco || {};
+  const endStr = [end.logradouro, end.numero, end.bairro, end.cidade, end.uf].filter(Boolean).join(', ');
+  info.style.display = 'block';
+  info.textContent = `${endStr || 'sem endereço'} · ${IMOVEL_STATUS_LABEL[imovel.status] || imovel.status}`;
+  info.style.color = imovel.status === 'alugado' ? 'var(--warning)' : 'var(--text-muted)';
+}
+
+async function openNegociacaoModal(id) {
+  clearAlert('negociacao-alert');
+  $('negociacao-id').value = id || '';
+  $('modal-negociacao-title').textContent = id ? 'Editar Negociação' : 'Nova Negociação';
+  $('btn-delete-negociacao').style.display = id ? 'inline-block' : 'none';
+  $('btn-gerar-negociacao').style.display = id ? 'inline-block' : 'none';
+
+  ['negociacao-valor', 'negociacao-entrada', 'negociacao-data-aceite', 'negociacao-data-posse',
+   'negociacao-clausulas', 'negociacao-obs', 'negociacao-motivo-status'].forEach(f => $(f).value = '');
+  $('negociacao-status').value = 'rascunho';
+  $('negociacao-forma-pagamento').value = 'a_vista';
+  $('negociacao-comissao').value = '6';
+  $('negociacao-imovel-info').style.display = 'none';
+  $('negociacao-valor-info').textContent = 'Anunciado: —';
+
+  invalidateImoveisCache();
+  invalidateLocadoresCache();
+  invalidateCompradoresCache();
+
+  let selected = null;
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('negociacoes').doc(id).get();
+      if (snap.exists) {
+        const n = snap.data();
+        selected = { imovelId: n.imovelId, vendedorId: n.vendedorId, compradorId: n.compradorId };
+        $('negociacao-status').value = n.status || 'rascunho';
+        $('negociacao-motivo-status').value = n.motivoStatus || '';
+        $('negociacao-valor').value = n.valor ?? '';
+        $('negociacao-forma-pagamento').value = n.formaPagamento || 'a_vista';
+        $('negociacao-comissao').value = n.comissao ?? 6;
+        $('negociacao-entrada').value = n.entrada ?? '';
+        $('negociacao-data-aceite').value = n.dataAceite || '';
+        $('negociacao-data-posse').value = n.dataPosse || '';
+        $('negociacao-clausulas').value = n.clausulas || '';
+        $('negociacao-obs').value = n.obs || '';
+      }
+    } catch (err) {
+      console.error('Erro ao carregar negociação:', err);
+    }
+    $('negociacao-docs-section').style.display = 'block';
+    loadNegociacaoDocs(id);
+  } else {
+    $('negociacao-docs-section').style.display = 'none';
+  }
+  await populateNegociacaoSelects(selected);
+  onNegociacaoImovelChange();
+  $('modal-negociacao').style.display = 'flex';
+}
+
+function closeNegociacaoModal() { $('modal-negociacao').style.display = 'none'; }
+
+async function saveNegociacao() {
+  clearAlert('negociacao-alert');
+  const id = $('negociacao-id').value;
+  const imovelId = $('negociacao-imovel').value;
+  const vendedorId = $('negociacao-vendedor').value;
+  const compradorId = $('negociacao-comprador').value;
+  const valor = parseFloat($('negociacao-valor').value);
+  const status = $('negociacao-status').value;
+
+  if (!imovelId) { showAlert('negociacao-alert', 'Selecione o imóvel.'); return; }
+  if (!vendedorId) { showAlert('negociacao-alert', 'Selecione o vendedor.'); return; }
+  if (!compradorId) { showAlert('negociacao-alert', 'Selecione o comprador.'); return; }
+  if (!valor || valor <= 0) { showAlert('negociacao-alert', 'Valor proposto é obrigatório.'); return; }
+
+  let statusAnterior = null;
+  if (id) {
+    try {
+      const prev = await tenantPath().collection('negociacoes').doc(id).get();
+      if (prev.exists) statusAnterior = prev.data().status;
+    } catch (_) {}
+  }
+
+  const data = {
+    status,
+    motivoStatus: $('negociacao-motivo-status').value.trim() || null,
+    imovelId, vendedorId, compradorId,
+    valor,
+    formaPagamento: $('negociacao-forma-pagamento').value,
+    comissao: parseFloat($('negociacao-comissao').value) || 0,
+    entrada: parseFloat($('negociacao-entrada').value) || null,
+    dataAceite: $('negociacao-data-aceite').value || null,
+    dataPosse: $('negociacao-data-posse').value || null,
+    clausulas: $('negociacao-clausulas').value.trim() || null,
+    obs: $('negociacao-obs').value.trim() || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const btn = $('btn-save-negociacao');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    let negociacaoId = id;
+    if (id) {
+      await tenantPath().collection('negociacoes').doc(id).update(data);
+    } else {
+      data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      data.criadoPor = State.user.uid;
+      const docRef = await tenantPath().collection('negociacoes').add(data);
+      negociacaoId = docRef.id;
+    }
+    await syncImovelStatusFromNegociacao(imovelId, status, statusAnterior);
+    invalidateImoveisCache();
+    if (!id) {
+      btn.disabled = false; btn.textContent = 'Salvar';
+      await openNegociacaoModal(negociacaoId);
+      showAlert('negociacao-alert', 'Negociação criada. Agora você pode anexar documentos.', 'success');
+      loadNegociacoes();
+      return;
+    }
+    closeNegociacaoModal();
+    loadNegociacoes();
+  } catch (err) {
+    console.error('Erro ao salvar negociação:', err);
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
+}
+
+async function syncImovelStatusFromNegociacao(imovelId, statusNovo, statusAnterior) {
+  if (!imovelId) return;
+  const imovelRef = tenantPath().collection('imoveis').doc(imovelId);
+  if (statusNovo === 'fechada') {
+    await imovelRef.update({ status: 'vendido' });
+  } else if ((statusNovo === 'recusada' || statusNovo === 'rascunho') && statusAnterior === 'fechada') {
+    await imovelRef.update({ status: 'disponivel' });
+  }
+}
+
+async function deleteNegociacao() {
+  const id = $('negociacao-id').value;
+  if (!id) return;
+  if (!confirm('Excluir esta negociação?')) return;
+  try {
+    const snap = await tenantPath().collection('negociacoes').doc(id).get();
+    if (snap.exists) {
+      const n = snap.data();
+      if (n.status === 'fechada' && n.imovelId) {
+        await tenantPath().collection('imoveis').doc(n.imovelId).update({ status: 'disponivel' });
+        invalidateImoveisCache();
+      }
+    }
+    const folderRef = storageTenantRef().child(`negociacoes/${id}`);
+    try {
+      const list = await folderRef.listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) {}
+    await tenantPath().collection('negociacoes').doc(id).delete();
+    closeNegociacaoModal();
+    loadNegociacoes();
+  } catch (err) {
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function loadNegociacaoDocs(id) {
+  const container = $('negociacao-docs-list');
+  container.innerHTML = `<p class="empty">Carregando documentos…</p>`;
+  try {
+    const folderRef = storageTenantRef().child(`negociacoes/${id}`);
+    const list = await folderRef.listAll();
+    if (list.items.length === 0) {
+      container.innerHTML = `<p class="empty">Nenhum documento anexado.</p>`;
+      return;
+    }
+    const items = await Promise.all(list.items.map(async (item) => {
+      const meta = await item.getMetadata();
+      const url = await item.getDownloadURL();
+      const ext = (item.name.split('.').pop() || '').toLowerCase();
+      const icon = (ext === 'pdf') ? '📄' : (['jpg','jpeg','png'].includes(ext) ? '🖼' : '📎');
+      const sizeKb = (meta.size / 1024).toFixed(0);
+      const date = new Date(meta.timeCreated).toLocaleDateString('pt-BR');
+      return `
+        <div class="doc-item">
+          <span class="doc-icon">${icon}</span>
+          <span class="doc-name">${item.name}</span>
+          <span class="doc-meta">${sizeKb} KB · ${date}</span>
+          <div class="doc-actions">
+            <a class="btn-icon" href="${url}" target="_blank" title="Abrir">👁</a>
+            <a class="btn-icon" href="${url}" download="${item.name}" title="Baixar">⬇</a>
+            <button class="btn-icon btn-icon-danger" onclick="deleteNegociacaoDoc('${id}','${item.name}')" title="Excluir">🗑</button>
+          </div>
+        </div>
+      `;
+    }));
+    container.innerHTML = items.join('');
+  } catch (err) {
+    container.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
+  }
+}
+
+async function uploadNegociacaoDocs() {
+  const id = $('negociacao-id').value;
+  if (!id) { showAlert('negociacao-alert', 'Salve antes de anexar.'); return; }
+  const input = $('negociacao-doc-input');
+  const files = Array.from(input.files || []);
+  if (files.length === 0) { showAlert('negociacao-alert', 'Selecione ao menos um arquivo.'); return; }
+  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
+  if (tooBig) { showAlert('negociacao-alert', `Arquivo "${tooBig.name}" excede 10MB.`); return; }
+  const folderRef = storageTenantRef().child(`negociacoes/${id}`);
+  try {
+    for (const file of files) {
+      await folderRef.child(file.name).put(file, {
+        contentType: file.type,
+        customMetadata: { uploadedBy: State.user.uid },
+      });
+    }
+    input.value = '';
+    showAlert('negociacao-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    loadNegociacaoDocs(id);
+  } catch (err) {
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  }
+}
+
+async function deleteNegociacaoDoc(id, filename) {
+  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  try {
+    await storageTenantRef().child(`negociacoes/${id}/${filename}`).delete();
+    loadNegociacaoDocs(id);
+  } catch (err) {
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  }
+}
+
+// Gerador de contrato de compra/venda
+async function gerarContratoVenda() {
+  const negociacaoId = $('negociacao-id').value;
+  if (!negociacaoId) { showAlert('negociacao-alert', 'Salve a negociação antes de gerar.'); return; }
+
+  try {
+    const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+    if (!nSnap.exists) { showAlert('negociacao-alert', 'Negociação não encontrada.'); return; }
+    const n = nSnap.data();
+
+    const [vendedorSnap, compradorSnap, imovelSnap, configSnap] = await Promise.all([
+      n.vendedorId  ? tenantPath().collection('locadores').doc(n.vendedorId).get()   : Promise.resolve(null),
+      n.compradorId ? tenantPath().collection('compradores').doc(n.compradorId).get() : Promise.resolve(null),
+      n.imovelId    ? tenantPath().collection('imoveis').doc(n.imovelId).get()      : Promise.resolve(null),
+      tenantPath().collection('config').doc('site').get(),
+    ]);
+
+    const vendedor = (vendedorSnap && vendedorSnap.exists) ? vendedorSnap.data() : {};
+    const comprador = (compradorSnap && compradorSnap.exists) ? compradorSnap.data() : {};
+    const imovel = (imovelSnap && imovelSnap.exists) ? imovelSnap.data() : {};
+    const cfg = configSnap.exists ? configSnap.data() : {};
+    const template = cfg.templateVenda || '(Configure o template em Configurações)';
+
+    const dados = {
+      tenant: { nome: State.tenant.nome, cnpj: State.tenant.cnpj ? maskCNPJ(State.tenant.cnpj) : '—', creci: State.tenant.creci || '—' },
+      vendedor: {
+        nome: vendedor.nome || '—',
+        documento: vendedor.documento ? (vendedor.tipo === 'PJ' ? maskCNPJ(vendedor.documento) : maskCPF(vendedor.documento)) : '—',
+        rg: vendedor.rg || '—',
+        nascimento: vendedor.nascimento ? fmtDataBR(vendedor.nascimento) : '—',
+        estadoCivil: vendedor.estadoCivil || '—',
+        profissao: vendedor.profissao || '—',
+        nacionalidade: vendedor.nacionalidade || '—',
+        email: vendedor.email || '—',
+        telefone: vendedor.telefone ? maskTelefone(vendedor.telefone) : '—',
+        enderecoCompleto: formatEnderecoCompleto(vendedor.endereco),
+      },
+      comprador: {
+        nome: comprador.nome || '—',
+        documento: comprador.documento ? (comprador.tipo === 'PJ' ? maskCNPJ(comprador.documento) : maskCPF(comprador.documento)) : '—',
+        rg: comprador.rg || '—',
+        nascimento: comprador.nascimento ? fmtDataBR(comprador.nascimento) : '—',
+        estadoCivil: comprador.estadoCivil || '—',
+        profissao: comprador.profissao || '—',
+        nacionalidade: comprador.nacionalidade || '—',
+        email: comprador.email || '—',
+        telefone: comprador.telefone ? maskTelefone(comprador.telefone) : '—',
+        enderecoCompleto: formatEnderecoCompleto(comprador.endereco),
+        formaPagamento: FORMA_PAGAMENTO_LABEL[comprador.formaPagamento] || '—',
+      },
+      imovel: {
+        apelido: imovel.apelido || '—',
+        tipo: imovel.tipo || '—',
+        subtipo: imovel.subtipo || '—',
+        matricula: imovel.matricula || '—',
+        iptu: imovel.iptu || '—',
+        areaUtil: imovel.areaUtil ? imovel.areaUtil + ' m²' : '—',
+        areaTotal: imovel.areaTotal ? imovel.areaTotal + ' m²' : '—',
+        enderecoCompleto: formatEnderecoCompleto(imovel.endereco),
+      },
+      negociacao: {
+        valor: fmtBRL(n.valor),
+        formaPagamento: FORMA_PAGAMENTO_LABEL[n.formaPagamento] || '—',
+        comissao: (n.comissao ?? 0) + '%',
+        entrada: fmtBRL(n.entrada),
+        dataAceite: n.dataAceite ? fmtDataBR(n.dataAceite) : '—',
+        dataPosse: n.dataPosse ? fmtDataBR(n.dataPosse) : '—',
+      },
+    };
+
+    const conteudoMerged = mergeTemplate(template, dados);
+    const html = buildContratoHtml('COMPRA E VENDA DE IMÓVEL', dados, conteudoMerged, n.clausulas, vendedor.nome, comprador.nome);
+
+    _contratoHtmlCache = html;
+    $('contrato-preview-content').innerHTML = html;
+    $('modal-contrato-preview').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao gerar contrato de venda:', err);
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
   }
 }
 
@@ -3506,6 +4313,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Máscara — Imóvel
   bindMask('imovel-cep', maskCEP);
+
+  // Máscaras e validação — Comprador
+  bindMask('comprador-documento', (v) => $('comprador-tipo').value === 'PJ' ? maskCNPJ(v) : maskCPF(v));
+  bindMask('comprador-telefone', maskTelefone);
+  bindMask('comprador-cep', maskCEP);
+  $('comprador-documento').addEventListener('input', onCompradorDocumentoInput);
+  $('comprador-documento').addEventListener('blur', onCompradorDocumentoBlur);
 
   // Máscara — Configurações
   bindMask('cfg-telefone', maskTelefone);

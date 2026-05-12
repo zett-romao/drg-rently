@@ -6,7 +6,7 @@
   <title>DRG-Rently — Gestão de Locações</title>
   <link rel="icon" type="image/png" href="logo.png?v=20260511g">
   <link rel="apple-touch-icon" href="logo.png?v=20260511g">
-  <link rel="stylesheet" href="styles.css?v=20260511h">
+  <link rel="stylesheet" href="styles.css?v=20260511i">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -135,6 +135,7 @@
           <div class="nav-group-title">Cadastros</div>
           <a class="nav-link" data-section="locadores"><span class="nav-ico">🏠</span><span>Locadores</span></a>
           <a class="nav-link" data-section="locatarios"><span class="nav-ico">👤</span><span>Locatários</span></a>
+          <a class="nav-link" data-section="compradores"><span class="nav-ico">🛒</span><span>Compradores</span></a>
           <a class="nav-link" data-section="garantias"><span class="nav-ico">🛡</span><span>Garantias</span></a>
           <a class="nav-link" data-section="imoveis"><span class="nav-ico">🏢</span><span>Imóveis</span></a>
         </div>
@@ -142,6 +143,7 @@
         <div class="nav-group">
           <div class="nav-group-title">Operação</div>
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
+          <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
           <a class="nav-link" onclick="openVitrinePublica()"><span class="nav-ico">🌐</span><span>Vitrine Pública</span></a>
         </div>
@@ -220,6 +222,13 @@
               <div class="stat-card-body">
                 <div class="stat-card-value" id="stat-garantias-ativas">—</div>
                 <div class="stat-card-label">Garantias ativas</div>
+              </div>
+            </div>
+            <div class="stat-card" onclick="showSection('negociacoes')" title="Ver negociações em andamento">
+              <div class="stat-card-icon stat-icon-purple">🤝</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-negociacoes">—</div>
+                <div class="stat-card-label">Negociações em andamento</div>
               </div>
             </div>
           </div>
@@ -388,6 +397,69 @@
             <div class="badge">Fase 2</div>
             <h3>Balancetes Mensais</h3>
             <p>Apuração mensal por imóvel, PDF e envio por e-mail ao locador.</p>
+          </div>
+        </section>
+
+        <!-- Compradores -->
+        <section class="section" id="section-compradores" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Compradores</h3>
+                <p class="muted">Interessados em adquirir imóveis sob administração.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openCompradorModal()">+ Novo Comprador</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Nome / Razão Social</th>
+                    <th>Documento</th>
+                    <th>Telefone</th>
+                    <th>Forma de pagamento</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-compradores">
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Negociações -->
+        <section class="section" id="section-negociacoes" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Negociações</h3>
+                <p class="muted">Propostas e contratos de compra e venda.</p>
+              </div>
+              <button class="btn btn-primary" onclick="openNegociacaoModal()">+ Nova Negociação</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Imóvel</th>
+                    <th>Comprador</th>
+                    <th>Valor proposto</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-negociacoes">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -904,6 +976,339 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- MODAL: Comprador (Novo / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-comprador" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-comprador-title">Novo Comprador</h3>
+        <button class="modal-close" onclick="closeCompradorModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="comprador-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="comprador-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Status</label>
+            <select id="comprador-status">
+              <option value="pendente_analise">Pendente de análise</option>
+              <option value="aprovado">Aprovado</option>
+              <option value="reprovado">Reprovado</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo (se reprovado)</label>
+            <input type="text" id="comprador-motivo-status" placeholder="Ex: crédito insuficiente, restrição cadastral">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Dados pessoais</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo</label>
+            <select id="comprador-tipo" onchange="onCompradorTipoChange()">
+              <option value="PF">Pessoa Física</option>
+              <option value="PJ">Pessoa Jurídica</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label id="comprador-nome-label" class="required">Nome completo</label>
+            <input type="text" id="comprador-nome">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label id="comprador-doc-label" class="required">CPF</label>
+            <input type="text" id="comprador-documento" placeholder="000.000.000-00">
+            <span id="comprador-doc-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" id="comprador-rg-group">
+            <label>RG</label>
+            <input type="text" id="comprador-rg">
+          </div>
+          <div class="form-group" id="comprador-nascimento-group">
+            <label>Data de nascimento</label>
+            <input type="date" id="comprador-nascimento">
+          </div>
+        </div>
+
+        <div class="form-row" id="comprador-pf-extra">
+          <div class="form-group">
+            <label>Estado civil</label>
+            <select id="comprador-estado-civil">
+              <option value="">—</option>
+              <option value="solteiro">Solteiro(a)</option>
+              <option value="casado">Casado(a)</option>
+              <option value="divorciado">Divorciado(a)</option>
+              <option value="viuvo">Viúvo(a)</option>
+              <option value="uniao_estavel">União Estável</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Profissão</label>
+            <input type="text" id="comprador-profissao">
+          </div>
+          <div class="form-group">
+            <label>Nacionalidade</label>
+            <input type="text" id="comprador-nacionalidade" value="Brasileira">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Contato</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="comprador-email">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="text" id="comprador-telefone" placeholder="(00) 00000-0000">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Endereço</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>CEP</label>
+            <input type="text" id="comprador-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPComprador()">
+            <span id="comprador-cep-status" class="input-status" style="display:none;"></span>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Logradouro</label>
+            <input type="text" id="comprador-logradouro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Número</label>
+            <input type="text" id="comprador-numero">
+          </div>
+          <div class="form-group">
+            <label>Complemento</label>
+            <input type="text" id="comprador-complemento">
+          </div>
+          <div class="form-group">
+            <label>Bairro</label>
+            <input type="text" id="comprador-bairro">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Cidade</label>
+            <input type="text" id="comprador-cidade">
+          </div>
+          <div class="form-group">
+            <label>UF</label>
+            <input type="text" id="comprador-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Forma de pagamento prevista</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Forma de pagamento</label>
+            <select id="comprador-forma-pagamento" onchange="onCompradorFormaChange()">
+              <option value="a_vista">À vista</option>
+              <option value="financiado">Financiado</option>
+              <option value="fgts">FGTS</option>
+              <option value="consorcio">Consórcio</option>
+              <option value="permuta">Permuta</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Renda mensal (R$)</label>
+            <input type="number" id="comprador-renda" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="form-row" id="comprador-financiado-extra" style="display:none;">
+          <div class="form-group">
+            <label>Banco / Financeira</label>
+            <input type="text" id="comprador-banco-fin" placeholder="Ex: Caixa, Itaú, BB, Santander">
+          </div>
+          <div class="form-group">
+            <label>Valor de entrada (R$)</label>
+            <input type="number" id="comprador-valor-entrada" min="0" step="0.01" placeholder="0,00">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Observações</h4>
+
+        <div class="form-group">
+          <textarea id="comprador-obs" rows="3"></textarea>
+        </div>
+
+        <div id="comprador-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">RG, CPF, comprovante de residência, comprovante de renda, extrato FGTS, pré-aprovação de financiamento, etc.</p>
+
+          <div id="comprador-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="comprador-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadCompradorDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCompradorModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-comprador" onclick="deleteComprador()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" id="btn-save-comprador" onclick="saveComprador()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Negociação (Nova / Editar) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-negociacao" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-negociacao-title">Nova Negociação</h3>
+        <button class="modal-close" onclick="closeNegociacaoModal()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="negociacao-alert" class="alert alert-error" style="display:none;"></div>
+
+        <input type="hidden" id="negociacao-id">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Status</label>
+            <select id="negociacao-status">
+              <option value="rascunho">📝 Rascunho</option>
+              <option value="em_negociacao">💬 Em negociação</option>
+              <option value="aceita">✅ Proposta aceita</option>
+              <option value="fechada">🏆 Fechada (escritura)</option>
+              <option value="recusada">❌ Recusada</option>
+            </select>
+          </div>
+          <div class="form-group" style="grid-column: span 2;">
+            <label>Motivo / observação do status</label>
+            <input type="text" id="negociacao-motivo-status" placeholder="Ex: aguarda análise do banco, comprador desistiu">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Vínculos</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Imóvel</label>
+            <select id="negociacao-imovel" onchange="onNegociacaoImovelChange()">
+              <option value="">Carregando…</option>
+            </select>
+            <span id="negociacao-imovel-info" class="input-status muted" style="display:none;"></span>
+          </div>
+          <div class="form-group">
+            <label class="required">Vendedor (proprietário)</label>
+            <select id="negociacao-vendedor">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: span 2;">
+            <label class="required">Comprador</label>
+            <select id="negociacao-comprador">
+              <option value="">Carregando…</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Termo comercial</h4>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Valor proposto (R$)</label>
+            <input type="number" id="negociacao-valor" min="0" step="0.01" placeholder="0,00">
+            <span class="input-status muted" id="negociacao-valor-info">Anunciado: —</span>
+          </div>
+          <div class="form-group">
+            <label>Forma de pagamento</label>
+            <select id="negociacao-forma-pagamento">
+              <option value="a_vista">À vista</option>
+              <option value="financiado">Financiado</option>
+              <option value="fgts">FGTS</option>
+              <option value="consorcio">Consórcio</option>
+              <option value="permuta">Permuta</option>
+              <option value="parcelado">Parcelado direto</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Comissão da imobiliária (%)</label>
+            <input type="number" id="negociacao-comissao" min="0" max="100" step="0.1" value="6">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor de entrada / sinal (R$)</label>
+            <input type="number" id="negociacao-entrada" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>Data do sinal / aceite</label>
+            <input type="date" id="negociacao-data-aceite">
+          </div>
+          <div class="form-group">
+            <label>Data prevista da posse / escritura</label>
+            <input type="date" id="negociacao-data-posse">
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Cláusulas particulares</h4>
+
+        <div class="form-group">
+          <textarea id="negociacao-clausulas" rows="4" placeholder="Condições específicas da negociação (mobília inclusa, débitos do imóvel, prazos, etc.)"></textarea>
+        </div>
+
+        <h4 class="form-section-title">Observações internas</h4>
+
+        <div class="form-group">
+          <textarea id="negociacao-obs" rows="2" placeholder="Anotações da imobiliária — não vão para o contrato impresso"></textarea>
+        </div>
+
+        <div id="negociacao-docs-section" style="display:none;">
+          <h4 class="form-section-title">Documentos</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Proposta assinada, pré-aprovação bancária, escritura, etc.</p>
+
+          <div id="negociacao-docs-list" class="docs-list">
+            <p class="empty">Carregando documentos…</p>
+          </div>
+
+          <div class="upload-area">
+            <input type="file" id="negociacao-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
+            <button class="btn btn-secondary btn-sm" onclick="uploadNegociacaoDocs()">⬆ Enviar arquivos</button>
+            <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeNegociacaoModal()">Cancelar</button>
+        <button class="btn btn-danger" id="btn-delete-negociacao" onclick="deleteNegociacao()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-gerar-negociacao" onclick="gerarContratoVenda()" style="display:none;">📄 Gerar contrato</button>
+        <button class="btn btn-primary" id="btn-save-negociacao" onclick="saveNegociacao()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Garantia (Novo / Editar) -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-garantia" style="display:none;">
@@ -1223,6 +1628,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <select id="imovel-status">
               <option value="disponivel">🟢 Disponível</option>
               <option value="alugado">🟠 Alugado</option>
+              <option value="vendido">💰 Vendido</option>
               <option value="em_reforma">🟡 Em reforma</option>
               <option value="indisponivel">🔴 Indisponível</option>
             </select>
@@ -1697,6 +2103,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260511h"></script>
+  <script src="app.js?v=20260511i"></script>
 </body>
 </html>
