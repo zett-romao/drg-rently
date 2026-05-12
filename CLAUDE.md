@@ -116,9 +116,21 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
       allow read: if isSuperAdmin();
+      // Admin do tenant pode ler/listar usuários do mesmo tenant
+      allow read: if isSignedIn() && userExists()
+                  && userDoc().role == 'admin'
+                  && resource.data.tenantId == userDoc().tenantId;
+      // Self-create (signup) ou admin criando operador do mesmo tenant
       allow create: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && userExists()
+                    && userDoc().role == 'admin'
+                    && request.resource.data.tenantId == userDoc().tenantId;
       allow update: if isSignedIn() && request.auth.uid == uid;
       allow update: if isSuperAdmin();
+      // Admin pode atualizar (desativar/reativar) usuários do mesmo tenant
+      allow update: if isSignedIn() && userExists()
+                    && userDoc().role == 'admin'
+                    && resource.data.tenantId == userDoc().tenantId;
       allow delete: if isSuperAdmin();
     }
 

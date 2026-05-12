@@ -205,6 +205,13 @@ async function loadProfileAndShow(user) {
     State.userDoc = userSnap.data();
     State.isSuperAdmin = State.userDoc.role === 'super_admin';
 
+    // Conta desativada (operadores desativados pelo admin)
+    if (State.userDoc.ativo === false) {
+      await auth.signOut();
+      showAlert('login-alert', 'Sua conta foi desativada. Contate o administrador da imobiliária.');
+      return;
+    }
+
     if (State.userDoc.tenantId) {
       const tenantSnap = await db.collection('tenants').doc(State.userDoc.tenantId).get();
       if (!tenantSnap.exists) {
@@ -381,6 +388,10 @@ function renderApp() {
 
   $('nav-superadmin').style.display = State.isSuperAdmin ? 'flex' : 'none';
 
+  // Operador não vê Configurações (admin e super_admin veem)
+  const podeVerConfig = State.isSuperAdmin || State.userDoc?.role === 'admin';
+  $('nav-configuracoes').style.display = podeVerConfig ? 'flex' : 'none';
+
   showSection(State.currentSection || 'dashboard');
 }
 
@@ -444,6 +455,7 @@ function showSection(name) {
   }
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
+    loadUsuariosTenant();
   }
 }
 
@@ -5607,6 +5619,180 @@ function copyContratoTexto() {
     document.body.removeChild(ta);
     showAlert('contrato-alert', 'Texto do contrato copiado!', 'success');
   });
+}
+
+// =============================================================
+// USUÁRIOS DO TENANT (operadores) — gerenciamento pelo admin
+// =============================================================
+
+function gerarSenhaAleatoria(len = 10) {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function gerarSenhaUsuario() {
+  $('usuario-senha').value = gerarSenhaAleatoria(10);
+}
+
+async function loadUsuariosTenant() {
+  const tbody = $('tbody-usuarios-tenant');
+  if (!tbody) return;
+  if (!State.tenant) { tbody.innerHTML = `<tr><td colspan="5" class="empty">—</td></tr>`; return; }
+
+  tbody.innerHTML = `<tr><td colspan="5" class="empty">Carregando…</td></tr>`;
+  try {
+    const snap = await db.collection('users').where('tenantId', '==', State.tenant.id).get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">Nenhum usuário cadastrado.</td></tr>`;
+      return;
+    }
+    const rows = snap.docs.map(doc => {
+      const u = doc.data();
+      const isSelf = doc.id === State.user.uid;
+      const ativo = u.ativo !== false;
+      const roleLabel = u.role === 'admin' ? 'Administrador' : 'Operador';
+      const statusBadge = ativo
+        ? '<span class="badge-status ativo">Ativo</span>'
+        : '<span class="badge-status suspenso">Desativado</span>';
+      const toggleLabel = ativo ? 'Desativar' : 'Reativar';
+      const toggleClass = ativo ? 'btn-danger' : 'btn-primary';
+      return `
+        <tr>
+          <td><strong>${u.nome || '—'}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}</td>
+          <td>${u.email || '—'}</td>
+          <td>${roleLabel}</td>
+          <td>${statusBadge}</td>
+          <td>
+            ${isSelf ? '<span class="muted" style="font-size:11px;">—</span>' : `
+              <button class="btn btn-sm ${toggleClass}" onclick="toggleUsuarioAtivo('${doc.id}', ${!ativo})">${toggleLabel}</button>
+            `}
+          </td>
+        </tr>
+      `;
+    });
+    tbody.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao listar usuários:', err);
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
+}
+
+function openUsuarioTenantModal() {
+  clearAlert('usuario-alert');
+  $('usuario-uid').value = '';
+  $('usuario-nome').value = '';
+  $('usuario-email').value = '';
+  $('usuario-role').value = 'operador';
+  $('usuario-senha').value = gerarSenhaAleatoria(10);
+  $('usuario-enviar-email').checked = true;
+  $('modal-usuario-tenant').style.display = 'flex';
+}
+
+function closeUsuarioTenantModal() {
+  $('modal-usuario-tenant').style.display = 'none';
+}
+
+async function saveUsuarioTenant() {
+  clearAlert('usuario-alert');
+
+  const nome = $('usuario-nome').value.trim();
+  const email = $('usuario-email').value.trim().toLowerCase();
+  const role = $('usuario-role').value;
+  const senha = $('usuario-senha').value;
+  const enviarEmail = $('usuario-enviar-email').checked;
+
+  if (!nome) { showAlert('usuario-alert', 'Nome é obrigatório.'); return; }
+  if (!email) { showAlert('usuario-alert', 'E-mail é obrigatório.'); return; }
+  if (!senha || senha.length < 6) { showAlert('usuario-alert', 'Senha deve ter no mínimo 6 caracteres.'); return; }
+
+  const btn = $('btn-save-usuario');
+  btn.disabled = true; btn.textContent = 'Criando…';
+
+  try {
+    const apiKey = firebase.app().options.apiKey;
+    // 1) Cria conta no Firebase Auth via REST (não desloga o admin)
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      let msg = data?.error?.message || 'Erro ao criar conta';
+      if (msg === 'EMAIL_EXISTS') msg = 'Já existe uma conta com este e-mail.';
+      if (msg === 'WEAK_PASSWORD : Password should be at least 6 characters') msg = 'Senha muito fraca (mín 6 caracteres).';
+      throw new Error(msg);
+    }
+    const uid = data.localId;
+
+    // 2) Cria doc no Firestore vinculando ao tenant atual
+    await db.collection('users').doc(uid).set({
+      nome,
+      email,
+      tenantId: State.tenant.id,
+      role,
+      ativo: true,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      criadoPor: State.user.uid,
+    });
+
+    // 3) (Opcional) envia e-mail com a senha via Worker do Resend
+    if (enviarEmail) {
+      try {
+        const cfgSnap = await tenantPath().collection('config').doc('site').get();
+        const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+        if (cfg.workerUrl) {
+          const html = `<html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111;max-width:600px;margin:0 auto;padding:20px;">
+            <h2 style="color:#475569;">Acesso ao DRG-Rently</h2>
+            <p>Olá <strong>${escapeHtml(nome)}</strong>,</p>
+            <p>Você foi adicionado como <strong>${role === 'admin' ? 'administrador' : 'operador'}</strong> da imobiliária <strong>${escapeHtml(State.tenant.nome)}</strong> no sistema DRG-Rently.</p>
+            <p>Seus dados de acesso:</p>
+            <table style="border-collapse:collapse;margin:14px 0;">
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="https://zett-romao.github.io/drg-rently/">https://zett-romao.github.io/drg-rently/</a></td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>E-mail</strong></td><td style="padding:6px 12px;border:1px solid #ccc;">${escapeHtml(email)}</td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Senha inicial</strong></td><td style="padding:6px 12px;border:1px solid #ccc;font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
+            </table>
+            <p style="font-size:12px;color:#666;">Recomendamos que você troque a senha no primeiro acesso pelo botão "Esqueci minha senha".</p>
+            <p style="margin-top:24px;">— ${escapeHtml(State.tenant.nome)}</p>
+          </body></html>`;
+          await fetch(cfg.workerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: cfg.emailFrom || 'onboarding@resend.dev',
+              fromName: State.tenant.nome || 'DRG-Rently',
+              to: email,
+              subject: `Acesso ao DRG-Rently — ${State.tenant.nome}`,
+              html,
+            }),
+          });
+        }
+      } catch (e) { console.warn('Falha ao enviar e-mail (usuário criado mesmo assim):', e); }
+    }
+
+    closeUsuarioTenantModal();
+    showAlert('cfg-alert', `✓ Usuário ${nome} criado. Senha inicial: ${senha}`, 'success');
+    loadUsuariosTenant();
+  } catch (err) {
+    console.error('Erro ao criar usuário:', err);
+    showAlert('usuario-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Criar usuário';
+  }
+}
+
+async function toggleUsuarioAtivo(uid, novoAtivo) {
+  const acao = novoAtivo ? 'reativar' : 'desativar';
+  if (!confirm(`Confirma ${acao} este usuário?`)) return;
+  try {
+    await db.collection('users').doc(uid).update({ ativo: novoAtivo });
+    showAlert('cfg-alert', `Usuário ${novoAtivo ? 'reativado' : 'desativado'}.`, 'success');
+    loadUsuariosTenant();
+  } catch (err) {
+    showAlert('cfg-alert', 'Erro: ' + err.message);
+  }
 }
 
 // =============================================================
