@@ -21,6 +21,30 @@ const firebaseConfig = {
   appId: "PREENCHER"
 };
 
+// =============================================================
+// TELEMETRIA (opcional — Modelo C / self-hosted)
+// =============================================================
+// Por padrão, o DRG-Rently envia metadados não-pessoais à D.R. Global
+// quando o usuário faz login. Isso permite que a equipe de suporte
+// monitore se a instalação está funcionando e ofereça manutenção.
+//
+// Dados enviados (LGPD compliant — não são dados pessoais):
+//   - Nome da empresa (público, sai em NF)
+//   - CNPJ (público)
+//   - Quantidade de imóveis e usuários
+//   - Versão do app
+//   - Project ID do Firebase (não dá acesso a nada)
+//
+// Dados NUNCA enviados:
+//   ❌ Nomes de pessoas, CPF
+//   ❌ Endereços, fotos, documentos
+//   ❌ Valores, contratos, balancetes
+//   ❌ Senhas ou tokens
+//
+// Para DESABILITAR a telemetria, descomente a linha abaixo:
+// window.DISABLE_TELEMETRY = true;
+// =============================================================
+
 if (typeof firebase !== 'undefined' && !firebase.apps.length) {
   firebase.initializeApp(firebaseConfig);
 }

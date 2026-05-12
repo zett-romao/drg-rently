@@ -151,6 +151,14 @@ service cloud.firestore {
       allow create, update, delete: if isSuperAdmin();
     }
 
+    // instalacoesSelfHosted — telemetria do Modelo C (pendrive)
+    // Worker grava via Firebase REST API (bypassa regras do client).
+    // Aqui só liberamos LEITURA pra equipe DRG monitorar.
+    match /instalacoesSelfHosted/{instalacaoId} {
+      allow read: if isDRGTeam();
+      allow write: if false;
+    }
+
     // tenants — leitura pública dos campos públicos (nome, telefone, emailContato)
     // usada pelas páginas públicas; a regra continua restritiva para escrita.
     match /tenants/{tenantId} {

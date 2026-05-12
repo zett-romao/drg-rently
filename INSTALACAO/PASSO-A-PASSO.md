@@ -303,6 +303,37 @@ URL final: `https://drg-rently-gemini.SEU-USUARIO.workers.dev`
 
 URL final: `https://drg-rently-feed.SEU-USUARIO.workers.dev`
 
+### 8.4 Worker Telemetria (opcional — só se você é a D.R. Global)
+
+⚠️ **Apenas a D.R. Global usa este Worker.** Não precisa criar se você é um cliente self-hosted.
+
+Este Worker recebe pings das instalações self-hosted e grava no Firestore central do `drg-rently` (banco da D.R. Global). Permite que a equipe DRG monitore os clientes que rodam em Firebase próprio (Modelo C).
+
+1. Cloudflare → **Create Worker**
+2. Nome: `drg-rently-telemetria`
+3. Quick Edit → apaga tudo → cola conteúdo de `cloudflare-worker-telemetria.js`
+4. Save and Deploy
+5. Settings → Variables and Secrets
+6. Adiciona:
+   - **Variable** (texto): `PROJECT_ID` = `drg-rently` (banco central da DRG)
+   - **Secret**: `FIREBASE_API_KEY` = a apiKey do `drg-rently` (não do cliente!)
+
+URL final: `https://drg-rently-telemetria.zett-romao.workers.dev`
+
+**LGPD — o que a telemetria coleta:**
+- ✅ Nome da empresa cliente (público — sai em NF)
+- ✅ CNPJ (público)
+- ✅ Contadores (qtd imóveis, qtd usuários)
+- ✅ Versão do app
+- ❌ Nunca: nomes de pessoas, CPF, endereços, valores
+
+**Cliente pode desabilitar** adicionando em `firebase-config.js`:
+```js
+window.DISABLE_TELEMETRY = true;
+```
+
+Como cliente self-hosted, **avise sempre** no contrato sobre a telemetria e dê a opção de desabilitar.
+
 ---
 
 ## 9. Configurar e-mail no Resend

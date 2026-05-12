@@ -104,5 +104,13 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update, delete: if false;  // logs são imutáveis
     }
+
+    // ----------- INSTÂNCIAS SELF-HOSTED (Modelo C — telemetria) -----------
+    // Worker grava via Firebase REST API (não passa por regras do client).
+    // Aqui só liberamos LEITURA pra equipe DRG monitorar.
+    match /instalacoesSelfHosted/{instalacaoId} {
+      allow read: if isDRGTeam();
+      allow write: if false;  // só o Worker grava (via REST)
+    }
   }
 }

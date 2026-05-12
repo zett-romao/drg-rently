@@ -353,6 +353,8 @@ async function loadProfileAndShow(user) {
     showScreen('screen-app');
     // Log de login bem-sucedido (não bloqueia o fluxo se falhar)
     logAuditoria('login', 'sessao', user.uid, { email: user.email });
+    // Telemetria pra Modelo C (self-hosted): só dispara se for instância em Firebase de outro projeto
+    enviarTelemetria();
 
   } catch (err) {
     console.error('Erro carregando perfil:', err);
@@ -7298,6 +7300,54 @@ async function logAuditoria(acao, entidade, entidadeId, detalhe = null) {
   }
 }
 
+// =============================================================
+// TELEMETRIA — Modelo C (self-hosted)
+// =============================================================
+// Envia metadados não-pessoais pra o Super Admin da D.R. Global
+// monitorar instalações self-hosted. Só dispara se a instância
+// está rodando em um Firebase DIFERENTE do drg-rently principal.
+//
+// Dados coletados: projectId, tenantId, nome empresa, CNPJ,
+// imoveisCount, usuariosCount, versão do app.
+// NÃO coleta dados pessoais (LGPD ok).
+//
+// Cliente pode desabilitar com:
+//   window.DISABLE_TELEMETRY = true;
+// em firebase-config.js
+// =============================================================
+
+const TELEMETRIA_ENDPOINT = 'https://drg-rently-telemetria.zett-romao.workers.dev';
+const SAAS_PRINCIPAL_PROJECT_ID = 'drg-rently';
+
+async function enviarTelemetria() {
+  if (window.DISABLE_TELEMETRY === true) return;
+  if (!State.tenant) return;
+  try {
+    const projectId = firebase.app().options.projectId;
+    if (projectId === SAAS_PRINCIPAL_PROJECT_ID) return; // SaaS principal já está no painel direto
+    const [imSnap, usSnap] = await Promise.all([
+      tenantPath().collection('imoveis').get().catch(() => ({ size: 0 })),
+      db.collection('users').where('tenantId', '==', State.tenant.id).get().catch(() => ({ size: 0 })),
+    ]);
+    await fetch(TELEMETRIA_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId,
+        tenantId: State.tenant.id,
+        nome: State.tenant.nome || '',
+        cnpj: State.tenant.cnpj || '',
+        imoveisCount: imSnap.size || 0,
+        usuariosCount: usSnap.size || 0,
+        versao: APP_VERSION,
+      }),
+      keepalive: true,
+    });
+  } catch (_) {
+    // Silently fail — telemetria não pode quebrar o app jamais
+  }
+}
+
 const AUDIT_ACAO_LABEL = {
   create: '✚ Criação',
   update: '✎ Atualização',
@@ -7705,7 +7755,81 @@ async function loadEquipeDRG() {
   await Promise.all([
     loadEquipeDRGUsuarios(),
     loadEquipeDRGPerfis(),
+    loadInstalacoesSelfHosted(),
   ]);
+}
+
+// =============================================================
+// Instâncias Self-hosted (Modelo C — telemetria)
+// =============================================================
+
+async function loadInstalacoesSelfHosted() {
+  const tbody = $('tbody-self-hosted');
+  const kpis = $('self-hosted-kpis');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="9" class="empty">Carregando…</td></tr>`;
+  if (kpis) kpis.innerHTML = '';
+
+  try {
+    const snap = await db.collection('instalacoesSelfHosted').get();
+    if (snap.empty) {
+      tbody.innerHTML = `<tr><td colspan="9" class="empty">Nenhuma instalação self-hosted registrada ainda. Quando você vender um pendrive e o cliente fizer login, ele aparecerá aqui automaticamente.</td></tr>`;
+      return;
+    }
+
+    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // KPIs
+    const total = docs.length;
+    const agora = Date.now();
+    const ativos = docs.filter(d => {
+      const last = d.ultimoPing ? new Date(d.ultimoPing.seconds ? d.ultimoPing.seconds * 1000 : d.ultimoPing).getTime() : 0;
+      return (agora - last) < 7 * 24 * 60 * 60 * 1000; // ativo nos últimos 7 dias
+    }).length;
+    const totalImoveis = docs.reduce((acc, d) => acc + (d.imoveisCount || 0), 0);
+    const totalUsuarios = docs.reduce((acc, d) => acc + (d.usuariosCount || 0), 0);
+
+    if (kpis) {
+      kpis.innerHTML = `
+        <div class="stat-card"><div class="stat-card-icon stat-icon-blue">📡</div>
+          <div class="stat-card-body"><div class="stat-card-value">${total}</div><div class="stat-card-label">Instalações</div></div></div>
+        <div class="stat-card"><div class="stat-card-icon stat-icon-green">✅</div>
+          <div class="stat-card-body"><div class="stat-card-value">${ativos}</div><div class="stat-card-label">Ativas (últimos 7d)</div></div></div>
+        <div class="stat-card"><div class="stat-card-icon stat-icon-amber">🏢</div>
+          <div class="stat-card-body"><div class="stat-card-value">${totalImoveis}</div><div class="stat-card-label">Imóveis nas inst.</div></div></div>
+        <div class="stat-card"><div class="stat-card-icon stat-icon-purple">👤</div>
+          <div class="stat-card-body"><div class="stat-card-value">${totalUsuarios}</div><div class="stat-card-label">Usuários nas inst.</div></div></div>
+      `;
+    }
+
+    tbody.innerHTML = docs.map(d => {
+      const last = d.ultimoPing ? new Date(d.ultimoPing.seconds ? d.ultimoPing.seconds * 1000 : d.ultimoPing).getTime() : 0;
+      const first = d.primeiroPing ? new Date(d.primeiroPing.seconds ? d.primeiroPing.seconds * 1000 : d.primeiroPing).getTime() : 0;
+      const diasUltimo = last ? Math.floor((agora - last) / 86400000) : null;
+
+      let status, statusClass;
+      if (diasUltimo == null) { status = '— sem ping'; statusClass = 'suspenso'; }
+      else if (diasUltimo <= 1) { status = '🟢 Online'; statusClass = 'ativo'; }
+      else if (diasUltimo <= 7) { status = '🟡 Recente'; statusClass = ''; }
+      else if (diasUltimo <= 30) { status = '🟠 Inativo ' + diasUltimo + 'd'; statusClass = ''; }
+      else { status = '🔴 Inativo ' + diasUltimo + 'd'; statusClass = 'suspenso'; }
+
+      return `<tr>
+        <td><strong>${escapeHtml(d.nome || '—')}</strong></td>
+        <td style="font-size:11px;">${escapeHtml(d.cnpj || '—')}</td>
+        <td style="font-size:11px; font-family:'Courier New', monospace; color:var(--text-muted);">${escapeHtml(d.projectId || '—')}</td>
+        <td>${d.imoveisCount || 0}</td>
+        <td>${d.usuariosCount || 0}</td>
+        <td style="font-size:11px;">${escapeHtml(d.versaoApp || '—')}</td>
+        <td style="font-size:11px;">${first ? fmtDataBR(new Date(first).toISOString().slice(0,10)) : '—'}</td>
+        <td style="font-size:11px;">${last ? fmtDataBR(new Date(last).toISOString().slice(0,10)) : '—'}</td>
+        <td><span class="badge-status ${statusClass}">${status}</span></td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    console.error('Erro ao listar instalações self-hosted:', err);
+    tbody.innerHTML = `<tr><td colspan="9" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+  }
 }
 
 async function loadEquipeDRGUsuarios() {
