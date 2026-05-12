@@ -1588,6 +1588,75 @@ label.required::after {
   flex-shrink: 0;
 }
 
+/* =============================================================
+   Checkboxes de permissões em modais de Perfil (DRG + tenant)
+   ============================================================= */
+.perfil-grupo {
+  margin-bottom: 16px;
+}
+
+.perfil-grupo:last-child {
+  margin-bottom: 0;
+}
+
+.perfil-grupo-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--primary-dark);
+  padding: 6px 12px;
+  background: var(--primary-light);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.perfil-grupo-itens {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perfil-item-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.perfil-item-checkbox:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  transform: translateX(2px);
+}
+
+.perfil-item-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.perfil-item-checkbox input[type="checkbox"]:checked + span {
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.perfil-item-checkbox:has(input[type="checkbox"]:checked) {
+  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+  border-color: var(--primary);
+  box-shadow: 0 1px 3px rgba(71, 85, 105, 0.08);
+}
+
 @media (max-width: 600px) {
   .portais-grid {
     grid-template-columns: 1fr;

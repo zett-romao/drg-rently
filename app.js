@@ -7465,11 +7465,11 @@ function renderPerfilModulosCheckboxes(selecionados = []) {
     grupos[m.grupo].push(m);
   });
   container.innerHTML = Object.entries(grupos).map(([grupo, mods]) => `
-    <div style="margin-bottom:14px;">
-      <strong style="font-size:12px; text-transform:uppercase; color:var(--primary-dark); letter-spacing:0.5px;">${grupo}</strong>
-      <div style="margin-top:6px; display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:6px;">
+    <div class="perfil-grupo">
+      <div class="perfil-grupo-titulo">${grupo}</div>
+      <div class="perfil-grupo-itens">
         ${mods.map(m => `
-          <label class="toggle-row" style="font-size:13px;">
+          <label class="perfil-item-checkbox">
             <input type="checkbox" data-modulo="${m.id}" ${selecionados.includes(m.id) ? 'checked' : ''}>
             <span>${m.label}</span>
           </label>
@@ -8116,13 +8116,13 @@ function renderDRGPerfilModulosCheckboxes(selecionados = []) {
     grupos[m.grupo].push(m);
   });
   container.innerHTML = Object.keys(grupos).map(g => `
-    <div style="margin-bottom:12px;">
-      <strong style="font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px;">${g}</strong>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:6px; margin-top:6px;">
+    <div class="perfil-grupo">
+      <div class="perfil-grupo-titulo">${g}</div>
+      <div class="perfil-grupo-itens">
         ${grupos[g].map(m => `
-          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px;">
+          <label class="perfil-item-checkbox">
             <input type="checkbox" name="drg-perfil-mod" value="${m.id}" ${selecionados.includes(m.id) ? 'checked' : ''}>
-            ${m.label}
+            <span>${m.label}</span>
           </label>
         `).join('')}
       </div>
