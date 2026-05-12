@@ -125,6 +125,9 @@ export default {
       if (matchSub && request.method === 'GET') {
         return await buscarSubscription(matchSub[1], env, origin);
       }
+      if (matchSub && request.method === 'PUT') {
+        return await atualizarSubscription(matchSub[1], request, env, origin);
+      }
       if (matchSub && request.method === 'DELETE') {
         return await cancelarSubscription(matchSub[1], env, origin);
       }
@@ -133,6 +136,11 @@ export default {
       const matchPayments = path.match(/^\/subscriptions\/([^\/]+)\/payments$/);
       if (matchPayments && request.method === 'GET') {
         return await listarPagamentos(matchPayments[1], env, origin);
+      }
+
+      // ----------- PAYMENTS — cobrança avulsa -----------
+      if (path === '/payments' && request.method === 'POST') {
+        return await criarPagamentoAvulso(request, env, origin);
       }
 
       return jsonResponse({ error: 'Endpoint não encontrado: ' + path }, 404, origin);
@@ -223,6 +231,59 @@ async function cancelarSubscription(subId, env, origin) {
     return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
   }
   return jsonResponse({ success: true, deleted: true }, 200, origin);
+}
+
+async function atualizarSubscription(subId, request, env, origin) {
+  const payload = await request.json();
+  // payload esperado: { value, nextDueDate?, billingType?, description?, updatePendingPayments? }
+  const body = {};
+  if (typeof payload.value === 'number' && payload.value > 0) body.value = payload.value;
+  if (payload.nextDueDate) body.nextDueDate = payload.nextDueDate;
+  if (payload.billingType) body.billingType = payload.billingType;
+  if (payload.description) body.description = payload.description;
+  if (typeof payload.updatePendingPayments === 'boolean') body.updatePendingPayments = payload.updatePendingPayments;
+
+  if (Object.keys(body).length === 0) {
+    return jsonResponse({ error: 'Nenhum campo válido pra atualizar' }, 400, origin);
+  }
+
+  const res = await asaasFetch(`${asaasBase(env)}/subscriptions/${subId}`, env, 'POST', body);
+  // Asaas usa POST pra atualizar (não PUT), mas o cliente pode mandar PUT pro Worker
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, subscription: data }, 200, origin);
+}
+
+// =============================================================
+// COBRANÇA AVULSA (não-recorrente — payment único)
+// =============================================================
+
+async function criarPagamentoAvulso(request, env, origin) {
+  const payload = await request.json();
+  // payload esperado: { customer, value, dueDate, description, billingType, tenantId, externalReference }
+  if (!payload.customer || !payload.value || !payload.dueDate) {
+    return jsonResponse({ error: 'Campos obrigatórios: customer, value, dueDate' }, 400, origin);
+  }
+
+  const body = {
+    customer: payload.customer,
+    billingType: payload.billingType || 'PIX',
+    value: payload.value,
+    dueDate: payload.dueDate, // YYYY-MM-DD
+    description: payload.description || 'Cobrança DRG-Rently',
+    externalReference: payload.tenantId || payload.externalReference,
+    fine: { value: 2 },
+    interest: { value: 1 },
+    discount: payload.discount || undefined,
+    installmentCount: payload.installmentCount || undefined,
+    installmentValue: payload.installmentValue || undefined,
+  };
+  Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+  const res = await asaasFetch(`${asaasBase(env)}/payments`, env, 'POST', body);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, payment: data }, 200, origin);
 }
 
 // =============================================================

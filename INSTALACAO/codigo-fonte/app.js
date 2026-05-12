@@ -9034,7 +9034,13 @@ async function carregarBlocoAsaas(tenantId) {
             <input type="date" id="asaas-sub-data" value="${t.proximoVencimento || ''}">
           </div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="criarSubscriptionAsaas('${tenantId}')">+ Criar assinatura recorrente</button>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" onclick="criarSubscriptionAsaas('${tenantId}')">+ Criar assinatura recorrente</button>
+          <button class="btn btn-secondary btn-sm" onclick="cobrancaAvulsaAsaas('${tenantId}')">➕ Cobrança avulsa única</button>
+        </div>
+        <p class="muted" style="font-size:11px; margin-top:8px;">
+          💡 Use <strong>assinatura recorrente</strong> pra mensalidade fixa. Use <strong>cobrança avulsa</strong> pra setup, consultoria ou serviços únicos.
+        </p>
       `;
       return;
     }
@@ -9055,7 +9061,9 @@ async function carregarBlocoAsaas(tenantId) {
       </p>
       <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
         <button class="btn btn-secondary btn-sm" onclick="atualizarStatusAsaas('${tenantId}')">🔄 Atualizar status</button>
-        <button class="btn btn-secondary btn-sm" onclick="listarPagamentosAsaas('${tenantId}')">📋 Ver pagamentos no Asaas</button>
+        <button class="btn btn-secondary btn-sm" onclick="reajustarSubscriptionAsaas('${tenantId}')">💰 Reajustar valor</button>
+        <button class="btn btn-secondary btn-sm" onclick="cobrancaAvulsaAsaas('${tenantId}')">➕ Cobrança avulsa</button>
+        <button class="btn btn-secondary btn-sm" onclick="listarPagamentosAsaas('${tenantId}')">📋 Ver pagamentos</button>
         <button class="btn btn-danger btn-sm" onclick="cancelarSubscriptionAsaas('${tenantId}')">🗑 Cancelar assinatura</button>
       </div>
     `;
@@ -9094,10 +9102,11 @@ async function criarCustomerAsaas(tenantId) {
       'asaas.customerCreatedAt': firebase.firestore.FieldValue.serverTimestamp(),
     });
     logAuditoria('asaas_customer_create', 'tenant', tenantId, { customerId: result.customer.id });
-    showAlert('tenant-alert', `✅ Cliente Asaas criado: ${result.customer.id}`, 'success');
+    alert(`✅ Cliente Asaas criado!\n\nID: ${result.customer.id}\nNome: ${t.nome}`);
     carregarBlocoAsaas(tenantId);
   } catch (err) {
-    showAlert('tenant-alert', 'Erro: ' + err.message);
+    console.error('Erro ao criar customer Asaas:', err);
+    alert('❌ Erro ao criar cliente Asaas:\n\n' + err.message);
   }
 }
 
@@ -9136,11 +9145,108 @@ async function criarSubscriptionAsaas(tenantId) {
       proximoVencimento: dataVenc,
     });
     logAuditoria('asaas_subscription_create', 'tenant', tenantId, { subscriptionId: result.subscription.id, valor });
-    showAlert('tenant-alert', `✅ Assinatura criada! Cliente receberá ${billingType} todo mês.`, 'success');
+    alert(`✅ Assinatura criada com sucesso!\n\nCliente: ${t.nome}\nValor: ${fmtBRL(valor)}/mês\nMétodo: ${billingType}\nID: ${result.subscription.id}\n\nO cliente vai receber a primeira cobrança em breve.`);
     loadTenantPagamentos(tenantId);
     carregarBlocoAsaas(tenantId);
   } catch (err) {
-    showAlert('tenant-alert', 'Erro: ' + err.message);
+    console.error('Erro ao criar subscription Asaas:', err);
+    alert('❌ Erro ao criar assinatura:\n\n' + err.message);
+  }
+}
+
+// ----- REAJUSTAR valor da subscription -----
+
+async function reajustarSubscriptionAsaas(tenantId) {
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.subscriptionId) {
+      alert('Tenant não tem assinatura Asaas ativa.');
+      return;
+    }
+    const valorAtual = t.asaas.subscriptionValue || t.valorMensalidade || 0;
+    const novoValorStr = prompt(`Reajustar valor da assinatura\n\nValor atual: ${fmtBRL(valorAtual)}\n\nDigite o novo valor mensal (R$):`, valorAtual.toFixed(2));
+    if (!novoValorStr) return;
+    const novoValor = parseFloat(novoValorStr.replace(',', '.'));
+    if (!novoValor || novoValor <= 0) { alert('Valor inválido.'); return; }
+
+    const aplicarPendentes = confirm(`Aplicar também a cobranças JÁ GERADAS mas ainda PENDENTES?\n\nOK = sim (cliente recebe nova cobrança com valor reajustado)\nCancelar = não (só vale a partir do próximo ciclo)`);
+
+    const result = await chamarAsaas('PUT', `/subscriptions/${t.asaas.subscriptionId}`, {
+      value: novoValor,
+      updatePendingPayments: aplicarPendentes,
+    });
+
+    await db.collection('tenants').doc(tenantId).update({
+      'asaas.subscriptionValue': novoValor,
+      valorMensalidade: novoValor,
+    });
+    logAuditoria('asaas_subscription_update', 'tenant', tenantId, { de: valorAtual, para: novoValor, aplicarPendentes });
+    alert(`✅ Valor atualizado!\n\nDe: ${fmtBRL(valorAtual)}\nPara: ${fmtBRL(novoValor)}\n\nPróximas cobranças sairão com novo valor.`);
+    carregarBlocoAsaas(tenantId);
+  } catch (err) {
+    console.error('Erro ao reajustar:', err);
+    alert('❌ Erro ao reajustar:\n\n' + err.message);
+  }
+}
+
+// ----- COBRANÇA AVULSA (não-recorrente) -----
+
+async function cobrancaAvulsaAsaas(tenantId) {
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const t = tSnap.data();
+    if (!t.asaas?.customerId) {
+      alert('Tenant não tem cliente Asaas vinculado. Crie o cliente primeiro.');
+      return;
+    }
+
+    const descricao = prompt('💼 Cobrança avulsa\n\nDescrição (ex: "Setup self-hosted", "Hora consultoria"):', 'Cobrança extra DRG-Rently');
+    if (!descricao) return;
+
+    const valorStr = prompt('Valor (R$):', '500.00');
+    if (!valorStr) return;
+    const valor = parseFloat(valorStr.replace(',', '.'));
+    if (!valor || valor <= 0) { alert('Valor inválido.'); return; }
+
+    const hoje = new Date();
+    const venc = new Date(hoje.getTime() + 5 * 24 * 60 * 60 * 1000); // +5 dias
+    const dataPadrao = venc.toISOString().slice(0, 10);
+    const dataVenc = prompt('Data de vencimento (YYYY-MM-DD):', dataPadrao);
+    if (!dataVenc) return;
+
+    const metodo = prompt('Método (PIX, BOLETO, CREDIT_CARD ou UNDEFINED = cliente escolhe):', 'PIX');
+    if (!metodo) return;
+
+    if (!confirm(`Confirmar cobrança avulsa?\n\nCliente: ${t.nome}\nDescrição: ${descricao}\nValor: ${fmtBRL(valor)}\nVencimento: ${dataVenc}\nMétodo: ${metodo.toUpperCase()}\n\nO cliente vai receber por e-mail.`)) return;
+
+    const result = await chamarAsaas('POST', '/payments', {
+      customer: t.asaas.customerId,
+      value: valor,
+      dueDate: dataVenc,
+      description: descricao,
+      billingType: metodo.toUpperCase(),
+      tenantId,
+    });
+
+    // Registra no histórico local
+    await tenantPath().collection('pagamentos').add({
+      asaasPaymentId: result.payment.id,
+      data: dataVenc,
+      valor,
+      metodo: metodo.toLowerCase(),
+      obs: `📌 Avulso: ${descricao}`,
+      status: result.payment.status,
+      registradoPor: State.user.uid,
+      registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }).catch(() => {});
+
+    logAuditoria('asaas_payment_avulso', 'tenant', tenantId, { paymentId: result.payment.id, valor, descricao });
+    alert(`✅ Cobrança avulsa criada!\n\nValor: ${fmtBRL(valor)}\nVencimento: ${dataVenc}\nID: ${result.payment.id}\n\nO cliente recebeu por e-mail.${result.payment.invoiceUrl ? '\n\nLink da fatura:\n' + result.payment.invoiceUrl : ''}`);
+    loadTenantPagamentos(tenantId);
+  } catch (err) {
+    console.error('Erro ao criar cobrança avulsa:', err);
+    alert('❌ Erro ao criar cobrança avulsa:\n\n' + err.message);
   }
 }
 
@@ -9212,6 +9318,8 @@ window.criarSubscriptionAsaas = criarSubscriptionAsaas;
 window.atualizarStatusAsaas = atualizarStatusAsaas;
 window.listarPagamentosAsaas = listarPagamentosAsaas;
 window.cancelarSubscriptionAsaas = cancelarSubscriptionAsaas;
+window.reajustarSubscriptionAsaas = reajustarSubscriptionAsaas;
+window.cobrancaAvulsaAsaas = cobrancaAvulsaAsaas;
 
 // =============================================================
 // ASSINATURA ELETRÔNICA — Integração ZapSign
