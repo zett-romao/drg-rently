@@ -444,6 +444,20 @@ label.required::after {
   border-color: var(--primary);
 }
 
+.stat-card[draggable="true"] { cursor: grab; }
+.stat-card[draggable="true"]:active { cursor: grabbing; }
+
+.stat-card.dragging {
+  opacity: 0.4;
+  transform: scale(0.96);
+}
+
+.stat-card.drag-over {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.25), var(--shadow-md);
+  transform: scale(1.02);
+}
+
 .stat-card-icon {
   width: 52px;
   height: 52px;

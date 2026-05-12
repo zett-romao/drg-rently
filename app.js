@@ -510,8 +510,117 @@ async function toggleTenantStatus(tenantId, ativo) {
 }
 
 // =============================================================
-// DASHBOARD — contagens das entidades principais
+// DASHBOARD — contagens + drag-and-drop pra reordenar cards
 // =============================================================
+
+let _dndCardEnabled = false;
+
+function enableDashboardDnD() {
+  if (_dndCardEnabled) return;
+  const grid = $('dashboard-grid');
+  if (!grid) return;
+
+  let draggedCard = null;
+  // Distância mínima pra considerar arraste (evita click acidental virar drag)
+  let dragStartedAt = 0;
+
+  grid.querySelectorAll('.stat-card').forEach(card => {
+    card.setAttribute('draggable', 'true');
+
+    card.addEventListener('dragstart', (e) => {
+      draggedCard = card;
+      dragStartedAt = Date.now();
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox precisa de algum data setado
+      try { e.dataTransfer.setData('text/plain', card.dataset.cardId || ''); } catch (_) {}
+    });
+
+    card.addEventListener('dragend', () => {
+      if (draggedCard) draggedCard.classList.remove('dragging');
+      draggedCard = null;
+      grid.querySelectorAll('.stat-card').forEach(c => c.classList.remove('drag-over'));
+    });
+
+    card.addEventListener('dragover', (e) => {
+      if (!draggedCard || draggedCard === card) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      card.classList.add('drag-over');
+    });
+
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over');
+    });
+
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      card.classList.remove('drag-over');
+      if (!draggedCard || draggedCard === card) return;
+
+      // Insere antes ou depois baseado na posição do cursor (horizontal)
+      const rect = card.getBoundingClientRect();
+      const insertBefore = e.clientX < rect.left + rect.width / 2;
+      if (insertBefore) {
+        grid.insertBefore(draggedCard, card);
+      } else {
+        grid.insertBefore(draggedCard, card.nextSibling);
+      }
+      saveDashboardOrder();
+    });
+
+    // Previne click navegar imediatamente após um drag
+    card.addEventListener('click', (e) => {
+      if (Date.now() - dragStartedAt < 250) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
+  });
+
+  _dndCardEnabled = true;
+}
+
+async function saveDashboardOrder() {
+  if (!State.tenant) return;
+  const grid = $('dashboard-grid');
+  if (!grid) return;
+  const order = Array.from(grid.querySelectorAll('.stat-card'))
+    .map(c => c.dataset.cardId)
+    .filter(Boolean);
+  try {
+    await tenantPath().collection('config').doc('site').set({
+      dashboardOrder: order,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } catch (err) {
+    console.error('Erro ao salvar ordem do dashboard:', err);
+  }
+}
+
+async function applyDashboardOrder() {
+  if (!State.tenant) return;
+  try {
+    const snap = await tenantPath().collection('config').doc('site').get();
+    if (!snap.exists) return;
+    const order = (snap.data() || {}).dashboardOrder;
+    if (!Array.isArray(order) || order.length === 0) return;
+
+    const grid = $('dashboard-grid');
+    if (!grid) return;
+    const cards = Array.from(grid.querySelectorAll('.stat-card'));
+    const byId = Object.fromEntries(cards.map(c => [c.dataset.cardId, c]));
+
+    // Cards que estão na ordem salva
+    order.forEach(id => {
+      if (byId[id]) grid.appendChild(byId[id]);
+    });
+    // Cards novos que não estão na ordem salva ficam no final (já estão lá após appendChild dos outros)
+  } catch (err) {
+    console.error('Erro ao aplicar ordem:', err);
+  }
+}
 
 async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
@@ -521,6 +630,10 @@ async function loadDashboard() {
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
+
+  // Reordena cards conforme preferência salva + habilita drag-and-drop
+  await applyDashboardOrder();
+  enableDashboardDnD();
 
   try {
     const hoje = new Date();
