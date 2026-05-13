@@ -2967,6 +2967,7 @@ async function openBalanceteModal(id) {
   let selectedContratoId = null;
   $('btn-gerar-balancete').style.display = id ? 'inline-block' : 'none';
   $('btn-enviar-balancete').style.display = id ? 'inline-block' : 'none';
+  $('btn-enviar-balancete-locatario').style.display = id ? 'inline-block' : 'none';
 
   if (id) {
     try {
@@ -3235,20 +3236,28 @@ function recalcBalancete() {
   const totalDespLocador = sum('despesa_locador');
   const totalDespLocatario = sum('despesa_locatario');
 
+  // Regra de negócio (definida pelo Donizete):
+  // - Despesas lançadas para o locatário (pagas pela imobiliária) ENTRAM como
+  //   receita do locador (porque o locatário pagou esse valor à imobiliária).
+  // - Todos os valores pagos pela imobiliária (locador + locatário) SAEM
+  //   como despesa que desconta do líquido.
+  const receitaTotalLocador = totalEntradas + totalDespLocatario;
+  const despesaTotalLocador = totalDespLocador + totalDespLocatario;
+
   // Taxa adm é calculada sobre o aluguel-base do contrato
   const aluguelBase = parseFloat($('balancete-aluguel-base').value) || 0;
   const taxaPercent = parseFloat($('balancete-taxa-adm').value) || 0;
   const taxaValor = aluguelBase * taxaPercent / 100;
 
-  const liquido = totalEntradas - totalDespLocador - taxaValor;
+  const liquido = receitaTotalLocador - despesaTotalLocador - taxaValor;
 
   $('total-entradas').textContent = fmtBRL(totalEntradas);
   $('total-despesas-locador').textContent = fmtBRL(totalDespLocador);
   $('total-despesas-locatario').textContent = fmtBRL(totalDespLocatario);
   $('balancete-taxa-valor').value = taxaValor.toFixed(2);
 
-  $('resumo-entradas').textContent = fmtBRL(totalEntradas);
-  $('resumo-despesas-locador').textContent = fmtBRL(totalDespLocador);
+  $('resumo-entradas').textContent = fmtBRL(receitaTotalLocador);
+  $('resumo-despesas-locador').textContent = fmtBRL(despesaTotalLocador);
   $('resumo-taxa-adm').textContent = fmtBRL(taxaValor);
   $('resumo-liquido').textContent = fmtBRL(liquido);
 
@@ -3257,8 +3266,8 @@ function recalcBalancete() {
   const apuDes = $('apuracao-despesas');
   const apuTax = $('apuracao-taxa');
   const apuLiq = $('apuracao-liquido');
-  if (apuRec) apuRec.textContent = fmtBRL(totalEntradas);
-  if (apuDes) apuDes.textContent = fmtBRL(totalDespLocador);
+  if (apuRec) apuRec.textContent = fmtBRL(receitaTotalLocador);
+  if (apuDes) apuDes.textContent = fmtBRL(despesaTotalLocador);
   if (apuTax) apuTax.textContent = fmtBRL(taxaValor);
   if (apuLiq) apuLiq.textContent = fmtBRL(liquido);
 }
@@ -3995,10 +4004,13 @@ async function saveBalancete() {
   const totalEntradas = sum('entrada');
   const totalDespLocador = sum('despesa_locador');
   const totalDespLocatario = sum('despesa_locatario');
+  // Regra: despesa do locatário entra como receita E como despesa do locador
+  const receitaTotalLocador = totalEntradas + totalDespLocatario;
+  const despesaTotalLocador = totalDespLocador + totalDespLocatario;
   const aluguelBase = c.aluguel || 0;
   const taxaAdm = parseFloat($('balancete-taxa-adm').value) || 0;
   const taxaAdmValor = aluguelBase * taxaAdm / 100;
-  const liquidoLocador = totalEntradas - totalDespLocador - taxaAdmValor;
+  const liquidoLocador = receitaTotalLocador - despesaTotalLocador - taxaAdmValor;
 
   const data = {
     contratoId,
@@ -4013,6 +4025,8 @@ async function saveBalancete() {
     totalEntradas,
     totalDespesasLocador: totalDespLocador,
     totalDespesasLocatario: totalDespLocatario,
+    receitaTotalLocador,
+    despesaTotalLocador,
     liquidoLocador,
     lancamentos: _balanceteLancamentos.map(l => ({
       id: l.id, bloco: l.bloco, categoria: l.categoria,
@@ -4052,7 +4066,8 @@ async function saveBalancete() {
 
 let _envioBalanceteContexto = null;
 
-async function openEnvioBalancete() {
+async function openEnvioBalancete(destinatario) {
+  destinatario = destinatario || 'locador';
   const id = $('balancete-id').value;
   if (!id) { showAlert('balancete-alert', 'Salve o balancete antes de enviar.'); return; }
   clearAlert('envio-alert');
@@ -4081,34 +4096,76 @@ async function openEnvioBalancete() {
       showAlert('balancete-alert', 'Configure a URL do Worker em Configurações antes de enviar.');
       return;
     }
-    if (!locador.email) {
-      showAlert('balancete-alert', `O locador "${locador.nome || 'sem nome'}" não tem e-mail cadastrado.`);
-      return;
+
+    if (destinatario === 'locatario') {
+      if (!locatario.email) {
+        showAlert('balancete-alert', `O locatário "${locatario.nome || 'sem nome'}" não tem e-mail cadastrado.`);
+        return;
+      }
+      const semDespesasLoc = (b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario').length === 0;
+      if (semDespesasLoc) {
+        showAlert('balancete-alert', 'Não há despesas do locatário neste balancete — nada a enviar.');
+        return;
+      }
+    } else {
+      if (!locador.email) {
+        showAlert('balancete-alert', `O locador "${locador.nome || 'sem nome'}" não tem e-mail cadastrado.`);
+        return;
+      }
     }
 
-    _envioBalanceteContexto = { id, b, contrato, locador, locatario, imovel, cfg };
+    _envioBalanceteContexto = { id, b, contrato, locador, locatario, imovel, cfg, destinatario };
+
+    // Atualiza o título do modal
+    const titulo = $('modal-envio-balancete-titulo');
+    if (titulo) titulo.textContent = destinatario === 'locatario'
+      ? 'Enviar demonstrativo ao locatário'
+      : 'Enviar balancete ao locador';
 
     // Preenche campos do modal
     const mesAno = fmtMesAno(b.mes, b.ano);
-    $('envio-to').value = locador.email;
-    $('envio-bcc').value = '';
-    $('envio-subject').value = `Balancete ${mesAno} — ${imovel.apelido || 'Imóvel'} — ${State.tenant.nome}`;
+    if (destinatario === 'locatario') {
+      $('envio-to').value = locatario.email;
+      $('envio-bcc').value = '';
+      $('envio-subject').value = `Demonstrativo ${mesAno} — ${imovel.apelido || 'Imóvel'} — ${State.tenant.nome}`;
 
-    const dadosMsg = {
-      tenant: { nome: State.tenant.nome },
-      locador: { nome: locador.nome || '' },
-      imovel: { apelido: imovel.apelido || '' },
-      periodo: mesAno,
-    };
-    const mensagemPadrao = cfg.emailTemplate ||
-      `Prezado(a) {{locador.nome}},\n\nSegue em anexo o balancete do mês {{periodo}} referente ao imóvel "{{imovel.apelido}}".\n\nQualquer dúvida ficamos à disposição.\n\nAtenciosamente,\n{{tenant.nome}}`;
-    $('envio-mensagem').value = mergeTemplate(mensagemPadrao, dadosMsg);
+      const dadosMsg = {
+        tenant: { nome: State.tenant.nome },
+        locatario: { nome: locatario.nome || '' },
+        imovel: { apelido: imovel.apelido || '' },
+        periodo: mesAno,
+        totalDespesas: fmtBRL(b.totalDespesasLocatario || 0),
+      };
+      const mensagemPadrao = cfg.emailTemplateLocatario ||
+        `Prezado(a) {{locatario.nome}},\n\nSegue o demonstrativo das despesas do imóvel "{{imovel.apelido}}" pagas pela imobiliária no mês {{periodo}}.\n\nValor total a reembolsar: {{totalDespesas}}.\n\nQualquer dúvida ficamos à disposição.\n\nAtenciosamente,\n{{tenant.nome}}`;
+      $('envio-mensagem').value = mergeTemplate(mensagemPadrao, dadosMsg);
 
-    // Preview HTML
-    const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
-    const rodape = mergeTemplate(cfg.balanceteRodape || '', { tenant: State.tenant });
-    const htmlBalancete = buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, rodape);
-    $('envio-preview').innerHTML = htmlBalancete;
+      // Preview HTML versão locatário
+      const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
+      const rodape = mergeTemplate(cfg.balanceteRodape || '', { tenant: State.tenant });
+      const htmlBalancete = buildBalanceteHtmlLocatario(b, contrato, locatario, imovel, cabecalho, rodape);
+      $('envio-preview').innerHTML = htmlBalancete;
+    } else {
+      $('envio-to').value = locador.email;
+      $('envio-bcc').value = '';
+      $('envio-subject').value = `Balancete ${mesAno} — ${imovel.apelido || 'Imóvel'} — ${State.tenant.nome}`;
+
+      const dadosMsg = {
+        tenant: { nome: State.tenant.nome },
+        locador: { nome: locador.nome || '' },
+        imovel: { apelido: imovel.apelido || '' },
+        periodo: mesAno,
+      };
+      const mensagemPadrao = cfg.emailTemplate ||
+        `Prezado(a) {{locador.nome}},\n\nSegue em anexo o balancete do mês {{periodo}} referente ao imóvel "{{imovel.apelido}}".\n\nQualquer dúvida ficamos à disposição.\n\nAtenciosamente,\n{{tenant.nome}}`;
+      $('envio-mensagem').value = mergeTemplate(mensagemPadrao, dadosMsg);
+
+      // Preview HTML versão locador
+      const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
+      const rodape = mergeTemplate(cfg.balanceteRodape || '', { tenant: State.tenant });
+      const htmlBalancete = buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, rodape);
+      $('envio-preview').innerHTML = htmlBalancete;
+    }
 
     $('modal-envio-balancete').style.display = 'flex';
   } catch (err) {
@@ -4197,10 +4254,30 @@ function buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabeca
       </tbody>
     </table>
 
+    ${(b.totalDespesasLocatario || 0) > 0 ? `
+    <h3 style="margin:24px 0 8px;color:#b91c1c;font-size:14px;">⬇ DESPESAS DO LOCATÁRIO (pagas pela imobiliária)</h3>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f0f0f0;">
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Categoria</th>
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Descrição</th>
+        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;">Valor</th>
+      </tr></thead>
+      <tbody>
+        ${rowsBloco('despesa_locatario')}
+        <tr style="background:#f9f9f9;font-weight:bold;border-top:2px solid #000;">
+          <td colspan="2" style="padding:8px;">Total despesas do locatário</td>
+          <td style="padding:8px;text-align:right;">${fmtBRL(b.totalDespesasLocatario)}</td>
+        </tr>
+      </tbody>
+    </table>
+    ` : ''}
+
     <div style="border:2px solid #000;padding:14px 18px;margin:24px 0;background:#fafafa;">
       <table style="width:100%;font-size:13px;">
         <tr><td style="padding:4px 0;">Total de entradas</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalEntradas)}</td></tr>
-        <tr><td style="padding:4px 0;">(−) Despesas do locador</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalDespesasLocador)}</td></tr>
+        ${(b.totalDespesasLocatario || 0) > 0 ? `<tr><td style="padding:4px 0;">(+) Despesas do locatário (recebidas via imobiliária)</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalDespesasLocatario)}</td></tr>` : ''}
+        <tr><td style="padding:4px 0;">(−) Despesas do locador (pagas pela imobiliária)</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalDespesasLocador)}</td></tr>
+        ${(b.totalDespesasLocatario || 0) > 0 ? `<tr><td style="padding:4px 0;">(−) Despesas do locatário (pagas pela imobiliária)</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.totalDespesasLocatario)}</td></tr>` : ''}
         <tr><td style="padding:4px 0;">(−) Taxa de administração (${b.taxaAdm}% sobre ${fmtBRL(b.aluguelBase)})</td><td style="text-align:right;font-weight:bold;">${fmtBRL(b.taxaAdmValor)}</td></tr>
         <tr style="border-top:2px solid #000;"><td style="padding:10px 0;font-size:15px;font-weight:bold;">LÍQUIDO A REPASSAR AO LOCADOR</td><td style="text-align:right;padding:10px 0;font-size:18px;font-weight:bold;color:#15803d;">${fmtBRL(b.liquidoLocador)}</td></tr>
       </table>
@@ -4216,9 +4293,158 @@ function buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabeca
 </body></html>`;
 }
 
+// ----- Versão "para o locatário" do balancete -----
+// Mostra APENAS as despesas do locatário pagas pela imobiliária.
+// Omite dados do locador e mantém os dados da imobiliária.
+
+function buildBalanceteHtmlLocatario(b, contrato, locatario, imovel, cabecalho, rodape) {
+  const tenant = State.tenant || {};
+  const mesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const periodoTxt = `${mesNomes[b.mes - 1]} de ${b.ano}`;
+
+  const rowsLocatario = () => {
+    const linhas = (b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario');
+    if (linhas.length === 0) {
+      return '<tr><td colspan="3" style="text-align:center; color:#888;">— nenhuma despesa do locatário neste período —</td></tr>';
+    }
+    return linhas.map(l => `
+      <tr>
+        <td>${escapeHtml(LANC_CATEGORIA_LABEL[l.categoria] || l.categoria || '—')}</td>
+        <td>${escapeHtml(l.descricao || '—')}</td>
+        <td class="valor">${fmtBRL(l.valor)}</td>
+      </tr>
+    `).join('');
+  };
+
+  const anexos = (b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario' && l.comprovanteNome);
+
+  return `
+    <div class="contrato-header">
+      <h1>DEMONSTRATIVO DE DESPESAS — ${escapeHtml(periodoTxt)}</h1>
+      <p class="contrato-empresa">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+      ${tenant.cnpj ? `<p class="contrato-empresa-sub">CNPJ ${escapeHtml(maskCNPJ(tenant.cnpj))}${tenant.creci ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}</p>` : ''}
+    </div>
+
+    ${cabecalho ? `<div class="contrato-conteudo">${textToHtml(cabecalho)}</div>` : ''}
+
+    <div class="balancete-info-grid">
+      <span class="lbl">Locatário:</span>    <span>${escapeHtml(locatario.nome || '—')} — ${locatario.documento ? escapeHtml(locatario.tipo === 'PJ' ? maskCNPJ(locatario.documento) : maskCPF(locatario.documento)) : '—'}</span>
+      <span class="lbl">Imóvel:</span>       <span>${escapeHtml(imovel.apelido || '—')}</span>
+      <span class="lbl">Endereço:</span>     <span>${escapeHtml(formatEnderecoCompleto(imovel.endereco))}</span>
+      <span class="lbl">Contrato:</span>     <span>${contrato.prazoMeses ? contrato.prazoMeses + ' meses' : '—'} · Início ${contrato.inicio ? fmtDataBR(contrato.inicio) : '—'} · Vencimento dia ${contrato.diaVencimento ?? '—'}</span>
+    </div>
+
+    <table class="balancete-table">
+      <caption>Despesas do imóvel pagas pela imobiliária no período</caption>
+      <thead><tr><th>Categoria</th><th>Descrição</th><th class="valor">Valor</th></tr></thead>
+      <tbody>
+        ${rowsLocatario()}
+        <tr class="total-row">
+          <td colspan="2">Total a ser reembolsado pelo locatário</td>
+          <td class="valor">${fmtBRL(b.totalDespesasLocatario || 0)}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    ${anexos.length > 0 ? `
+      <div class="balancete-anexos">
+        <strong>Comprovantes anexados:</strong>
+        <ul>${anexos.map(a => `<li>${escapeHtml(LANC_CATEGORIA_LABEL[a.categoria] || a.categoria)} — ${escapeHtml(a.descricao || '—')} — ${escapeHtml(a.comprovanteNome)}</li>`).join('')}</ul>
+      </div>
+    ` : ''}
+
+    ${rodape ? `<div class="contrato-conteudo" style="margin-top:30px;">${textToHtml(rodape)}</div>` : ''}
+
+    <div class="contrato-rodape">
+      <p style="margin-top:30px;">${escapeHtml(imovel.endereco?.cidade || '—')}, ${fmtDataExtenso()}.</p>
+      <div class="contrato-assinaturas">
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(tenant.nome || 'DRG-Rently')}</strong><br>
+          <span>Imobiliária</span>
+        </div>
+        <div class="assinatura">
+          <div class="assinatura-linha"></div>
+          <strong>${escapeHtml(locatario.nome || '—')}</strong><br>
+          <span>Locatário (ciência)</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildBalanceteEmailHtmlLocatario(b, contrato, locatario, imovel, cabecalho, mensagem) {
+  const tenant = State.tenant || {};
+  const mesNomes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const periodoTxt = `${mesNomes[b.mes - 1]} de ${b.ano}`;
+
+  const rowsLocatario = () => {
+    const linhas = (b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario');
+    if (linhas.length === 0) return `<tr><td colspan="3" style="text-align:center;color:#888;padding:8px;">—</td></tr>`;
+    return linhas.map(l => `
+      <tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;">${escapeHtml(LANC_CATEGORIA_LABEL[l.categoria] || l.categoria || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;">${escapeHtml(l.descricao || '')}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #ddd;font-size:13px;text-align:right;white-space:nowrap;">${fmtBRL(l.valor)}</td>
+      </tr>
+    `).join('');
+  };
+
+  const mensagemHtml = textToHtml(mensagem || '');
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Demonstrativo de despesas</title></head>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;color:#111;">
+  <div style="max-width:680px;margin:0 auto;background:white;padding:30px;">
+
+    <div style="text-align:center;border-bottom:2px solid #475569;padding-bottom:14px;margin-bottom:20px;">
+      <h1 style="margin:0;color:#334155;font-size:20px;">DEMONSTRATIVO DE DESPESAS</h1>
+      <p style="margin:4px 0 0;color:#666;font-size:14px;">${escapeHtml(periodoTxt)}</p>
+      <p style="margin:8px 0 0;font-weight:bold;color:#475569;">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+    </div>
+
+    <div style="margin-bottom:20px;font-size:14px;color:#333;">
+      ${mensagemHtml}
+    </div>
+
+    ${cabecalho ? `<div style="margin-bottom:18px;font-size:13px;color:#444;padding:12px;background:#f8fafc;border-left:3px solid #475569;">${textToHtml(cabecalho)}</div>` : ''}
+
+    <table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:13px;">
+      <tr><td style="padding:3px 0;color:#666;width:120px;">Locatário:</td><td style="padding:3px 0;">${escapeHtml(locatario.nome || '—')}</td></tr>
+      <tr><td style="padding:3px 0;color:#666;">Imóvel:</td><td style="padding:3px 0;">${escapeHtml(imovel.apelido || '—')}</td></tr>
+      <tr><td style="padding:3px 0;color:#666;">Endereço:</td><td style="padding:3px 0;">${escapeHtml(formatEnderecoCompleto(imovel.endereco))}</td></tr>
+    </table>
+
+    <h3 style="margin:24px 0 8px;color:#b91c1c;font-size:14px;">Despesas pagas pela imobiliária no período</h3>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f0f0f0;">
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Categoria</th>
+        <th style="padding:8px;text-align:left;font-size:11px;text-transform:uppercase;">Descrição</th>
+        <th style="padding:8px;text-align:right;font-size:11px;text-transform:uppercase;">Valor</th>
+      </tr></thead>
+      <tbody>
+        ${rowsLocatario()}
+      </tbody>
+    </table>
+
+    <div style="border:2px solid #000;padding:14px 18px;margin:24px 0;background:#fafafa;">
+      <table style="width:100%;font-size:13px;">
+        <tr style="border-top:2px solid #000;"><td style="padding:10px 0;font-size:15px;font-weight:bold;">TOTAL A REEMBOLSAR</td><td style="text-align:right;padding:10px 0;font-size:18px;font-weight:bold;color:#b91c1c;">${fmtBRL(b.totalDespesasLocatario || 0)}</td></tr>
+      </table>
+    </div>
+
+    <p style="margin-top:30px;font-size:11px;color:#888;text-align:center;border-top:1px solid #ddd;padding-top:14px;">
+      Enviado por ${escapeHtml(tenant.nome || 'DRG-Rently')} via DRG-Rently<br>
+      ${tenant.cnpj ? 'CNPJ ' + escapeHtml(maskCNPJ(tenant.cnpj)) : ''}${tenant.creci ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}
+    </p>
+  </div>
+</body></html>`;
+}
+
 async function sendBalanceteEmail() {
   if (!_envioBalanceteContexto) return;
-  const { id, b, contrato, locador, locatario, imovel, cfg } = _envioBalanceteContexto;
+  const { id, b, contrato, locador, locatario, imovel, cfg, destinatario } = _envioBalanceteContexto;
 
   const to = $('envio-to').value.trim();
   const bcc = $('envio-bcc').value.trim();
@@ -4229,7 +4455,9 @@ async function sendBalanceteEmail() {
   if (!subject) { showAlert('envio-alert', 'Assunto é obrigatório.'); return; }
 
   const cabecalho = mergeTemplate(cfg.balanceteCabecalho || '', { tenant: State.tenant });
-  const html = buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabecalho, mensagem);
+  const html = destinatario === 'locatario'
+    ? buildBalanceteEmailHtmlLocatario(b, contrato, locatario, imovel, cabecalho, mensagem)
+    : buildBalanceteEmailHtml(b, contrato, locador, locatario, imovel, cabecalho, mensagem);
 
   const btn = $('btn-confirmar-envio');
   btn.disabled = true; btn.textContent = 'Enviando…';
@@ -4255,19 +4483,28 @@ async function sendBalanceteEmail() {
       throw new Error(errMsg);
     }
 
-    // Marca balancete como enviado
-    await tenantPath().collection('balancetes').doc(id).update({
+    // Marca balancete como enviado.
+    // - locador: muda status do balancete para "enviado" (fluxo principal)
+    // - locatario: só registra envio adicional, não altera status
+    const updatePayload = destinatario === 'locatario' ? {
+      emailLocatarioEnviadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      emailLocatarioEnviadoPara: to,
+      emailLocatarioEnviadoBcc: bcc || null,
+    } : {
       status: 'enviado',
       emailEnviadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       emailEnviadoPara: to,
       emailEnviadoBcc: bcc || null,
-    });
+    };
+    await tenantPath().collection('balancetes').doc(id).update(updatePayload);
 
-    logAuditoria('send_email', 'balancete', id, { to, mes: b.mes, ano: b.ano });
+    logAuditoria('send_email', 'balancete', id, { to, destinatario: destinatario || 'locador', mes: b.mes, ano: b.ano });
     closeEnvioBalancete();
     showAlert('balancete-alert', `✓ E-mail enviado para ${to}!`, 'success');
-    $('balancete-status').value = 'enviado';
-    aplicarStatusBalancete();
+    if (destinatario !== 'locatario') {
+      $('balancete-status').value = 'enviado';
+      aplicarStatusBalancete();
+    }
     loadBalancetes();
   } catch (err) {
     console.error('Erro ao enviar e-mail:', err);
@@ -4385,7 +4622,7 @@ function buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, 
 
     ${(b.lancamentos || []).filter(l => l.bloco === 'despesa_locatario').length > 0 ? `
     <table class="balancete-table">
-      <caption>⬇ Despesas do locatário (pagas pela imobiliária — informativo)</caption>
+      <caption>⬇ Despesas do locatário (pagas pela imobiliária — descontadas do repasse)</caption>
       <thead><tr><th>Categoria</th><th>Descrição</th><th class="valor">Valor</th><th>Comp.</th></tr></thead>
       <tbody>
         ${rowsBloco('despesa_locatario')}
@@ -4396,7 +4633,9 @@ function buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, 
 
     <div class="balancete-resumo-print">
       <div class="linha"><span>Total de entradas</span><strong>${fmtBRL(b.totalEntradas)}</strong></div>
-      <div class="linha"><span>(−) Despesas do locador</span><strong>${fmtBRL(b.totalDespesasLocador)}</strong></div>
+      ${(b.totalDespesasLocatario || 0) > 0 ? `<div class="linha"><span>(+) Despesas do locatário (recebidas via imobiliária)</span><strong>${fmtBRL(b.totalDespesasLocatario)}</strong></div>` : ''}
+      <div class="linha"><span>(−) Despesas do locador (pagas pela imobiliária)</span><strong>${fmtBRL(b.totalDespesasLocador)}</strong></div>
+      ${(b.totalDespesasLocatario || 0) > 0 ? `<div class="linha"><span>(−) Despesas do locatário (pagas pela imobiliária)</span><strong>${fmtBRL(b.totalDespesasLocatario)}</strong></div>` : ''}
       <div class="linha"><span>(−) Taxa de administração (${b.taxaAdm}% sobre ${fmtBRL(b.aluguelBase)})</span><strong>${fmtBRL(b.taxaAdmValor)}</strong></div>
       <div class="linha final"><span>LÍQUIDO A REPASSAR AO LOCADOR</span><strong>${fmtBRL(b.liquidoLocador)}</strong></div>
     </div>

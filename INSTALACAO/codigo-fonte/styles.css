@@ -1425,7 +1425,7 @@ label.required::after {
 
 .contrato-preview table.balancete-table td.valor,
 .contrato-preview table.balancete-table th.valor {
-  text-align: right;
+  text-align: left;
   white-space: nowrap;
 }
 
