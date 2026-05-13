@@ -1358,7 +1358,7 @@ async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis', 'stat-imoveis-venda',
                'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
-               'stat-balancetes-mes'];
+               'stat-balancetes-mes', 'stat-contratos-atrasados'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
@@ -1403,6 +1403,16 @@ async function loadDashboard() {
     $('stat-garantias-ativas').textContent = garantiasAtivas;
     $('stat-negociacoes').textContent = negociacoesAndamento;
     $('stat-balancetes-mes').textContent = balancetesMesSnap.size;
+
+    // Contagem de contratos atrasados (não bloqueia o resto do dashboard se falhar)
+    try {
+      const atrasados = await detectarContratosAtrasados();
+      const el = $('stat-contratos-atrasados');
+      if (el) el.textContent = atrasados.length;
+    } catch (_) {
+      const el = $('stat-contratos-atrasados');
+      if (el) el.textContent = '—';
+    }
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
@@ -6965,6 +6975,7 @@ async function openContratoModal(id) {
   $('contrato-reajuste-indice').value = 'ipca';
   $('contrato-reajuste-periodicidade').value = 'anual';
   $('contrato-primeiro-aluguel-escritorio').checked = false;
+  $('contrato-inadimplente').checked = false;
   $('contrato-imovel-info').style.display = 'none';
   $('contrato-locatario-info').style.display = 'none';
   $('contrato-multa-info').textContent = 'Sugerido: 3× o aluguel';
@@ -7000,6 +7011,7 @@ async function openContratoModal(id) {
         $('contrato-reajuste-indice').value = c.reajusteIndice || 'ipca';
         $('contrato-reajuste-periodicidade').value = c.reajustePeriodicidade || 'anual';
         $('contrato-primeiro-aluguel-escritorio').checked = !!c.primeiroAluguelEscritorio;
+        $('contrato-inadimplente').checked = !!c.inadimplente;
         $('contrato-clausulas').value = c.clausulas || '';
         $('contrato-obs').value = c.obs || '';
       }
@@ -7092,6 +7104,7 @@ async function saveContrato() {
     reajusteIndice: $('contrato-reajuste-indice').value,
     reajustePeriodicidade: $('contrato-reajuste-periodicidade').value,
     primeiroAluguelEscritorio: $('contrato-primeiro-aluguel-escritorio').checked,
+    inadimplente: $('contrato-inadimplente').checked,
     clausulas: $('contrato-clausulas').value.trim() || null,
     obs: $('contrato-obs').value.trim() || null,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -11863,6 +11876,121 @@ async function elabSalvarContrato() {
   } catch (err) {
     console.error('Erro ao salvar contrato do wizard:', err);
     showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+// =============================================================================
+// DETECÇÃO DE CONTRATOS ATRASADOS
+// =============================================================================
+// Regra: contrato com status='vigente' é considerado atrasado se:
+// - Flag `inadimplente: true` no doc do contrato (override manual), OU
+// - Não há balancete do mês anterior com lançamento de aluguel (entrada/aluguel).
+// Usamos mês -1 como referência porque o mês atual pode ainda estar em curso
+// (o aluguel pode ainda não ter sido lançado).
+// =============================================================================
+
+async function detectarContratosAtrasados() {
+  if (!State.tenant) return [];
+
+  const hoje = new Date();
+  // Mês de referência = mês anterior ao atual
+  let mesRef = hoje.getMonth(); // já é 0-based; getMonth+1 seria atual, então sem +1 = anterior
+  let anoRef = hoje.getFullYear();
+  if (mesRef === 0) { mesRef = 12; anoRef -= 1; } else { /* mesRef já está em 1-12 do anterior */ }
+
+  const [contratosSnap, balancetesSnap, locatariosSnap, imoveisSnap] = await Promise.all([
+    tenantPath().collection('contratos').where('status', '==', 'vigente').get(),
+    tenantPath().collection('balancetes').where('mes', '==', mesRef).where('ano', '==', anoRef).get(),
+    ensureLocatariosCache(),
+    ensureImoveisCache(),
+  ]);
+
+  const locMap = Object.fromEntries((locatariosSnap || []).map(l => [l.id, l]));
+  const imMap = Object.fromEntries((imoveisSnap || []).map(i => [i.id, i]));
+
+  // Mapa contratoId → balancete com aluguel lançado
+  const balanceteOk = new Set();
+  balancetesSnap.docs.forEach(b => {
+    const d = b.data();
+    const temAluguel = (d.lancamentos || []).some(l => l.bloco === 'entrada' && l.categoria === 'aluguel');
+    if (temAluguel && d.contratoId) balanceteOk.add(d.contratoId);
+  });
+
+  const atrasados = [];
+  contratosSnap.docs.forEach(doc => {
+    const c = doc.data();
+    let motivo = null;
+    if (c.inadimplente) motivo = 'Marcado manualmente como inadimplente';
+    else if (!balanceteOk.has(doc.id)) motivo = `Sem aluguel lançado no balancete de ${String(mesRef).padStart(2, '0')}/${anoRef}`;
+    if (motivo) {
+      atrasados.push({
+        id: doc.id,
+        numero: c.numero || '—',
+        contrato: c,
+        locatario: locMap[c.locatarioId] || { nome: '(locatário apagado)' },
+        imovel: imMap[c.imovelId] || { apelido: '(imóvel apagado)' },
+        aluguel: c.aluguel || 0,
+        motivo,
+      });
+    }
+  });
+
+  // Ordena por número do contrato
+  atrasados.sort((a, b) => (a.numeroSequencial || 0) - (b.numeroSequencial || 0));
+  return atrasados;
+}
+
+async function abrirContratosAtrasados() {
+  if (!State.tenant) { alert('Selecione um tenant.'); return; }
+  $('atrasados-loading').style.display = 'block';
+  $('atrasados-vazio').style.display = 'none';
+  $('atrasados-table-wrap').style.display = 'none';
+  $('modal-atrasados').style.display = 'flex';
+
+  try {
+    const lista = await detectarContratosAtrasados();
+    $('atrasados-loading').style.display = 'none';
+
+    if (lista.length === 0) {
+      $('atrasados-vazio').style.display = 'block';
+      return;
+    }
+
+    const tbody = $('tbody-atrasados');
+    tbody.innerHTML = lista.map(a => `
+      <tr style="cursor:pointer;" onclick="abrirContratoAtrasado('${a.id}')">
+        <td><strong>${a.numero}</strong></td>
+        <td>${escapeHtml(a.locatario.nome || '—')}${a.locatario.documento ? `<br><span class="muted" style="font-size:11px;">${escapeHtml(formataCPFCNPJ(a.locatario.documento))}</span>` : ''}</td>
+        <td>${escapeHtml(a.imovel.apelido || '—')}</td>
+        <td>${fmtBRL(a.aluguel)}</td>
+        <td><span style="font-size:12px;color:#b91c1c;">${escapeHtml(a.motivo)}</span></td>
+        <td>
+          <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); abrirContratoAtrasado('${a.id}', true)">💰 Calcular cobrança</button>
+        </td>
+      </tr>
+    `).join('');
+    $('atrasados-table-wrap').style.display = 'block';
+  } catch (err) {
+    console.error('Erro ao listar atrasados:', err);
+    $('atrasados-loading').style.display = 'none';
+    $('tbody-atrasados').innerHTML = `<tr><td colspan="6" style="color:var(--danger); text-align:center;">Erro: ${err.message}</td></tr>`;
+    $('atrasados-table-wrap').style.display = 'block';
+  }
+}
+
+function fecharContratosAtrasados() {
+  $('modal-atrasados').style.display = 'none';
+}
+
+async function abrirContratoAtrasado(contratoId, abrirCalculoDireto) {
+  fecharContratosAtrasados();
+  showSection('contratos');
+  if (typeof openContratoModal === 'function') {
+    await openContratoModal(contratoId);
+    if (abrirCalculoDireto) {
+      // Pequeno timeout pra garantir que o modal abriu
+      setTimeout(() => abrirCobrancaDebito(), 200);
+    }
   }
 }
 

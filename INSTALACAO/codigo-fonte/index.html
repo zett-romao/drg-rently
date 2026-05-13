@@ -245,6 +245,13 @@
             💡 Arraste os cards para reordenar conforme sua preferência. A ordem é salva automaticamente.
           </p>
           <div class="dashboard-grid" id="dashboard-grid">
+            <div class="stat-card" data-card-id="contratos-atrasados" onclick="abrirContratosAtrasados()" title="Ver contratos com aluguel em atraso" style="cursor:pointer;">
+              <div class="stat-card-icon" style="background:#fff5f5; color:#b91c1c;">🚨</div>
+              <div class="stat-card-body">
+                <div class="stat-card-value" id="stat-contratos-atrasados" style="color:#b91c1c;">—</div>
+                <div class="stat-card-label">Contratos atrasados</div>
+              </div>
+            </div>
             <div class="stat-card" data-card-id="locadores" onclick="showSection('locadores')" title="Ver locadores">
               <div class="stat-card-icon stat-icon-blue">🏠</div>
               <div class="stat-card-body">
@@ -3573,6 +3580,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </label>
         </div>
 
+        <div class="form-group" style="margin-top: 6px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input type="checkbox" id="contrato-inadimplente" style="width:auto;">
+            🚨 Marcar como inadimplente (sobrescreve detecção automática por balancete)
+          </label>
+        </div>
+
         <h4 class="form-section-title">Cláusulas extras</h4>
 
         <div class="form-group">
@@ -3742,6 +3756,45 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- ============================================ -->
+  <!-- MODAL: Lista de contratos atrasados -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-atrasados" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🚨 Contratos atrasados</h3>
+        <button class="modal-close" onclick="fecharContratosAtrasados()">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:13px; margin-bottom:14px;">
+          Contratos vigentes que não tiveram aluguel lançado no balancete do mês atual,
+          OU que estão marcados manualmente como inadimplentes. Clique em qualquer linha
+          para abrir o contrato e calcular o débito atualizado.
+        </p>
+        <div id="atrasados-loading" style="text-align:center; padding:20px; color:#666;">⏳ Buscando…</div>
+        <div id="atrasados-vazio" style="display:none; text-align:center; padding:30px; color:#16a34a; font-size:14px;">✅ Nenhum contrato em atraso. Tudo em dia!</div>
+        <div class="table-wrap" id="atrasados-table-wrap" style="display:none;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Nº</th>
+                <th>Locatário</th>
+                <th>Imóvel</th>
+                <th>Aluguel</th>
+                <th>Motivo</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-atrasados"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="fecharContratosAtrasados()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============================================ -->
   <!-- MODAL: Cálculo de débito atualizado (cobrança em atraso) -->
   <!-- ============================================ -->
@@ -3937,6 +3990,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513q"></script>
+  <script src="app.js?v=20260513r"></script>
 </body>
 </html>
