@@ -31,6 +31,9 @@
 
   <!-- html2pdf.js: usado pra converter contrato HTML em PDF (ZapSign integration) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" defer></script>
+
+  <!-- mammoth.js: usado pra extrair texto/HTML de arquivos .docx (importação de contrato via IA) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js" defer></script>
 </head>
 <body>
 
@@ -441,14 +444,17 @@
                 <h3>Contratos</h3>
                 <p class="muted">Vínculo locador + locatário + imóvel + garantia.</p>
               </div>
-              <button class="btn btn-primary" onclick="openContratoModal()">+ Novo Contrato</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary" onclick="importarContratoPorIA('locacao')" title="Importar contrato (PDF, Word ou imagem) e preencher tudo automaticamente">🤖 Importar contrato</button>
+                <button class="btn btn-primary" onclick="openContratoModal()">+ Novo Contrato</button>
+              </div>
             </div>
 
             <div class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
-                    <th>#</th>
+                    <th>Nº</th>
                     <th>Imóvel</th>
                     <th>Locatário</th>
                     <th>Período</th>
@@ -561,14 +567,17 @@
                 <h3>Negociações</h3>
                 <p class="muted">Propostas e contratos de compra e venda.</p>
               </div>
-              <button class="btn btn-primary" onclick="openNegociacaoModal()">+ Nova Negociação</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-secondary" onclick="importarContratoPorIA('venda')" title="Importar contrato de venda (PDF, Word ou imagem) e preencher tudo automaticamente">🤖 Importar contrato</button>
+                <button class="btn btn-primary" onclick="openNegociacaoModal()">+ Nova Negociação</button>
+              </div>
             </div>
 
             <div class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
-                    <th>#</th>
+                    <th>Nº</th>
                     <th>Imóvel</th>
                     <th>Comprador</th>
                     <th>Valor proposto</th>
@@ -3535,6 +3544,83 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- MODAL: Importar contrato via IA -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-importar-contrato" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🤖 Importar contrato</h3>
+        <button class="modal-close" onclick="fecharImportarContrato()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="importar-contrato-alert" class="alert alert-error" style="display:none;"></div>
+
+        <!-- ETAPA 1: Upload do arquivo -->
+        <div id="importar-etapa-upload">
+          <p class="muted" style="font-size:13px; margin-bottom:14px;">
+            Selecione o contrato (PDF, Word ou imagem). A IA vai extrair locador, locatário, imóvel, valores e prazos automaticamente. Você revisa e confirma antes de gravar.
+          </p>
+          <div class="form-group">
+            <label>Arquivo do contrato</label>
+            <input type="file" id="importar-contrato-file" accept=".pdf,.jpg,.jpeg,.png,.webp,.docx" />
+            <small class="muted">PDF nativo ou escaneado, Word (.docx) ou imagem (JPG/PNG). Até 15 MB.</small>
+          </div>
+          <div id="importar-contrato-progress" style="display:none; padding:16px; background:#fff8e1; border-radius:8px; margin-top:12px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="spinner"></div>
+              <div>
+                <strong id="importar-progress-titulo">🤖 Lendo o contrato…</strong>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;" id="importar-progress-subtitulo">Pode levar 15-40 segundos para PDFs longos.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ETAPA 2: Revisão (3 abas) -->
+        <div id="importar-etapa-revisao" style="display:none;">
+          <div id="importar-banner-confianca" style="display:none; padding:10px 14px; border-radius:8px; margin-bottom:14px; font-size:13px;"></div>
+
+          <div class="tabs" style="border-bottom:1px solid var(--border); margin-bottom:16px;">
+            <button class="tab-btn active" data-tab="partes" onclick="trocarTabImportar('partes')">① Partes</button>
+            <button class="tab-btn" data-tab="imovel" onclick="trocarTabImportar('imovel')">② Imóvel</button>
+            <button class="tab-btn" data-tab="contrato" onclick="trocarTabImportar('contrato')">③ Contrato</button>
+          </div>
+
+          <div id="importar-tab-partes" class="importar-tab-content">
+            <div id="importar-cards-partes"></div>
+          </div>
+          <div id="importar-tab-imovel" class="importar-tab-content" style="display:none;">
+            <div id="importar-card-imovel"></div>
+          </div>
+          <div id="importar-tab-contrato" class="importar-tab-content" style="display:none;">
+            <div id="importar-card-contrato"></div>
+          </div>
+
+          <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <button class="btn btn-secondary" onclick="fecharImportarContrato()">Cancelar</button>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary" id="btn-importar-voltar" onclick="navegarTabImportar(-1)" style="display:none;">← Voltar</button>
+              <button class="btn btn-secondary" id="btn-importar-proximo" onclick="navegarTabImportar(1)">Próximo →</button>
+              <button class="btn btn-primary" id="btn-importar-salvar" onclick="salvarContratoImportado()" style="display:none;">💾 Salvar tudo</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ETAPA 3: Sucesso -->
+        <div id="importar-etapa-sucesso" style="display:none; text-align:center; padding:30px 10px;">
+          <div style="font-size:56px;">✅</div>
+          <h3 style="margin:12px 0 4px;">Contrato importado!</h3>
+          <p class="muted" id="importar-sucesso-resumo" style="margin-bottom:18px;"></p>
+          <div style="display:flex; justify-content:center; gap:8px;">
+            <button class="btn btn-secondary" onclick="fecharImportarContrato()">Fechar</button>
+            <button class="btn btn-primary" id="btn-importar-abrir-contrato" onclick="abrirContratoImportado()">Abrir contrato</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Envio para ZapSign -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-zapsign" style="display:none;">
@@ -3604,6 +3690,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513k"></script>
+  <script src="app.js?v=20260513l"></script>
 </body>
 </html>

@@ -113,6 +113,174 @@ Se NENHUM documento financeiro for identificado, retorne {"comprovantes": [], "o
 
 NÃO inclua explicações fora do JSON.`;
 
+// Prompt CONTRATO (v1 — usado quando body.modo === 'contrato'):
+// Extrai dados de contratos imobiliários (locação ou venda) para preencher o app.
+// Detecta múltiplos locadores/locatários/fiadores (coautoria).
+const PROMPT_CONTRATO = `Você é um assistente especialista em contratos imobiliários brasileiros.
+
+Analise o documento enviado (PDF, imagem, ou texto/HTML de DOCX). Detecte se é um contrato de LOCAÇÃO, VENDA (compra e venda) ou OUTRO. Extraia TODOS os dados das partes, do imóvel, dos valores, prazos, garantias e comissões.
+
+REGRAS CRÍTICAS:
+- NUNCA invente dados. Se um campo não estiver explícito no contrato, retorne null.
+- Datas SEMPRE no formato "YYYY-MM-DD".
+- CPF/CNPJ: retorne em "documento" SÓ DÍGITOS (sem pontos/hífens/barras). Em "documento_formatado" retorne com formatação visual.
+- Valores monetários: número decimal com ponto (ex: 2500.00, 450000.50). Nunca string com "R$".
+- Telefones: só dígitos com DDD (11 dígitos celular, 10 fixos).
+- CEP: só dígitos (8 dígitos).
+- UF: 2 letras maiúsculas (SP, RJ, MG...).
+- Quando houver MAIS DE UM locador, locatário, fiador, comprador ou vendedor (cônjuges, coproprietários), retorne todos no array.
+- Cada bloco tem "confidence_score" 0-1 e "campos_duvidosos" (array de nomes de campos com baixa confiança).
+
+Responda APENAS com JSON VÁLIDO, sem markdown:
+
+{
+  "tipo_operacao": "locacao" | "venda" | "outro",
+  "confidence_global": <0 a 1>,
+
+  "locadores": [
+    {
+      "tipo_pessoa": "PF" | "PJ",
+      "nome": <string>,
+      "documento": <só dígitos do CPF/CNPJ>,
+      "documento_formatado": <CPF/CNPJ com pontos/hífens>,
+      "rg": <string ou null>,
+      "nascimento": <"YYYY-MM-DD" ou null>,
+      "estado_civil": "solteiro" | "casado" | "divorciado" | "viuvo" | "uniao_estavel" | null,
+      "profissao": <string ou null>,
+      "nacionalidade": <string ou null — default "brasileiro(a)">,
+      "email": <string ou null>,
+      "telefone": <só dígitos ou null>,
+      "endereco": {
+        "cep": <8 dígitos ou null>,
+        "logradouro": <string ou null>,
+        "numero": <string ou null>,
+        "complemento": <string ou null>,
+        "bairro": <string ou null>,
+        "cidade": <string ou null>,
+        "uf": <2 letras ou null>
+      },
+      "confidence_score": <0 a 1>,
+      "campos_duvidosos": []
+    }
+  ],
+
+  "locatarios": [ /* mesma estrutura de locador (só se tipo_operacao = locacao) */ ],
+
+  "vendedores": [ /* mesma estrutura de locador (só se tipo_operacao = venda) */ ],
+
+  "compradores": [
+    {
+      /* mesma estrutura base, mais: */
+      "forma_pagamento": "a_vista" | "financiamento" | "permuta" | "misto" | null,
+      "renda": <número ou null>,
+      "banco_financeira": <string ou null>,
+      "valor_entrada": <número ou null>
+    }
+  ],
+
+  "imovel": {
+    "apelido_sugerido": <string curta tipo "Apto 302 Ed. Solar">,
+    "tipo": "apartamento" | "casa" | "comercial" | "terreno" | "rural" | "outro" | null,
+    "finalidade": "locacao" | "venda" | "ambos" | null,
+    "endereco": { "cep": ..., "logradouro": ..., "numero": ..., "complemento": ..., "bairro": ..., "cidade": ..., "uf": ... },
+    "area_util": <número em m² ou null>,
+    "area_total": <número em m² ou null>,
+    "andar": <string ou null>,
+    "quartos": <int ou null>,
+    "banheiros": <int ou null>,
+    "vagas": <int ou null>,
+    "mobiliado": "sim" | "nao" | "parcialmente" | null,
+    "matricula": <string ou null — nº da matrícula no cartório>,
+    "iptu": <string ou null — inscrição imobiliária>,
+    "valor_mercado": <número ou null>,
+    "aluguel_sugerido": <número ou null — só se locacao>,
+    "valor_venda": <número ou null — só se venda>,
+    "confidence_score": <0 a 1>,
+    "campos_duvidosos": []
+  },
+
+  "contrato_locacao": {
+    "prazo_meses": <int — ex: 12, 24, 30>,
+    "inicio": <"YYYY-MM-DD">,
+    "fim": <"YYYY-MM-DD" ou null — calculável se prazo + início>,
+    "aluguel": <número decimal>,
+    "dia_vencimento": <int 1-31>,
+    "multa_rescisoria": <número ou null — geralmente 3x aluguel>,
+    "taxa_adm": <número % ou null — geralmente 10>,
+    "reajuste_indice": "IGPM" | "IPCA" | "INCC" | "INPC" | null,
+    "reajuste_periodicidade": "anual" | "semestral" | null,
+    "clausulas_relevantes": <string com resumo de cláusulas importantes ou null>,
+    "confidence_score": <0 a 1>,
+    "campos_duvidosos": []
+  },
+
+  "contrato_venda": {
+    "valor": <número decimal — valor total da venda>,
+    "forma_pagamento": "a_vista" | "financiamento" | "permuta" | "misto" | null,
+    "entrada": <número ou null>,
+    "data_aceite": <"YYYY-MM-DD" ou null>,
+    "data_posse": <"YYYY-MM-DD" ou null>,
+    "clausulas_relevantes": <string ou null>,
+    "confidence_score": <0 a 1>,
+    "campos_duvidosos": []
+  },
+
+  "garantia": {
+    "tipo": "fiador" | "caucao" | "seguro_fianca" | "nenhuma",
+    "fiador": {
+      "nome": ..., "cpf": <só dígitos>, "rg": ..., "nascimento": ...,
+      "profissao": ..., "estado_civil": ...,
+      "email": ..., "telefone": ...,
+      "endereco": { ... },
+      "renda": <número ou null>,
+      "bens": <string ou null>,
+      "conjuge_nome": <string ou null>,
+      "conjuge_cpf": <só dígitos ou null>
+    },
+    "caucao": {
+      "modalidade": "dinheiro" | "imovel" | "titulo" | null,
+      "data": <"YYYY-MM-DD" ou null>,
+      "valor": <número ou null>,
+      "banco": ..., "agencia": ..., "conta": ...,
+      "bem_descricao": <string ou null>
+    },
+    "seguro": {
+      "seguradora": ..., "apolice": ...,
+      "vigencia_inicio": ..., "vigencia_fim": ...,
+      "cobertura": <número ou null>,
+      "premio": <número ou null>,
+      "forma_pagamento": ..., "parcelas": <int ou null>
+    },
+    "confidence_score": <0 a 1>,
+    "campos_duvidosos": []
+  },
+
+  "comissao": {
+    "percentual": <número % ou null>,
+    "valor_estimado": <número ou null>,
+    "responsavel_pagamento": "comprador" | "vendedor" | "locador" | "locatario" | "ambos" | null,
+    "confidence_score": <0 a 1>,
+    "campos_duvidosos": []
+  },
+
+  "observacoes": <string ou null — anote ambiguidades, conflitos entre seções do contrato, cláusulas atípicas>
+}
+
+REGRAS por tipo_operacao:
+- "locacao": preencher locadores, locatarios, imovel, contrato_locacao, garantia, comissao. Deixar vendedores=[], compradores=[], contrato_venda=null.
+- "venda": preencher vendedores, compradores, imovel, contrato_venda, comissao. Deixar locadores=[], locatarios=[], contrato_locacao=null, garantia.tipo="nenhuma".
+- "outro": retornar o que conseguir, mas confidence_global baixa.
+
+NÃO inclua explicações fora do JSON. Resposta apenas JSON puro.`;
+
+// Limites de tamanho por modo (em bytes).
+// Contratos costumam ser PDFs longos (até 15 páginas); demais documentos cabem em 4 MB.
+const LIMITES_POR_MODO = {
+  contrato: 15 * 1024 * 1024,
+  multi: 8 * 1024 * 1024,
+  default: 4 * 1024 * 1024,
+};
+
 function corsHeaders(origin) {
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
@@ -155,7 +323,7 @@ export default {
       });
     }
 
-    const { fileBase64, mimeType, prompt, modo } = payload;
+    const { fileBase64, mimeType, prompt, modo, tipoOperacaoHint } = payload;
     if (!fileBase64 || !mimeType) {
       return new Response(JSON.stringify({ error: 'Faltam campos: fileBase64, mimeType' }), {
         status: 400,
@@ -163,10 +331,11 @@ export default {
       });
     }
 
-    const maxBytes = 4 * 1024 * 1024;
+    const maxBytes = LIMITES_POR_MODO[modo] || LIMITES_POR_MODO.default;
     const sizeBytes = (fileBase64.length * 3) / 4;
     if (sizeBytes > maxBytes) {
-      return new Response(JSON.stringify({ error: 'Arquivo excede 4MB' }), {
+      const mb = (maxBytes / 1024 / 1024).toFixed(0);
+      return new Response(JSON.stringify({ error: `Arquivo excede ${mb}MB para o modo "${modo || 'default'}"` }), {
         status: 413,
         headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });
@@ -174,9 +343,24 @@ export default {
 
     // Escolhe o prompt:
     // - prompt customizado vindo do cliente → usa ele
-    // - modo === 'multi' → usa PROMPT_MULTI (novo formato, com array de comprovantes)
+    // - modo === 'contrato' → PROMPT_CONTRATO (extrai locador/locatário/imóvel/etc.)
+    // - modo === 'multi' → PROMPT_MULTI (comprovantes, array)
     // - default → PROMPT_BOLETO (legado, 1 boleto por vez)
-    const promptFinal = prompt || (modo === 'multi' ? PROMPT_MULTI : PROMPT_BOLETO);
+    let promptFinal;
+    if (prompt) {
+      promptFinal = prompt;
+    } else if (modo === 'contrato') {
+      promptFinal = PROMPT_CONTRATO;
+      // Dica opcional do contexto da UI (botão clicado em Contratos ou Negociações).
+      // O Gemini ainda pode sobrescrever se detectar outro tipo no conteúdo.
+      if (tipoOperacaoHint === 'locacao' || tipoOperacaoHint === 'venda') {
+        promptFinal += `\n\nCONTEXTO: o operador clicou em "Importar contrato" na seção de ${tipoOperacaoHint === 'locacao' ? 'Contratos (locação)' : 'Negociações (venda)'}. Use isso como dica se houver ambiguidade, mas confie no conteúdo do contrato se ele indicar claramente outro tipo.`;
+      }
+    } else if (modo === 'multi') {
+      promptFinal = PROMPT_MULTI;
+    } else {
+      promptFinal = PROMPT_BOLETO;
+    }
 
     const requestBody = {
       contents: [{
@@ -189,6 +373,7 @@ export default {
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.1,
+        maxOutputTokens: modo === 'contrato' ? 8192 : 4096,
       },
     };
 

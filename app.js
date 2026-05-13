@@ -4880,7 +4880,7 @@ async function loadNegociacoes() {
       const status = n.status || 'rascunho';
       return `
         <tr>
-          <td>${i + 1}</td>
+          <td><strong>${n.numero || '—'}</strong></td>
           <td><strong>${imMap[n.imovelId] || '⚠ imóvel apagado'}</strong></td>
           <td>${compMap[n.compradorId] || '⚠ comprador apagado'}</td>
           <td>${fmtBRL(n.valor)}</td>
@@ -5037,11 +5037,14 @@ async function saveNegociacao() {
       await tenantPath().collection('negociacoes').doc(id).update(data);
       logAuditoria('update', 'negociacao', id, { status: data.status, valor: data.valor });
     } else {
+      const seq = await proximoNumeroSequencial('negociacoes');
+      data.numero = seq.numero;
+      data.numeroSequencial = seq.numeroSequencial;
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('negociacoes').add(data);
       negociacaoId = docRef.id;
-      logAuditoria('create', 'negociacao', negociacaoId, { status: data.status, valor: data.valor });
+      logAuditoria('create', 'negociacao', negociacaoId, { numero: data.numero, status: data.status, valor: data.valor });
     }
     await syncImovelStatusFromNegociacao(imovelId, status, statusAnterior);
     invalidateImoveisCache();
@@ -6589,7 +6592,7 @@ async function loadContratos() {
       const periodo = (c.inicio && c.fim) ? `${fmtDataBR(c.inicio)} → ${fmtDataBR(c.fim)}` : '—';
       return `
         <tr>
-          <td>${i + 1}</td>
+          <td><strong>${c.numero || '—'}</strong></td>
           <td><strong>${imovelLabel}</strong></td>
           <td>${locatarioLabel}</td>
           <td>${periodo}</td>
@@ -6779,6 +6782,29 @@ function closeContratoModal() {
   $('modal-contrato').style.display = 'none';
 }
 
+// =============================================================
+// Numeração sequencial automática por tipo (contratos / negociacoes).
+// Usa transaction Firestore — atomic mesmo com usuários concorrentes.
+// Contador vive em tenants/{tenantId}/contadores/{tipo}.valor.
+// Retorna { numero: "00001", numeroSequencial: 1 }.
+// =============================================================
+async function proximoNumeroSequencial(tipo) {
+  const counterRef = tenantPath().collection('contadores').doc(tipo);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(counterRef);
+    const atual = snap.exists ? (snap.data().valor || 0) : 0;
+    const proximo = atual + 1;
+    tx.set(counterRef, {
+      valor: proximo,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return {
+      numero: String(proximo).padStart(5, '0'),
+      numeroSequencial: proximo,
+    };
+  });
+}
+
 async function saveContrato() {
   clearAlert('contrato-alert');
 
@@ -6838,11 +6864,14 @@ async function saveContrato() {
       await tenantPath().collection('contratos').doc(id).update(data);
       logAuditoria('update', 'contrato', id, { status: data.status, aluguel: data.aluguel });
     } else {
+      const seq = await proximoNumeroSequencial('contratos');
+      data.numero = seq.numero;
+      data.numeroSequencial = seq.numeroSequencial;
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('contratos').add(data);
       contratoId = docRef.id;
-      logAuditoria('create', 'contrato', contratoId, { status: data.status, aluguel: data.aluguel });
+      logAuditoria('create', 'contrato', contratoId, { numero: data.numero, status: data.status, aluguel: data.aluguel });
     }
 
     // Sincroniza status do imóvel
@@ -9211,14 +9240,21 @@ async function cobrancaAvulsaAsaas(tenantId) {
 
     const hoje = new Date();
     const venc = new Date(hoje.getTime() + 5 * 24 * 60 * 60 * 1000); // +5 dias
-    const dataPadrao = venc.toISOString().slice(0, 10);
-    const dataVenc = prompt('Data de vencimento (YYYY-MM-DD):', dataPadrao);
-    if (!dataVenc) return;
+    const dataPadraoISO = venc.toISOString().slice(0, 10);
+    const dataVencBR = prompt('Data de vencimento (DD/MM/AAAA):', fmtDataBR(dataPadraoISO));
+    if (!dataVencBR) return;
+    const mBR = dataVencBR.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!mBR) { alert('Data inválida. Use o formato DD/MM/AAAA.'); return; }
+    const dataVenc = `${mBR[3]}-${mBR[2]}-${mBR[1]}`;
+    const dataCheck = new Date(dataVenc + 'T00:00:00');
+    if (isNaN(dataCheck.getTime()) || dataCheck.toISOString().slice(0,10) !== dataVenc) {
+      alert('Data inválida.'); return;
+    }
 
     const metodo = prompt('Método (PIX, BOLETO, CREDIT_CARD ou UNDEFINED = cliente escolhe):', 'PIX');
     if (!metodo) return;
 
-    if (!confirm(`Confirmar cobrança avulsa?\n\nCliente: ${t.nome}\nDescrição: ${descricao}\nValor: ${fmtBRL(valor)}\nVencimento: ${dataVenc}\nMétodo: ${metodo.toUpperCase()}\n\nO cliente vai receber por e-mail.`)) return;
+    if (!confirm(`Confirmar cobrança avulsa?\n\nCliente: ${t.nome}\nDescrição: ${descricao}\nValor: ${fmtBRL(valor)}\nVencimento: ${fmtDataBR(dataVenc)}\nMétodo: ${metodo.toUpperCase()}\n\nO cliente vai receber por e-mail.`)) return;
 
     const result = await chamarAsaas('POST', '/payments', {
       customer: t.asaas.customerId,
@@ -9242,7 +9278,7 @@ async function cobrancaAvulsaAsaas(tenantId) {
     }).catch(() => {});
 
     logAuditoria('asaas_payment_avulso', 'tenant', tenantId, { paymentId: result.payment.id, valor, descricao });
-    alert(`✅ Cobrança avulsa criada!\n\nValor: ${fmtBRL(valor)}\nVencimento: ${dataVenc}\nID: ${result.payment.id}\n\nO cliente recebeu por e-mail.${result.payment.invoiceUrl ? '\n\nLink da fatura:\n' + result.payment.invoiceUrl : ''}`);
+    alert(`✅ Cobrança avulsa criada!\n\nValor: ${fmtBRL(valor)}\nVencimento: ${fmtDataBR(dataVenc)}\nID: ${result.payment.id}\n\nO cliente recebeu por e-mail.${result.payment.invoiceUrl ? '\n\nLink da fatura:\n' + result.payment.invoiceUrl : ''}`);
     loadTenantPagamentos(tenantId);
   } catch (err) {
     console.error('Erro ao criar cobrança avulsa:', err);
@@ -9901,3 +9937,1026 @@ document.addEventListener('DOMContentLoaded', () => {
   // Máscara — Configurações
   bindMask('cfg-telefone', maskTelefone);
 });
+
+// =============================================================================
+// IMPORTAÇÃO DE CONTRATO VIA IA (Gemini)
+// =============================================================================
+// Fluxo: usuário escolhe arquivo (PDF/DOCX/imagem) → mammoth.js (se DOCX) →
+// Worker Gemini (modo "contrato") → detecção de duplicatas → modal de revisão
+// → batch atômico gravando locadores/locatários/imóvel/contrato no Firestore.
+// =============================================================================
+
+let _importContrato = null;
+
+async function importarContratoPorIA(tipoHint) {
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      alert('Configure a URL do Worker Gemini em Configurações antes de usar a importação por IA.');
+      return;
+    }
+  } catch (err) {
+    alert('Erro ao verificar configuração: ' + err.message);
+    return;
+  }
+
+  _importContrato = {
+    tipoHint: tipoHint || 'locacao',
+    arquivo: null,
+    dadosIA: null,
+    resolucoes: null,
+    abaAtual: 'partes',
+    contratoCriadoId: null,
+    contratoCriadoTipo: null,
+  };
+
+  $('importar-contrato-file').value = '';
+  $('importar-etapa-upload').style.display = 'block';
+  $('importar-etapa-revisao').style.display = 'none';
+  $('importar-etapa-sucesso').style.display = 'none';
+  $('importar-contrato-progress').style.display = 'none';
+  $('importar-contrato-alert').style.display = 'none';
+
+  $('importar-contrato-file').onchange = (e) => {
+    const file = e.target.files?.[0];
+    if (file) processarArquivoContrato(file);
+  };
+
+  $('modal-importar-contrato').style.display = 'flex';
+}
+
+function fecharImportarContrato() {
+  if (_importContrato && _importContrato.dadosIA && !_importContrato.contratoCriadoId) {
+    if (!confirm('Descartar os dados extraídos? O contrato NÃO será salvo.')) return;
+  }
+  $('modal-importar-contrato').style.display = 'none';
+  _importContrato = null;
+}
+
+async function processarArquivoContrato(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const isDocx = ext === 'docx';
+  const isDoc = ext === 'doc';
+
+  if (isDoc) {
+    importarContratoErro('Arquivos .doc antigos não são suportados. Salve como .docx ou PDF no Word.');
+    return;
+  }
+
+  const maxBytes = 15 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    importarContratoErro(`Arquivo excede ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`);
+    return;
+  }
+
+  _importContrato.arquivo = file;
+  $('importar-contrato-progress').style.display = 'block';
+  $('importar-contrato-alert').style.display = 'none';
+  $('importar-progress-titulo').textContent = isDocx ? '📄 Extraindo texto do Word…' : '🤖 Lendo o contrato com IA…';
+  $('importar-progress-subtitulo').textContent = 'Pode levar 15-40 segundos para PDFs longos.';
+
+  try {
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) throw new Error('URL do Worker Gemini não configurada.');
+
+    let fileBase64;
+    let mimeType;
+
+    if (isDocx) {
+      if (typeof mammoth === 'undefined') {
+        throw new Error('Biblioteca mammoth.js não carregou. Recarregue a página (F5).');
+      }
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.convertToHtml({ arrayBuffer });
+      const html = result.value || '';
+      if (!html.trim()) throw new Error('Não foi possível extrair texto deste DOCX.');
+      fileBase64 = btoa(unescape(encodeURIComponent(html)));
+      mimeType = 'text/html';
+      $('importar-progress-titulo').textContent = '🤖 Lendo o contrato com IA…';
+    } else {
+      fileBase64 = await fileToBase64(file);
+      mimeType = file.type || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
+    }
+
+    const res = await fetch(cfg.workerGeminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileBase64,
+        mimeType,
+        modo: 'contrato',
+        tipoOperacaoHint: _importContrato.tipoHint,
+      }),
+    });
+
+    if (!res.ok) {
+      let errMsg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    const result = await res.json();
+    if (!result.success || !result.data) throw new Error('Resposta inválida do Worker.');
+
+    const dados = result.data;
+
+    if (dados.tipo_operacao === 'outro') {
+      importarContratoErro('Não identificamos um contrato de locação ou venda neste arquivo. Verifique se enviou o documento correto.');
+      return;
+    }
+
+    // Hint vs detectado — confirmar com usuário se conflitar
+    const detectado = dados.tipo_operacao;
+    const hint = _importContrato.tipoHint;
+    if (detectado && hint && detectado !== hint) {
+      const detectadoLabel = detectado === 'locacao' ? 'LOCAÇÃO' : 'VENDA';
+      const hintLabel = hint === 'locacao' ? 'locação' : 'venda';
+      const ok = confirm(`⚠️ Conflito detectado.\n\nVocê clicou em "Importar contrato" na seção de ${hintLabel}, mas a IA identificou este documento como um contrato de ${detectadoLabel}.\n\nClique OK para seguir com ${detectadoLabel} (recomendado) ou Cancelar para abortar.`);
+      if (!ok) {
+        $('importar-contrato-progress').style.display = 'none';
+        return;
+      }
+      _importContrato.tipoHint = detectado;
+    }
+
+    _importContrato.dadosIA = dados;
+    await montarResolucoesIniciais();
+    await renderRevisaoImportar();
+  } catch (err) {
+    console.error('Erro ao processar contrato:', err);
+    importarContratoErro(err.message || 'Erro desconhecido.');
+  }
+}
+
+function importarContratoErro(msg) {
+  $('importar-contrato-progress').style.display = 'none';
+  const el = $('importar-contrato-alert');
+  el.textContent = '❌ ' + msg;
+  el.style.display = 'block';
+}
+
+// ----- Detecção de duplicatas -----
+
+async function detectarDuplicatasPessoa(colecao, documentoLimpo) {
+  if (!documentoLimpo) return [];
+  try {
+    const snap = await tenantPath().collection(colecao)
+      .where('documento', '==', documentoLimpo).limit(3).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn(`Erro ao buscar duplicatas em ${colecao}:`, err);
+    return [];
+  }
+}
+
+async function detectarDuplicatasImovel(matricula, cep, numero) {
+  if (matricula) {
+    try {
+      const snap = await tenantPath().collection('imoveis')
+        .where('matricula', '==', matricula).limit(3).get();
+      const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (matches.length) return matches;
+    } catch (_) {}
+  }
+  if (cep && numero) {
+    try {
+      const snap = await tenantPath().collection('imoveis')
+        .where('endereco.cep', '==', cep)
+        .where('endereco.numero', '==', String(numero)).limit(3).get();
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn('Busca de duplicata de imóvel exige índice composto (endereco.cep + endereco.numero). Crie no Firebase Console.', err);
+    }
+  }
+  return [];
+}
+
+async function detectarDuplicataFiador(cpfLimpo) {
+  if (!cpfLimpo) return [];
+  try {
+    const snap = await tenantPath().collection('garantias')
+      .where('tipo', '==', 'fiador')
+      .where('fiador.cpf', '==', cpfLimpo).limit(3).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn('Busca de fiador duplicado:', err);
+    return [];
+  }
+}
+
+async function montarResolucoesIniciais() {
+  const d = _importContrato.dadosIA;
+  const ehLocacao = _importContrato.tipoHint === 'locacao';
+
+  const resolverPessoa = async (colecao, dados) => ({
+    acao: 'reusar',  // default
+    duplicatas: await detectarDuplicatasPessoa(colecao, (dados.documento || '').replace(/\D/g, '')),
+    dados,
+  });
+
+  const locadores = ehLocacao ? (d.locadores || []) : (d.vendedores || []);
+  const locatarios = ehLocacao ? (d.locatarios || []) : (d.compradores || []);
+  const colecaoLoc = ehLocacao ? 'locadores' : 'locadores';
+  const colecaoLat = ehLocacao ? 'locatarios' : 'compradores';
+
+  const resolucoes = {
+    locadores: await Promise.all(locadores.map(p => resolverPessoa(colecaoLoc, p))),
+    locatarios: await Promise.all(locatarios.map(p => resolverPessoa(colecaoLat, p))),
+    imovel: null,
+    garantia: null,
+  };
+
+  // Sem duplicata → default "criar"
+  ['locadores', 'locatarios'].forEach(g => {
+    resolucoes[g].forEach(r => { if (!r.duplicatas.length) r.acao = 'criar'; });
+  });
+
+  // Imóvel
+  if (d.imovel) {
+    const imovelDups = await detectarDuplicatasImovel(
+      d.imovel.matricula,
+      d.imovel.endereco?.cep,
+      d.imovel.endereco?.numero,
+    );
+    resolucoes.imovel = {
+      acao: imovelDups.length ? 'reusar' : 'criar',
+      duplicatas: imovelDups,
+      dados: d.imovel,
+    };
+  }
+
+  // Garantia (só locação)
+  if (ehLocacao && d.garantia && d.garantia.tipo && d.garantia.tipo !== 'nenhuma') {
+    const fiadorDups = d.garantia.tipo === 'fiador' && d.garantia.fiador
+      ? await detectarDuplicataFiador((d.garantia.fiador.cpf || '').replace(/\D/g, ''))
+      : [];
+    resolucoes.garantia = {
+      acao: fiadorDups.length ? 'reusar' : 'criar',
+      duplicatas: fiadorDups,
+      dados: d.garantia,
+    };
+  }
+
+  _importContrato.resolucoes = resolucoes;
+}
+
+// ----- Renderização do modal de revisão -----
+
+async function renderRevisaoImportar() {
+  $('importar-etapa-upload').style.display = 'none';
+  $('importar-etapa-revisao').style.display = 'block';
+  $('importar-contrato-progress').style.display = 'none';
+
+  // Banner de confiança
+  const conf = _importContrato.dadosIA.confidence_global ?? 1;
+  const banner = $('importar-banner-confianca');
+  if (conf < 0.5) {
+    banner.style.display = 'block';
+    banner.style.background = '#ffebee';
+    banner.style.color = '#c62828';
+    banner.innerHTML = `⚠️ <strong>Confiança baixa</strong> (${(conf * 100).toFixed(0)}%). Revise TODOS os campos com atenção antes de salvar.`;
+  } else if (conf < 0.8) {
+    banner.style.display = 'block';
+    banner.style.background = '#fff8e1';
+    banner.style.color = '#e65100';
+    banner.innerHTML = `🔎 <strong>Confiança média</strong> (${(conf * 100).toFixed(0)}%). Confira os campos destacados em amarelo.`;
+  } else {
+    banner.style.display = 'block';
+    banner.style.background = '#e8f5e9';
+    banner.style.color = '#2e7d32';
+    banner.innerHTML = `✅ <strong>Confiança alta</strong> (${(conf * 100).toFixed(0)}%). Confira rapidamente e salve.`;
+  }
+
+  if (_importContrato.dadosIA.observacoes) {
+    banner.innerHTML += `<div style="margin-top:6px;font-size:12px;font-weight:normal;">💬 ${_importContrato.dadosIA.observacoes}</div>`;
+  }
+
+  _importContrato.abaAtual = 'partes';
+  trocarTabImportar('partes');
+  renderCardsPartes();
+  renderCardImovel();
+  renderCardContrato();
+}
+
+function trocarTabImportar(tab) {
+  _importContrato.abaAtual = tab;
+  ['partes', 'imovel', 'contrato'].forEach(t => {
+    $('importar-tab-' + t).style.display = (t === tab ? 'block' : 'none');
+    document.querySelectorAll(`.tab-btn[data-tab="${t}"]`).forEach(b => {
+      b.classList.toggle('active', t === tab);
+    });
+  });
+  $('btn-importar-voltar').style.display = tab === 'partes' ? 'none' : 'inline-block';
+  $('btn-importar-proximo').style.display = tab === 'contrato' ? 'none' : 'inline-block';
+  $('btn-importar-salvar').style.display = tab === 'contrato' ? 'inline-block' : 'none';
+}
+
+function navegarTabImportar(direcao) {
+  const ordem = ['partes', 'imovel', 'contrato'];
+  const idx = ordem.indexOf(_importContrato.abaAtual);
+  const novo = ordem[idx + direcao];
+  if (novo) trocarTabImportar(novo);
+}
+
+// ----- Cards das abas -----
+
+function renderCardsPartes() {
+  const ehLocacao = _importContrato.tipoHint === 'locacao';
+  const labelLoc = ehLocacao ? 'Locador' : 'Vendedor';
+  const labelLat = ehLocacao ? 'Locatário' : 'Comprador';
+  const container = $('importar-cards-partes');
+
+  let html = '';
+  html += `<h4 style="margin:8px 0 10px;">👤 ${labelLoc}${_importContrato.resolucoes.locadores.length > 1 ? 'es' : ''} (${_importContrato.resolucoes.locadores.length})</h4>`;
+  _importContrato.resolucoes.locadores.forEach((r, i) => {
+    html += renderCardPessoa('locadores', i, r, labelLoc);
+  });
+
+  html += `<h4 style="margin:20px 0 10px;">👤 ${labelLat}${_importContrato.resolucoes.locatarios.length > 1 ? 's' : ''} (${_importContrato.resolucoes.locatarios.length})</h4>`;
+  _importContrato.resolucoes.locatarios.forEach((r, i) => {
+    html += renderCardPessoa('locatarios', i, r, labelLat);
+  });
+
+  if (_importContrato.resolucoes.garantia) {
+    html += `<h4 style="margin:20px 0 10px;">🛡️ Garantia</h4>`;
+    html += renderCardGarantia();
+  }
+
+  container.innerHTML = html;
+}
+
+function renderCardPessoa(grupo, idx, resolucao, label) {
+  const d = resolucao.dados;
+  const docFmt = d.documento_formatado || d.documento || '—';
+  const duplicado = resolucao.duplicatas && resolucao.duplicatas.length;
+  const conf = d.confidence_score ?? 1;
+  const duvidosos = new Set(d.campos_duvidosos || []);
+
+  let badge = '';
+  if (duplicado) badge = `<span class="importar-badge duplicado">♻️ Já existe no cadastro</span>`;
+  else badge = `<span class="importar-badge novo">🆕 Novo</span>`;
+  if (conf < 0.7) badge += ` <span class="importar-badge confianca-baixa">⚠️ Confiança ${(conf * 100).toFixed(0)}%</span>`;
+
+  let resolucaoHtml = '';
+  if (duplicado) {
+    const dup = resolucao.duplicatas[0];
+    resolucaoHtml = `
+      <div class="importar-resolucao">
+        ⚠️ <strong>Já existe:</strong> ${dup.nome} (${dup.documento ? formataCPFCNPJ(dup.documento) : '—'})
+        <div style="margin-top:8px;">
+          <label><input type="radio" name="resol-${grupo}-${idx}" value="reusar" ${resolucao.acao === 'reusar' ? 'checked' : ''} onchange="onImportarResolucaoChange('${grupo}', ${idx}, 'reusar', '${dup.id}')"> Reusar o cadastro existente</label>
+          <label><input type="radio" name="resol-${grupo}-${idx}" value="criar" ${resolucao.acao === 'criar' ? 'checked' : ''} onchange="onImportarResolucaoChange('${grupo}', ${idx}, 'criar', null)"> Criar um cadastro novo</label>
+        </div>
+      </div>`;
+  }
+
+  const ehReusar = resolucao.acao === 'reusar';
+  const camposHtml = ehReusar ? '<p class="muted" style="font-size:12px;">Dados extraídos do contrato serão ignorados — usaremos o cadastro existente.</p>' : `
+    <div class="importar-campos-grid">
+      ${campoTexto(grupo, idx, 'nome', 'Nome / Razão social', d.nome, duvidosos)}
+      ${campoTexto(grupo, idx, 'documento_formatado', 'CPF / CNPJ', d.documento_formatado, duvidosos)}
+      ${campoTexto(grupo, idx, 'rg', 'RG', d.rg, duvidosos)}
+      ${campoTexto(grupo, idx, 'nascimento', 'Nascimento (AAAA-MM-DD)', d.nascimento, duvidosos)}
+      ${campoTexto(grupo, idx, 'profissao', 'Profissão', d.profissao, duvidosos)}
+      ${campoSelect(grupo, idx, 'estado_civil', 'Estado civil', d.estado_civil, ['solteiro','casado','divorciado','viuvo','uniao_estavel'], duvidosos)}
+      ${campoTexto(grupo, idx, 'email', 'E-mail', d.email, duvidosos)}
+      ${campoTexto(grupo, idx, 'telefone', 'Telefone', d.telefone, duvidosos)}
+    </div>
+    <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--muted);">Endereço</summary>
+      <div class="importar-campos-grid" style="margin-top:8px;">
+        ${campoTextoEndereco(grupo, idx, 'cep', 'CEP', d.endereco?.cep, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'logradouro', 'Logradouro', d.endereco?.logradouro, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'numero', 'Número', d.endereco?.numero, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'complemento', 'Complemento', d.endereco?.complemento, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'bairro', 'Bairro', d.endereco?.bairro, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'cidade', 'Cidade', d.endereco?.cidade, duvidosos)}
+        ${campoTextoEndereco(grupo, idx, 'uf', 'UF', d.endereco?.uf, duvidosos)}
+      </div>
+    </details>
+  `;
+
+  return `
+    <div class="importar-card" id="card-${grupo}-${idx}">
+      <div class="importar-card-header">
+        <div>
+          <strong>${label} #${idx + 1}: ${d.nome || '(sem nome)'}</strong>
+          <div class="importar-confidence">CPF/CNPJ: ${docFmt}</div>
+        </div>
+        <div>${badge}</div>
+      </div>
+      ${resolucaoHtml}
+      ${camposHtml}
+    </div>`;
+}
+
+function campoTexto(grupo, idx, campo, label, valor, duvidosos) {
+  const cls = duvidosos.has(campo) ? 'importar-campo-duvidoso' : '';
+  return `<div class="form-group ${cls}">
+    <label>${label}</label>
+    <input type="text" value="${escHtml(valor)}" oninput="onImportarCampoChange('${grupo}', ${idx}, '${campo}', this.value)" />
+  </div>`;
+}
+
+function campoTextoEndereco(grupo, idx, campo, label, valor, duvidosos) {
+  const cls = duvidosos.has('endereco.' + campo) || duvidosos.has(campo) ? 'importar-campo-duvidoso' : '';
+  return `<div class="form-group ${cls}">
+    <label>${label}</label>
+    <input type="text" value="${escHtml(valor)}" oninput="onImportarCampoEnderecoChange('${grupo}', ${idx}, '${campo}', this.value)" />
+  </div>`;
+}
+
+function campoSelect(grupo, idx, campo, label, valor, opcoes, duvidosos) {
+  const cls = duvidosos.has(campo) ? 'importar-campo-duvidoso' : '';
+  return `<div class="form-group ${cls}">
+    <label>${label}</label>
+    <select onchange="onImportarCampoChange('${grupo}', ${idx}, '${campo}', this.value)">
+      <option value="">—</option>
+      ${opcoes.map(o => `<option value="${o}" ${o === valor ? 'selected' : ''}>${o}</option>`).join('')}
+    </select>
+  </div>`;
+}
+
+function escHtml(v) {
+  if (v == null) return '';
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formataCPFCNPJ(d) {
+  d = (d || '').replace(/\D/g, '');
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  return d;
+}
+
+function renderCardGarantia() {
+  const r = _importContrato.resolucoes.garantia;
+  const d = r.dados;
+  const tipo = d.tipo;
+  const duplicado = r.duplicatas && r.duplicatas.length;
+  const tipoLabel = { fiador: 'Fiador', caucao: 'Caução', seguro_fianca: 'Seguro fiança' }[tipo] || tipo;
+
+  let badge = duplicado
+    ? `<span class="importar-badge duplicado">♻️ Fiador já cadastrado</span>`
+    : `<span class="importar-badge novo">🆕 Nova garantia</span>`;
+
+  let resolucaoHtml = '';
+  if (duplicado) {
+    const dup = r.duplicatas[0];
+    resolucaoHtml = `
+      <div class="importar-resolucao">
+        ⚠️ <strong>Garantia com fiador igual já existe:</strong> ${dup.fiador?.nome} (${formataCPFCNPJ(dup.fiador?.cpf)})
+        <div style="margin-top:8px;">
+          <label><input type="radio" name="resol-garantia" value="reusar" ${r.acao === 'reusar' ? 'checked' : ''} onchange="onImportarResolucaoChange('garantia', 0, 'reusar', '${dup.id}')"> Reusar a garantia existente</label>
+          <label><input type="radio" name="resol-garantia" value="criar" ${r.acao === 'criar' ? 'checked' : ''} onchange="onImportarResolucaoChange('garantia', 0, 'criar', null)"> Criar uma nova garantia</label>
+        </div>
+      </div>`;
+  }
+
+  let detalhes = '';
+  if (tipo === 'fiador' && d.fiador) {
+    const f = d.fiador;
+    detalhes = `
+      <div class="importar-campos-grid">
+        <div class="form-group"><label>Nome do fiador</label><input type="text" value="${escHtml(f.nome)}" oninput="onImportarGarantiaChange('fiador.nome', this.value)" /></div>
+        <div class="form-group"><label>CPF</label><input type="text" value="${escHtml(formataCPFCNPJ(f.cpf))}" oninput="onImportarGarantiaChange('fiador.cpf', this.value)" /></div>
+        <div class="form-group"><label>Telefone</label><input type="text" value="${escHtml(f.telefone)}" oninput="onImportarGarantiaChange('fiador.telefone', this.value)" /></div>
+        <div class="form-group"><label>Renda mensal</label><input type="number" step="0.01" value="${escHtml(f.renda)}" oninput="onImportarGarantiaChange('fiador.renda', this.value)" /></div>
+      </div>`;
+  } else if (tipo === 'caucao' && d.caucao) {
+    const c = d.caucao;
+    detalhes = `
+      <div class="importar-campos-grid">
+        <div class="form-group"><label>Modalidade</label><input type="text" value="${escHtml(c.modalidade)}" oninput="onImportarGarantiaChange('caucao.modalidade', this.value)" /></div>
+        <div class="form-group"><label>Valor</label><input type="number" step="0.01" value="${escHtml(c.valor)}" oninput="onImportarGarantiaChange('caucao.valor', this.value)" /></div>
+      </div>`;
+  } else if (tipo === 'seguro_fianca' && d.seguro) {
+    const s = d.seguro;
+    detalhes = `
+      <div class="importar-campos-grid">
+        <div class="form-group"><label>Seguradora</label><input type="text" value="${escHtml(s.seguradora)}" oninput="onImportarGarantiaChange('seguro.seguradora', this.value)" /></div>
+        <div class="form-group"><label>Apólice</label><input type="text" value="${escHtml(s.apolice)}" oninput="onImportarGarantiaChange('seguro.apolice', this.value)" /></div>
+        <div class="form-group"><label>Cobertura</label><input type="number" step="0.01" value="${escHtml(s.cobertura)}" oninput="onImportarGarantiaChange('seguro.cobertura', this.value)" /></div>
+        <div class="form-group"><label>Prêmio</label><input type="number" step="0.01" value="${escHtml(s.premio)}" oninput="onImportarGarantiaChange('seguro.premio', this.value)" /></div>
+      </div>`;
+  }
+
+  return `
+    <div class="importar-card">
+      <div class="importar-card-header">
+        <div><strong>${tipoLabel}</strong></div>
+        <div>${badge}</div>
+      </div>
+      ${resolucaoHtml}
+      ${r.acao === 'reusar' ? '<p class="muted" style="font-size:12px;">Garantia existente será reaproveitada.</p>' : detalhes}
+    </div>`;
+}
+
+function renderCardImovel() {
+  const r = _importContrato.resolucoes.imovel;
+  if (!r) {
+    $('importar-card-imovel').innerHTML = '<p class="muted">A IA não detectou dados do imóvel. Você precisará selecionar manualmente ao salvar.</p>';
+    return;
+  }
+  const d = r.dados;
+  const duplicado = r.duplicatas && r.duplicatas.length;
+  const duvidosos = new Set(d.campos_duvidosos || []);
+
+  let badge = duplicado ? `<span class="importar-badge duplicado">♻️ Já existe</span>` : `<span class="importar-badge novo">🆕 Novo</span>`;
+
+  let resolucaoHtml = '';
+  if (duplicado) {
+    const dup = r.duplicatas[0];
+    resolucaoHtml = `
+      <div class="importar-resolucao">
+        ⚠️ <strong>Imóvel já existe:</strong> ${dup.apelido} ${dup.matricula ? `(Matrícula ${dup.matricula})` : ''}
+        <div style="margin-top:8px;">
+          <label><input type="radio" name="resol-imovel" value="reusar" ${r.acao === 'reusar' ? 'checked' : ''} onchange="onImportarResolucaoChange('imovel', 0, 'reusar', '${dup.id}')"> Reusar o imóvel existente</label>
+          <label><input type="radio" name="resol-imovel" value="criar" ${r.acao === 'criar' ? 'checked' : ''} onchange="onImportarResolucaoChange('imovel', 0, 'criar', null)"> Cadastrar um novo imóvel</label>
+        </div>
+      </div>`;
+  }
+
+  const detalhes = r.acao === 'reusar' ? '<p class="muted" style="font-size:12px;">Dados serão ignorados — usaremos o imóvel já cadastrado.</p>' : `
+    <div class="importar-campos-grid">
+      <div class="form-group ${duvidosos.has('apelido_sugerido') ? 'importar-campo-duvidoso' : ''}">
+        <label>Apelido (curto)</label>
+        <input type="text" value="${escHtml(d.apelido_sugerido)}" oninput="onImportarImovelChange('apelido_sugerido', this.value)" />
+      </div>
+      <div class="form-group">
+        <label>Matrícula</label>
+        <input type="text" value="${escHtml(d.matricula)}" oninput="onImportarImovelChange('matricula', this.value)" />
+      </div>
+      <div class="form-group"><label>Tipo</label>
+        <select onchange="onImportarImovelChange('tipo', this.value)">
+          ${['apartamento','casa','comercial','terreno','rural','outro'].map(t => `<option value="${t}" ${t === d.tipo ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group"><label>Quartos</label><input type="number" value="${escHtml(d.quartos)}" oninput="onImportarImovelChange('quartos', this.value)" /></div>
+      <div class="form-group"><label>Banheiros</label><input type="number" value="${escHtml(d.banheiros)}" oninput="onImportarImovelChange('banheiros', this.value)" /></div>
+      <div class="form-group"><label>Vagas</label><input type="number" value="${escHtml(d.vagas)}" oninput="onImportarImovelChange('vagas', this.value)" /></div>
+      <div class="form-group"><label>Área útil (m²)</label><input type="number" step="0.01" value="${escHtml(d.area_util)}" oninput="onImportarImovelChange('area_util', this.value)" /></div>
+      <div class="form-group"><label>Andar</label><input type="text" value="${escHtml(d.andar)}" oninput="onImportarImovelChange('andar', this.value)" /></div>
+    </div>
+    <details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:var(--muted);">Endereço completo</summary>
+      <div class="importar-campos-grid" style="margin-top:8px;">
+        <div class="form-group"><label>CEP</label><input type="text" value="${escHtml(d.endereco?.cep)}" oninput="onImportarImovelEnderecoChange('cep', this.value)" /></div>
+        <div class="form-group"><label>Logradouro</label><input type="text" value="${escHtml(d.endereco?.logradouro)}" oninput="onImportarImovelEnderecoChange('logradouro', this.value)" /></div>
+        <div class="form-group"><label>Número</label><input type="text" value="${escHtml(d.endereco?.numero)}" oninput="onImportarImovelEnderecoChange('numero', this.value)" /></div>
+        <div class="form-group"><label>Complemento</label><input type="text" value="${escHtml(d.endereco?.complemento)}" oninput="onImportarImovelEnderecoChange('complemento', this.value)" /></div>
+        <div class="form-group"><label>Bairro</label><input type="text" value="${escHtml(d.endereco?.bairro)}" oninput="onImportarImovelEnderecoChange('bairro', this.value)" /></div>
+        <div class="form-group"><label>Cidade</label><input type="text" value="${escHtml(d.endereco?.cidade)}" oninput="onImportarImovelEnderecoChange('cidade', this.value)" /></div>
+        <div class="form-group"><label>UF</label><input type="text" value="${escHtml(d.endereco?.uf)}" oninput="onImportarImovelEnderecoChange('uf', this.value)" /></div>
+      </div>
+    </details>
+  `;
+
+  $('importar-card-imovel').innerHTML = `
+    <div class="importar-card">
+      <div class="importar-card-header">
+        <div><strong>🏠 ${d.apelido_sugerido || 'Imóvel objeto do contrato'}</strong></div>
+        <div>${badge}</div>
+      </div>
+      ${resolucaoHtml}
+      ${detalhes}
+    </div>`;
+}
+
+function renderCardContrato() {
+  const d = _importContrato.dadosIA;
+  const ehLocacao = _importContrato.tipoHint === 'locacao';
+  const c = ehLocacao ? (d.contrato_locacao || {}) : (d.contrato_venda || {});
+  const com = d.comissao || {};
+
+  let html = '';
+  if (ehLocacao) {
+    html = `
+      <div class="importar-card">
+        <div class="importar-card-header"><strong>📋 Dados do contrato de locação</strong></div>
+        <div class="importar-campos-grid">
+          <div class="form-group"><label>Prazo (meses)</label><input type="number" value="${escHtml(c.prazo_meses)}" oninput="onImportarContratoChange('prazo_meses', this.value)" /></div>
+          <div class="form-group"><label>Início (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.inicio)}" oninput="onImportarContratoChange('inicio', this.value)" /></div>
+          <div class="form-group"><label>Fim (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.fim)}" oninput="onImportarContratoChange('fim', this.value)" /></div>
+          <div class="form-group"><label>Aluguel (R$)</label><input type="number" step="0.01" value="${escHtml(c.aluguel)}" oninput="onImportarContratoChange('aluguel', this.value)" /></div>
+          <div class="form-group"><label>Dia de vencimento</label><input type="number" value="${escHtml(c.dia_vencimento || 5)}" oninput="onImportarContratoChange('dia_vencimento', this.value)" /></div>
+          <div class="form-group"><label>Taxa adm. (%)</label><input type="number" step="0.01" value="${escHtml(c.taxa_adm || 10)}" oninput="onImportarContratoChange('taxa_adm', this.value)" /></div>
+          <div class="form-group"><label>Multa rescisória (R$)</label><input type="number" step="0.01" value="${escHtml(c.multa_rescisoria)}" oninput="onImportarContratoChange('multa_rescisoria', this.value)" /></div>
+          <div class="form-group"><label>Índice reajuste</label>
+            <select onchange="onImportarContratoChange('reajuste_indice', this.value)">
+              ${['','IPCA','IGPM','INCC','INPC'].map(o => `<option value="${o.toLowerCase()}" ${(c.reajuste_indice || '').toLowerCase() === o.toLowerCase() ? 'selected' : ''}>${o || '—'}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label>Cláusulas relevantes / observações</label>
+          <textarea rows="4" oninput="onImportarContratoChange('clausulas_relevantes', this.value)">${escHtml(c.clausulas_relevantes)}</textarea>
+        </div>
+      </div>`;
+  } else {
+    html = `
+      <div class="importar-card">
+        <div class="importar-card-header"><strong>📋 Dados da negociação (venda)</strong></div>
+        <div class="importar-campos-grid">
+          <div class="form-group"><label>Valor total (R$)</label><input type="number" step="0.01" value="${escHtml(c.valor)}" oninput="onImportarContratoChange('valor', this.value)" /></div>
+          <div class="form-group"><label>Forma de pagamento</label>
+            <select onchange="onImportarContratoChange('forma_pagamento', this.value)">
+              ${['','a_vista','financiamento','permuta','misto'].map(o => `<option value="${o}" ${c.forma_pagamento === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>Entrada (R$)</label><input type="number" step="0.01" value="${escHtml(c.entrada)}" oninput="onImportarContratoChange('entrada', this.value)" /></div>
+          <div class="form-group"><label>Data de aceite (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.data_aceite)}" oninput="onImportarContratoChange('data_aceite', this.value)" /></div>
+          <div class="form-group"><label>Data de posse (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.data_posse)}" oninput="onImportarContratoChange('data_posse', this.value)" /></div>
+          <div class="form-group"><label>Comissão (%)</label><input type="number" step="0.01" value="${escHtml(com.percentual || 6)}" oninput="onImportarComissaoChange('percentual', this.value)" /></div>
+        </div>
+        <div class="form-group" style="margin-top:8px;">
+          <label>Cláusulas relevantes / observações</label>
+          <textarea rows="4" oninput="onImportarContratoChange('clausulas_relevantes', this.value)">${escHtml(c.clausulas_relevantes)}</textarea>
+        </div>
+      </div>`;
+  }
+
+  $('importar-card-contrato').innerHTML = html;
+}
+
+// ----- Handlers de mudança de campo -----
+
+function onImportarCampoChange(grupo, idx, campo, valor) {
+  _importContrato.resolucoes[grupo][idx].dados[campo] = valor || null;
+}
+
+function onImportarCampoEnderecoChange(grupo, idx, campo, valor) {
+  const d = _importContrato.resolucoes[grupo][idx].dados;
+  if (!d.endereco) d.endereco = {};
+  d.endereco[campo] = valor || null;
+}
+
+function onImportarResolucaoChange(grupo, idx, novaAcao, idReusado) {
+  if (grupo === 'garantia' || grupo === 'imovel') {
+    _importContrato.resolucoes[grupo].acao = novaAcao;
+    _importContrato.resolucoes[grupo].idReusado = idReusado;
+  } else {
+    _importContrato.resolucoes[grupo][idx].acao = novaAcao;
+    _importContrato.resolucoes[grupo][idx].idReusado = idReusado;
+  }
+  // Re-renderiza só a aba afetada
+  if (grupo === 'imovel') renderCardImovel();
+  else renderCardsPartes();
+}
+
+function onImportarImovelChange(campo, valor) {
+  _importContrato.resolucoes.imovel.dados[campo] = valor || null;
+}
+
+function onImportarImovelEnderecoChange(campo, valor) {
+  const d = _importContrato.resolucoes.imovel.dados;
+  if (!d.endereco) d.endereco = {};
+  d.endereco[campo] = valor || null;
+}
+
+function onImportarGarantiaChange(path, valor) {
+  const [sub, campo] = path.split('.');
+  const g = _importContrato.resolucoes.garantia.dados;
+  if (!g[sub]) g[sub] = {};
+  g[sub][campo] = valor || null;
+}
+
+function onImportarContratoChange(campo, valor) {
+  const ehLocacao = _importContrato.tipoHint === 'locacao';
+  const chave = ehLocacao ? 'contrato_locacao' : 'contrato_venda';
+  if (!_importContrato.dadosIA[chave]) _importContrato.dadosIA[chave] = {};
+  _importContrato.dadosIA[chave][campo] = valor || null;
+}
+
+function onImportarComissaoChange(campo, valor) {
+  if (!_importContrato.dadosIA.comissao) _importContrato.dadosIA.comissao = {};
+  _importContrato.dadosIA.comissao[campo] = valor || null;
+}
+
+// ----- Persistência atômica -----
+
+async function salvarContratoImportado() {
+  const btn = $('btn-importar-salvar');
+  btn.disabled = true;
+  btn.textContent = '💾 Salvando…';
+
+  try {
+    // Validações
+    const ehLocacao = _importContrato.tipoHint === 'locacao';
+    const r = _importContrato.resolucoes;
+
+    if (!r.locadores.length) throw new Error('Pelo menos um locador/vendedor é obrigatório.');
+    if (!r.locatarios.length) throw new Error('Pelo menos um locatário/comprador é obrigatório.');
+    if (!r.imovel) throw new Error('Dados do imóvel não detectados — não é possível salvar.');
+
+    r.locadores.concat(r.locatarios).forEach((p, i) => {
+      if (p.acao !== 'reusar') {
+        if (!p.dados.nome) throw new Error(`Nome da parte #${i + 1} é obrigatório.`);
+        if (!(p.dados.documento || p.dados.documento_formatado)) {
+          throw new Error(`CPF/CNPJ da parte "${p.dados.nome}" é obrigatório (não detectado pela IA).`);
+        }
+      }
+    });
+
+    if (r.imovel.acao !== 'reusar' && !r.imovel.dados.apelido_sugerido) {
+      throw new Error('Apelido do imóvel é obrigatório.');
+    }
+
+    // Pré-gera IDs e monta batch
+    const batch = db.batch();
+    const colecaoLoc = 'locadores';
+    const colecaoLat = ehLocacao ? 'locatarios' : 'compradores';
+
+    const locadorIds = r.locadores.map(p => {
+      if (p.acao === 'reusar') return p.idReusado;
+      const ref = tenantPath().collection(colecaoLoc).doc();
+      batch.set(ref, pessoaParaFirestore(p.dados, false));
+      return ref.id;
+    });
+    const locatarioIds = r.locatarios.map(p => {
+      if (p.acao === 'reusar') return p.idReusado;
+      const ref = tenantPath().collection(colecaoLat).doc();
+      batch.set(ref, pessoaParaFirestore(p.dados, colecaoLat === 'compradores'));
+      return ref.id;
+    });
+
+    let garantiaId = null;
+    if (ehLocacao && r.garantia) {
+      if (r.garantia.acao === 'reusar') {
+        garantiaId = r.garantia.idReusado;
+      } else {
+        const ref = tenantPath().collection('garantias').doc();
+        batch.set(ref, garantiaParaFirestore(r.garantia.dados));
+        garantiaId = ref.id;
+      }
+    }
+
+    let imovelId;
+    if (r.imovel.acao === 'reusar') {
+      imovelId = r.imovel.idReusado;
+    } else {
+      const ref = tenantPath().collection('imoveis').doc();
+      batch.set(ref, imovelParaFirestore(r.imovel.dados, locadorIds[0], ehLocacao));
+      imovelId = ref.id;
+    }
+
+    // Número sequencial (fora do batch porque é transaction)
+    const tipoContador = ehLocacao ? 'contratos' : 'negociacoes';
+    const seq = await proximoNumeroSequencial(tipoContador);
+
+    // Contrato / negociação
+    const docFinalRef = tenantPath().collection(tipoContador).doc();
+    const dadosFinal = ehLocacao
+      ? contratoLocacaoParaFirestore(_importContrato.dadosIA, locadorIds, locatarioIds, imovelId, garantiaId, seq)
+      : negociacaoParaFirestore(_importContrato.dadosIA, locadorIds, locatarioIds, imovelId, seq);
+    batch.set(docFinalRef, dadosFinal);
+
+    await batch.commit();
+    _importContrato.contratoCriadoId = docFinalRef.id;
+    _importContrato.contratoCriadoTipo = tipoContador;
+
+    // Side-effects pós-commit
+    try {
+      if (ehLocacao) {
+        await syncImovelStatusFromContrato(imovelId, dadosFinal.status, null);
+      } else {
+        await syncImovelStatusFromNegociacao(imovelId, dadosFinal.status, null);
+      }
+      invalidateImoveisCache();
+    } catch (e) { console.warn('Sync status imóvel falhou (não crítico):', e); }
+
+    // Upload do arquivo original
+    if (_importContrato.arquivo) {
+      try {
+        const f = _importContrato.arquivo;
+        const ext = (f.name.split('.').pop() || 'pdf').toLowerCase();
+        const fname = `contrato-importado-${Date.now()}.${ext}`;
+        const ref = storageTenantRef().child(`${tipoContador}/${docFinalRef.id}/${fname}`);
+        await ref.put(f);
+      } catch (e) { console.warn('Upload do arquivo original falhou (não crítico):', e); }
+    }
+
+    logAuditoria('create', 'importacao_contrato', docFinalRef.id, {
+      numero: seq.numero,
+      tipo: tipoContador,
+      arquivo: _importContrato.arquivo?.name,
+      partesNovas: r.locadores.filter(p => p.acao !== 'reusar').length + r.locatarios.filter(p => p.acao !== 'reusar').length,
+      imovelNovo: r.imovel.acao !== 'reusar',
+    });
+
+    // Etapa de sucesso
+    $('importar-etapa-revisao').style.display = 'none';
+    $('importar-etapa-sucesso').style.display = 'block';
+    const tipoLabel = ehLocacao ? 'Contrato de locação' : 'Negociação de venda';
+    $('importar-sucesso-resumo').innerHTML = `${tipoLabel} <strong>nº ${seq.numero}</strong> criada.`;
+  } catch (err) {
+    console.error('Erro ao salvar contrato importado:', err);
+    importarContratoErro(err.message || 'Erro ao salvar.');
+    btn.disabled = false;
+    btn.textContent = '💾 Salvar tudo';
+  }
+}
+
+// ----- Mappers: schema da IA → schema do Firestore -----
+
+function pessoaParaFirestore(d, ehComprador) {
+  const doc = (d.documento || d.documento_formatado || '').replace(/\D/g, '');
+  const base = {
+    tipo: d.tipo_pessoa || 'PF',
+    nome: d.nome || '',
+    documento: doc,
+    rg: d.rg || null,
+    nascimento: d.nascimento || null,
+    estadoCivil: d.estado_civil || null,
+    profissao: d.profissao || null,
+    nacionalidade: d.nacionalidade || 'brasileiro(a)',
+    email: d.email || null,
+    telefone: (d.telefone || '').replace(/\D/g, '') || null,
+    endereco: {
+      cep: (d.endereco?.cep || '').replace(/\D/g, '') || null,
+      logradouro: d.endereco?.logradouro || null,
+      numero: d.endereco?.numero ? String(d.endereco.numero) : null,
+      complemento: d.endereco?.complemento || null,
+      bairro: d.endereco?.bairro || null,
+      cidade: d.endereco?.cidade || null,
+      uf: d.endereco?.uf || null,
+    },
+    obs: 'Importado via IA',
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+  };
+  if (ehComprador) {
+    base.formaPagamento = d.forma_pagamento || null;
+    base.renda = d.renda || null;
+    base.bancoFinanceira = d.banco_financeira || null;
+    base.valorEntrada = d.valor_entrada || null;
+    base.status = 'em_analise';
+  }
+  return base;
+}
+
+function imovelParaFirestore(d, locadorId, ehLocacao) {
+  return {
+    apelido: d.apelido_sugerido || 'Imóvel importado',
+    status: 'disponivel',
+    tipo: d.tipo || null,
+    finalidade: d.finalidade || (ehLocacao ? 'locacao' : 'venda'),
+    locadorId,
+    endereco: {
+      cep: (d.endereco?.cep || '').replace(/\D/g, '') || null,
+      logradouro: d.endereco?.logradouro || null,
+      numero: d.endereco?.numero ? String(d.endereco.numero) : null,
+      complemento: d.endereco?.complemento || null,
+      bairro: d.endereco?.bairro || null,
+      cidade: d.endereco?.cidade || null,
+      uf: d.endereco?.uf || null,
+    },
+    areaUtil: parseFloat(d.area_util) || null,
+    areaTotal: parseFloat(d.area_total) || null,
+    andar: d.andar || null,
+    quartos: parseInt(d.quartos, 10) || null,
+    banheiros: parseInt(d.banheiros, 10) || null,
+    vagas: parseInt(d.vagas, 10) || null,
+    mobiliado: d.mobiliado || null,
+    matricula: d.matricula || null,
+    iptu: d.iptu || null,
+    valorMercado: parseFloat(d.valor_mercado) || null,
+    aluguelSugerido: parseFloat(d.aluguel_sugerido) || null,
+    valorVenda: parseFloat(d.valor_venda) || null,
+    obs: 'Importado via IA',
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+  };
+}
+
+function garantiaParaFirestore(d) {
+  const base = {
+    tipo: d.tipo,
+    status: 'ativa',
+    obs: 'Importado via IA',
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+  };
+  if (d.tipo === 'fiador' && d.fiador) {
+    base.fiador = {
+      nome: d.fiador.nome || '',
+      cpf: (d.fiador.cpf || '').replace(/\D/g, ''),
+      rg: d.fiador.rg || null,
+      nascimento: d.fiador.nascimento || null,
+      profissao: d.fiador.profissao || null,
+      estadoCivil: d.fiador.estado_civil || null,
+      email: d.fiador.email || null,
+      telefone: (d.fiador.telefone || '').replace(/\D/g, '') || null,
+      endereco: d.fiador.endereco || null,
+      renda: parseFloat(d.fiador.renda) || null,
+      bens: d.fiador.bens || null,
+      conjugeNome: d.fiador.conjuge_nome || null,
+      conjugeCpf: (d.fiador.conjuge_cpf || '').replace(/\D/g, '') || null,
+    };
+  } else if (d.tipo === 'caucao' && d.caucao) {
+    base.caucao = {
+      modalidade: d.caucao.modalidade || 'dinheiro',
+      data: d.caucao.data || null,
+      valor: parseFloat(d.caucao.valor) || null,
+      banco: d.caucao.banco || null,
+      agencia: d.caucao.agencia || null,
+      conta: d.caucao.conta || null,
+      bemDescricao: d.caucao.bem_descricao || null,
+    };
+  } else if (d.tipo === 'seguro_fianca' && d.seguro) {
+    base.seguro = {
+      seguradora: d.seguro.seguradora || null,
+      apolice: d.seguro.apolice || null,
+      vigenciaInicio: d.seguro.vigencia_inicio || null,
+      vigenciaFim: d.seguro.vigencia_fim || null,
+      cobertura: parseFloat(d.seguro.cobertura) || null,
+      premio: parseFloat(d.seguro.premio) || null,
+      formaPagamento: d.seguro.forma_pagamento || null,
+      parcelas: parseInt(d.seguro.parcelas, 10) || null,
+    };
+  }
+  return base;
+}
+
+function contratoLocacaoParaFirestore(d, locadorIds, locatarioIds, imovelId, garantiaId, seq) {
+  const c = d.contrato_locacao || {};
+  const aluguel = parseFloat(c.aluguel) || 0;
+  const extras = [];
+  if (locadorIds.length > 1) extras.push('Co-locadores: ' + locadorIds.slice(1).map((_, i) => `[${i + 2}]`).join(', ') + ' (ver cadastros)');
+  if (locatarioIds.length > 1) extras.push('Co-locatários: ' + locatarioIds.slice(1).length + ' adicionais (ver cadastros)');
+  if (c.clausulas_relevantes) extras.push(c.clausulas_relevantes);
+
+  return {
+    numero: seq.numero,
+    numeroSequencial: seq.numeroSequencial,
+    status: 'rascunho',
+    motivoStatus: null,
+    imovelId,
+    locadorId: locadorIds[0],
+    locatarioId: locatarioIds[0],
+    locadoresAdicionais: locadorIds.slice(1),
+    locatariosAdicionais: locatarioIds.slice(1),
+    garantiaId,
+    prazoMeses: parseInt(c.prazo_meses, 10) || 30,
+    inicio: c.inicio || null,
+    fim: c.fim || null,
+    aluguel,
+    diaVencimento: parseInt(c.dia_vencimento, 10) || 5,
+    taxaAdm: parseFloat(c.taxa_adm) || 10,
+    multaRescisoria: parseFloat(c.multa_rescisoria) || (aluguel * 3),
+    reajusteIndice: (c.reajuste_indice || 'ipca').toLowerCase(),
+    reajustePeriodicidade: c.reajuste_periodicidade || 'anual',
+    primeiroAluguelEscritorio: false,
+    clausulas: extras.join('\n\n') || null,
+    obs: 'Importado via IA',
+    importadoPorIA: true,
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+  };
+}
+
+function negociacaoParaFirestore(d, vendedorIds, compradorIds, imovelId, seq) {
+  const c = d.contrato_venda || {};
+  const com = d.comissao || {};
+  const extras = [];
+  if (vendedorIds.length > 1) extras.push('Co-vendedores: ' + vendedorIds.slice(1).length + ' adicionais (ver cadastros)');
+  if (compradorIds.length > 1) extras.push('Co-compradores: ' + compradorIds.slice(1).length + ' adicionais (ver cadastros)');
+  if (c.clausulas_relevantes) extras.push(c.clausulas_relevantes);
+
+  return {
+    numero: seq.numero,
+    numeroSequencial: seq.numeroSequencial,
+    status: 'rascunho',
+    motivoStatus: null,
+    imovelId,
+    vendedorId: vendedorIds[0],
+    compradorId: compradorIds[0],
+    vendedoresAdicionais: vendedorIds.slice(1),
+    compradoresAdicionais: compradorIds.slice(1),
+    valor: parseFloat(c.valor) || 0,
+    formaPagamento: c.forma_pagamento || 'a_vista',
+    comissao: parseFloat(com.percentual) || 6,
+    entrada: parseFloat(c.entrada) || null,
+    dataAceite: c.data_aceite || null,
+    dataPosse: c.data_posse || null,
+    clausulas: extras.join('\n\n') || null,
+    obs: 'Importado via IA',
+    importadoPorIA: true,
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+  };
+}
+
+async function abrirContratoImportado() {
+  if (!_importContrato || !_importContrato.contratoCriadoId) return;
+  const tipo = _importContrato.contratoCriadoTipo;
+  const id = _importContrato.contratoCriadoId;
+  fecharImportarContrato();
+  if (tipo === 'contratos') {
+    showSection('section-contratos');
+    if (typeof openContratoModal === 'function') openContratoModal(id);
+  } else {
+    showSection('section-negociacoes');
+    if (typeof openNegociacaoModal === 'function') openNegociacaoModal(id);
+  }
+}

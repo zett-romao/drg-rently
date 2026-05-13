@@ -2347,3 +2347,118 @@ label.required::after {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================
+   IMPORTAR CONTRATO (modal de revisão via IA)
+   ============================================ */
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+.tab-btn {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.tab-btn:hover {
+  color: var(--text);
+}
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.importar-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #fff;
+}
+.importar-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.importar-card-header strong {
+  font-size: 15px;
+}
+.importar-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.importar-badge.novo {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.importar-badge.duplicado {
+  background: #fff3e0;
+  color: #e65100;
+}
+.importar-badge.confianca-baixa {
+  background: #ffebee;
+  color: #c62828;
+}
+.importar-confidence {
+  font-size: 12px;
+  color: var(--muted);
+}
+.importar-resolucao {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.importar-resolucao label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.importar-resolucao input[type="radio"] {
+  margin: 0;
+}
+.importar-campos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .importar-campos-grid { grid-template-columns: 1fr; }
+}
+.importar-campo-duvidoso input,
+.importar-campo-duvidoso select,
+.importar-campo-duvidoso textarea {
+  background: #fffbe6;
+  border-color: #ffd54f;
+}
+.importar-campo-duvidoso label::after {
+  content: " ⚠️";
+  font-size: 11px;
+}
