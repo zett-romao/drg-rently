@@ -6340,6 +6340,8 @@ async function loadConfigImobiliaria() {
     if (zsTok) zsTok.value = cfg.zapsignToken || '';
     const lgUrl = $('cfg-worker-legis-url');
     if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
+    const lgTok = $('cfg-legis-admin-token');
+    if (lgTok) lgTok.value = cfg.legisAdminToken || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
@@ -6410,6 +6412,7 @@ async function saveConfigImobiliaria() {
         workerFeedUrl: $('cfg-worker-feed-url')?.value.trim() || '',
         workerZapsignUrl: $('cfg-worker-zapsign-url')?.value.trim() || '',
         workerLegisUrl: $('cfg-worker-legis-url')?.value.trim() || '',
+        legisAdminToken: $('cfg-legis-admin-token')?.value.trim() || '',
         zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
@@ -12393,6 +12396,186 @@ async function legisDispararCheck() {
     box.innerHTML = `<span style="color:#b91c1c;">Erro: ${escapeHtml(err.message)}</span>`;
   }
 }
+
+// =============================================================
+// EDITOR DE URLs DO MONITOR LEGISLATIVO (Fase F item 3)
+// =============================================================
+
+let _legisUrlsEditor = { urls: [], customizadas: false, dirty: false };
+
+function legisWorkerUrlNormalizada() {
+  const u = $('cfg-worker-legis-url')?.value.trim();
+  if (!u) throw new Error('Configure a URL do Worker Legis Monitor primeiro.');
+  return u.replace(/\/+$/, '');
+}
+
+async function legisCarregarUrls() {
+  const status = $('legis-urls-status');
+  status.textContent = '⏳ Carregando…';
+  status.style.color = 'var(--text-muted)';
+  try {
+    const url = legisWorkerUrlNormalizada();
+    const res = await fetch(url + '/urls');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _legisUrlsEditor.urls = (data.urls || []).map(u => ({ ...u }));
+    _legisUrlsEditor.customizadas = !!data.customizadas;
+    _legisUrlsEditor.dirty = false;
+    renderLegisUrlsLista();
+    $('legis-urls-aviso').textContent = _legisUrlsEditor.customizadas
+      ? '⚠️ Você está editando uma lista customizada (salva no KV). Pra voltar ao padrão, clique "Restaurar URLs padrão".'
+      : 'Usando lista padrão hardcoded no Worker. Edite e clique "Salvar" pra customizar.';
+    status.textContent = `✅ ${_legisUrlsEditor.urls.length} URL(s) carregadas.`;
+    status.style.color = '#065f46';
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+    status.style.color = '#b91c1c';
+  }
+}
+
+function renderLegisUrlsLista() {
+  const lista = $('legis-urls-lista');
+  if (!lista) return;
+  lista.innerHTML = _legisUrlsEditor.urls.map((u, idx) => `
+    <div class="card" style="margin-bottom:10px; padding:12px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:6px;">
+        <strong style="font-size:12px;">#${idx + 1}</strong>
+        <button class="btn btn-danger btn-sm" type="button" onclick="legisRemoverUrl(${idx})" title="Remover">✕</button>
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:11px;">ID (interno, sem espaços)</label>
+        <input type="text" value="${escapeHtml(u.id || '')}" oninput="legisUpdateUrl(${idx}, 'id', this.value)" placeholder="ex: lei_inquilinato">
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:11px;">Nome (descrição)</label>
+        <input type="text" value="${escapeHtml(u.nome || '')}" oninput="legisUpdateUrl(${idx}, 'nome', this.value)" placeholder="ex: Lei do Inquilinato">
+      </div>
+      <div class="form-group" style="margin-bottom:6px;">
+        <label style="font-size:11px;">URL completa (http/https)</label>
+        <input type="url" value="${escapeHtml(u.url || '')}" oninput="legisUpdateUrl(${idx}, 'url', this.value)" placeholder="https://www.planalto.gov.br/...">
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <label style="font-size:11px;">Templates afetados (separados por vírgula: locacao, venda, distrato)</label>
+        <input type="text" value="${escapeHtml((u.templatesAfetados || []).join(', '))}" oninput="legisUpdateTemplatesAfetados(${idx}, this.value)" placeholder="locacao, distrato">
+      </div>
+    </div>
+  `).join('');
+}
+
+function legisUpdateUrl(idx, campo, valor) {
+  if (!_legisUrlsEditor.urls[idx]) return;
+  _legisUrlsEditor.urls[idx][campo] = valor;
+  _legisUrlsEditor.dirty = true;
+  $('legis-urls-status').textContent = '✏️ Alterações não salvas';
+  $('legis-urls-status').style.color = '#92400e';
+}
+
+function legisUpdateTemplatesAfetados(idx, raw) {
+  if (!_legisUrlsEditor.urls[idx]) return;
+  _legisUrlsEditor.urls[idx].templatesAfetados = raw.split(',').map(s => s.trim()).filter(Boolean);
+  _legisUrlsEditor.dirty = true;
+  $('legis-urls-status').textContent = '✏️ Alterações não salvas';
+  $('legis-urls-status').style.color = '#92400e';
+}
+
+function legisAddUrl() {
+  _legisUrlsEditor.urls.push({
+    id: 'nova_lei_' + Date.now().toString(36).slice(-5),
+    nome: 'Nova lei monitorada',
+    url: '',
+    templatesAfetados: [],
+  });
+  _legisUrlsEditor.dirty = true;
+  renderLegisUrlsLista();
+}
+
+function legisRemoverUrl(idx) {
+  if (!confirm(`Remover a URL "${_legisUrlsEditor.urls[idx]?.nome || idx + 1}" da lista?`)) return;
+  _legisUrlsEditor.urls.splice(idx, 1);
+  _legisUrlsEditor.dirty = true;
+  renderLegisUrlsLista();
+}
+
+async function legisSalvarUrls() {
+  const status = $('legis-urls-status');
+  try {
+    const workerUrl = legisWorkerUrlNormalizada();
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.legisAdminToken) {
+      throw new Error('Configure o "Token administrativo do Worker" antes (campo logo acima).');
+    }
+
+    // Validação local
+    const invalidas = _legisUrlsEditor.urls.filter(u => !u.url || !/^https?:\/\//i.test(u.url));
+    if (invalidas.length) {
+      throw new Error(`${invalidas.length} URL(s) inválida(s). Toda URL deve começar com http:// ou https://`);
+    }
+
+    status.textContent = '⏳ Salvando…';
+    status.style.color = 'var(--text-muted)';
+
+    const res = await fetch(workerUrl + '/urls', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-DRG-Admin-Token': cfg.legisAdminToken,
+      },
+      body: JSON.stringify({ urls: _legisUrlsEditor.urls }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    _legisUrlsEditor.dirty = false;
+    _legisUrlsEditor.customizadas = true;
+    status.textContent = `✅ ${data.salvas} URL(s) salvas no Worker (próxima execução já usa).`;
+    status.style.color = '#065f46';
+    $('legis-urls-aviso').textContent = '⚠️ Você está editando uma lista customizada (salva no KV).';
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+    status.style.color = '#b91c1c';
+  }
+}
+
+async function legisRestaurarUrls() {
+  if (!confirm('Restaurar URLs padrão (hardcoded)? A lista customizada será removida do KV.')) return;
+  const status = $('legis-urls-status');
+  try {
+    const workerUrl = legisWorkerUrlNormalizada();
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.legisAdminToken) {
+      throw new Error('Configure o "Token administrativo do Worker" antes.');
+    }
+
+    status.textContent = '⏳ Restaurando…';
+    const res = await fetch(workerUrl + '/urls', {
+      method: 'DELETE',
+      headers: { 'X-DRG-Admin-Token': cfg.legisAdminToken },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    _legisUrlsEditor.urls = (data.urls || []).map(u => ({ ...u }));
+    _legisUrlsEditor.customizadas = false;
+    _legisUrlsEditor.dirty = false;
+    renderLegisUrlsLista();
+    $('legis-urls-aviso').textContent = 'Usando lista padrão hardcoded no Worker.';
+    status.textContent = '↻ Restaurado. Próxima execução usa as URLs padrão.';
+    status.style.color = '#065f46';
+  } catch (err) {
+    status.textContent = '❌ ' + err.message;
+    status.style.color = '#b91c1c';
+  }
+}
+
+window.legisCarregarUrls = legisCarregarUrls;
+window.legisUpdateUrl = legisUpdateUrl;
+window.legisUpdateTemplatesAfetados = legisUpdateTemplatesAfetados;
+window.legisAddUrl = legisAddUrl;
+window.legisRemoverUrl = legisRemoverUrl;
+window.legisSalvarUrls = legisSalvarUrls;
+window.legisRestaurarUrls = legisRestaurarUrls;
 
 function abrirHtmlGeradoContrato() {
   const html = $('contrato-wizard-badge').dataset.htmlSalvo;

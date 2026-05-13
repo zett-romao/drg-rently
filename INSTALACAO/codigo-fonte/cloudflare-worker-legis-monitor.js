@@ -215,12 +215,25 @@ async function enviarEmail(env, alertas) {
   }
 }
 
+// Carrega URLs ativas — primeiro tenta override no KV, senão usa hardcoded.
+async function getUrlsAtivas(env) {
+  try {
+    const stored = await env.LEGIS_KV.get('urls_config');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  return URLS_MONITORADAS;
+}
+
 async function executarCheck(env) {
   const inicio = Date.now();
   const alertas = [];
   const log = [];
 
-  for (const entrada of URLS_MONITORADAS) {
+  const urlsAtivas = await getUrlsAtivas(env);
+  for (const entrada of urlsAtivas) {
     try {
       const conteudo = await fetchTexto(entrada.url);
       const hashAtual = await sha256(conteudo);
@@ -275,7 +288,7 @@ async function executarCheck(env) {
   const exec = {
     executadoEm: new Date().toISOString(),
     duracaoMs: Date.now() - inicio,
-    urlsVerificadas: URLS_MONITORADAS.length,
+    urlsVerificadas: urlsAtivas.length,
     alertas: alertas.length,
     log,
   };
@@ -315,8 +328,10 @@ export default {
     if (url.pathname === '/status') {
       const histStr = await env.LEGIS_KV.get('historico');
       const alertasStr = await env.LEGIS_KV.get('alertas');
+      const urlsAtivas = await getUrlsAtivas(env);
       const body = {
-        urlsMonitoradas: URLS_MONITORADAS,
+        urlsMonitoradas: urlsAtivas,
+        urlsCustomizadas: !!(await env.LEGIS_KV.get('urls_config')),
         historico: histStr ? JSON.parse(histStr) : [],
         alertas: alertasStr ? JSON.parse(alertasStr) : [],
       };
@@ -335,9 +350,84 @@ export default {
       });
     }
 
+    // ===== Gerenciamento de URLs monitoradas (admin only) =====
+    if (url.pathname === '/urls') {
+      // GET retorna sem precisar auth (informacional, mesmo conteúdo de /status)
+      if (request.method === 'GET') {
+        const urlsAtivas = await getUrlsAtivas(env);
+        return new Response(JSON.stringify({
+          urls: urlsAtivas,
+          customizadas: !!(await env.LEGIS_KV.get('urls_config')),
+          default: URLS_MONITORADAS,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
+
+      // POST/DELETE exigem token admin
+      const adminToken = request.headers.get('X-DRG-Admin-Token');
+      if (!adminToken || adminToken !== env.LEGIS_ADMIN_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Token administrativo inválido' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
+
+      if (request.method === 'POST') {
+        // Substitui a lista no KV
+        let body;
+        try { body = await request.json(); }
+        catch (_) { return new Response(JSON.stringify({ error: 'JSON inválido' }), { status: 400, headers: corsHeaders(origin) }); }
+
+        if (!Array.isArray(body.urls) || body.urls.length === 0) {
+          return new Response(JSON.stringify({ error: 'Campo "urls" deve ser array não-vazio' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+          });
+        }
+
+        // Sanitiza entradas
+        const sanitizado = body.urls.map((u, i) => ({
+          id: String(u.id || `url_${i}_${Date.now()}`).trim().replace(/[^a-z0-9_]/gi, '_').toLowerCase(),
+          nome: String(u.nome || u.url || 'Sem nome').trim().slice(0, 200),
+          url: String(u.url || '').trim(),
+          templatesAfetados: Array.isArray(u.templatesAfetados) ? u.templatesAfetados.filter(t => typeof t === 'string') : [],
+        })).filter(u => u.url && /^https?:\/\//i.test(u.url));
+
+        if (sanitizado.length === 0) {
+          return new Response(JSON.stringify({ error: 'Nenhuma URL válida após sanitização' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+          });
+        }
+
+        await env.LEGIS_KV.put('urls_config', JSON.stringify(sanitizado));
+        return new Response(JSON.stringify({ ok: true, salvas: sanitizado.length, urls: sanitizado }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
+
+      if (request.method === 'DELETE') {
+        // Volta pro hardcoded
+        await env.LEGIS_KV.delete('urls_config');
+        return new Response(JSON.stringify({ ok: true, restaurado: true, urls: URLS_MONITORADAS }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
+    }
+
     return new Response(JSON.stringify({
       info: 'DRG-Rently Legis Monitor',
-      endpoints: ['GET /status', 'POST /check'],
+      endpoints: [
+        'GET /status',
+        'POST /check (sem auth)',
+        'GET /urls (lista atual)',
+        'POST /urls (admin: substitui lista)',
+        'DELETE /urls (admin: volta ao padrão)',
+      ],
       cronAgendado: 'diário 10h UTC (7h Brasília)',
     }), {
       status: 200,
