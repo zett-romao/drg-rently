@@ -18,10 +18,7 @@ compatibility_date = "2024-09-01"
 [triggers]
 crons = ["0 10 * * *"]
 
-# KV binding — o ID precisa ser substituído após criar o namespace no Cloudflare.
-# Comando para descobrir o ID após criar:
-#   wrangler kv:namespace list
-# Ou Dashboard → Workers → KV → ver o ID ao lado de "LEGIS_KV".
-# [[kv_namespaces]]
-# binding = "LEGIS_KV"
-# id = "SUBSTITUIR_PELO_ID_DO_KV"
+# KV binding — namespace LEGIS_KV criado no Cloudflare em 2026-05-13.
+[[kv_namespaces]]
+binding = "LEGIS_KV"
+id = "e826d3cd0571422691aca35600b9ecc4"
