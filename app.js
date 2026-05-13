@@ -6949,13 +6949,13 @@ async function openContratoModal(id) {
   $('contrato-id').value = id || '';
   $('modal-contrato-title').textContent = id ? 'Editar Contrato' : 'Novo Contrato';
   $('btn-delete-contrato').style.display = id ? 'inline-block' : 'none';
-  $('btn-gerar-contrato').style.display = id ? 'inline-block' : 'none';
+  $('btn-gerar-distrato').style.display = id ? 'inline-block' : 'none';
 
   // Status ZapSign (carrega assíncrono — não bloqueia abertura)
   carregarStatusZapSign(id).catch(() => {});
 
   // Limpar
-  ['contrato-inicio', 'contrato-fim', 'contrato-aluguel', 'contrato-multa',
+  ['contrato-inicio', 'contrato-fim', 'contrato-entrega-chaves', 'contrato-aluguel', 'contrato-multa',
    'contrato-clausulas', 'contrato-obs', 'contrato-motivo-status'].forEach(f => $(f).value = '');
   $('contrato-status').value = 'rascunho';
   $('contrato-prazo').value = '30';
@@ -6991,6 +6991,7 @@ async function openContratoModal(id) {
         $('contrato-prazo').value = c.prazoMeses ?? '30';
         $('contrato-inicio').value = c.inicio || '';
         $('contrato-fim').value = c.fim || '';
+        $('contrato-entrega-chaves').value = c.dataEntregaChaves || '';
         $('contrato-aluguel').value = c.aluguel ?? '';
         $('contrato-vencimento').value = c.diaVencimento ?? 5;
         $('contrato-taxa-adm').value = c.taxaAdm ?? 10;
@@ -7082,6 +7083,7 @@ async function saveContrato() {
     prazoMeses: parseInt($('contrato-prazo').value, 10),
     inicio,
     fim: $('contrato-fim').value || null,
+    dataEntregaChaves: $('contrato-entrega-chaves').value || null,
     aluguel,
     diaVencimento: parseInt($('contrato-vencimento').value, 10) || 5,
     taxaAdm: parseFloat($('contrato-taxa-adm').value) || 10,
@@ -11860,6 +11862,286 @@ async function elabSalvarContrato() {
   } catch (err) {
     console.error('Erro ao salvar contrato do wizard:', err);
     showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+// =============================================================================
+// DISTRATO (encerramento antecipado/natural de contrato de locação)
+// =============================================================================
+
+const DISTRATO_MOTIVO_LABEL = {
+  termino_natural: 'término natural do prazo contratual',
+  rescisao_locatario: 'rescisão antecipada pelo LOCATÁRIO',
+  rescisao_locador: 'rescisão antecipada pelo LOCADOR',
+  acordo_mutuo: 'acordo mútuo entre as partes',
+  inadimplencia: 'inadimplência reiterada do LOCATÁRIO',
+  outro: 'motivo declarado pelas partes',
+};
+
+const DISTRATO_TEMPLATE = `${ELAB_AVISO_REVISAO}
+<h1 style="text-align:center;">TERMO DE DISTRATO DE CONTRATO DE LOCAÇÃO</h1>
+
+<p>Pelo presente Termo de Distrato, as partes abaixo qualificadas, já identificadas no <strong>Contrato de Locação nº {{contrato.numero}}</strong>, datado de {{contrato.inicio_br}}, têm entre si justo e contratado o seguinte:</p>
+
+<p><strong>LOCADOR:</strong> {{locador.nome}}, CPF/CNPJ nº {{locador.documento_fmt}}.</p>
+<p><strong>LOCATÁRIO:</strong> {{locatario.nome}}, CPF/CNPJ nº {{locatario.documento_fmt}}.</p>
+
+<h3>CLÁUSULA 1ª — DO OBJETO</h3>
+<p>As partes resolvem, por este instrumento, encerrar o contrato de locação celebrado entre si, referente ao imóvel situado em <strong>{{imovel.endereco_completo}}</strong>, com efeitos a partir de <strong>{{data_efetiva_br}}</strong>.</p>
+
+<h3>CLÁUSULA 2ª — DO MOTIVO</h3>
+<p>O encerramento decorre de {{motivo_label}}.</p>
+
+<h3>CLÁUSULA 3ª — DA ENTREGA DO IMÓVEL</h3>
+<p>O LOCATÁRIO entrega ao LOCADOR a posse do imóvel objeto da locação na data de <strong>{{data_entrega_chaves_br}}</strong>, declarando o LOCADOR tê-lo recebido nas condições verificadas em vistoria final.</p>
+
+{{#if multa}}<h3>CLÁUSULA 4ª — DA MULTA RESCISÓRIA</h3>
+<p>Em razão da rescisão antecipada, foi aplicada a multa proporcional, prevista no contrato original e no art. 4º da Lei 8.245/91, no valor de <strong>{{multa_fmt}}</strong>, valor este que o LOCATÁRIO se compromete a pagar.</p>{{/if}}
+
+{{#if pendencias}}<h3>CLÁUSULA {{n_clausula_pendencias}}ª — DAS PENDÊNCIAS</h3>
+<p>O LOCATÁRIO reconhece a existência de pendências financeiras no valor total de <strong>{{pendencias_fmt}}</strong>, comprometendo-se a quitá-las até a data de entrega das chaves.</p>{{/if}}
+
+<h3>CLÁUSULA {{n_clausula_quitacao}}ª — DA QUITAÇÃO</h3>
+<p>{{#if quitacao_total}}Cumpridas todas as obrigações deste distrato, as partes se outorgam mútua, plena, geral, rasa e irrevogável quitação de todas as obrigações decorrentes do contrato de locação ora distratado, nada mais tendo a reclamar uma da outra a qualquer título.{{/if}}{{#if !quitacao_total}}A quitação mútua, plena, geral, rasa e irrevogável dependerá do efetivo cumprimento das obrigações pecuniárias previstas neste instrumento. Após o pagamento integral, as partes nada mais terão a reclamar entre si.{{/if}}</p>
+
+{{#if obs}}<h3>CLÁUSULA {{n_clausula_obs}}ª — DISPOSIÇÕES ADICIONAIS</h3>
+<p>{{obs_html}}</p>{{/if}}
+
+<p style="margin-top:30px;">E, por estarem assim justas e contratadas, as partes firmam o presente em duas vias de igual teor.</p>
+
+<p style="text-align:right; margin-top:20px;">{{cidade}}, {{data_hoje_extenso}}.</p>
+
+<div style="margin-top:60px; display:flex; justify-content:space-around; gap:30px;">
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{locador.nome}}</div>
+    <div style="font-size:11px;">LOCADOR</div>
+  </div>
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{locatario.nome}}</div>
+    <div style="font-size:11px;">LOCATÁRIO</div>
+  </div>
+</div>
+
+<div style="margin-top:40px; font-size:11px; color:#888;">Testemunhas:</div>
+<div style="margin-top:20px; display:flex; gap:30px;">
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+</div>
+`;
+
+let _distratoContexto = null;
+
+async function abrirDistrato() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) {
+    showAlert('contrato-alert', 'Salve o contrato antes de gerar o distrato.');
+    return;
+  }
+  if (!State.tenant) {
+    alert('Selecione um tenant antes.');
+    return;
+  }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) { showAlert('contrato-alert', 'Contrato não encontrado.'); return; }
+    const c = cSnap.data();
+
+    const [locadorSnap, locatarioSnap, imovelSnap] = await Promise.all([
+      c.locadorId   ? tenantPath().collection('locadores').doc(c.locadorId).get()   : Promise.resolve(null),
+      c.locatarioId ? tenantPath().collection('locatarios').doc(c.locatarioId).get() : Promise.resolve(null),
+      c.imovelId    ? tenantPath().collection('imoveis').doc(c.imovelId).get()    : Promise.resolve(null),
+    ]);
+    const locador = locadorSnap && locadorSnap.exists ? locadorSnap.data() : {};
+    const locatario = locatarioSnap && locatarioSnap.exists ? locatarioSnap.data() : {};
+    const imovel = imovelSnap && imovelSnap.exists ? imovelSnap.data() : {};
+
+    _distratoContexto = {
+      contratoId,
+      contrato: c,
+      locador, locatario, imovel,
+      htmlGerado: null,
+    };
+
+    // Defaults
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    $('distrato-data-efetiva').value = c.dataEntregaChaves || hojeISO;
+    $('distrato-entrega-chaves').value = c.dataEntregaChaves || hojeISO;
+    $('distrato-motivo').value = '';
+    $('distrato-multa').value = '';
+    $('distrato-pendencias').value = '';
+    $('distrato-obs').value = '';
+
+    $('distrato-etapa-perguntas').style.display = 'block';
+    $('distrato-etapa-preview').style.display = 'none';
+    $('distrato-acoes-perguntas').style.display = 'block';
+    $('distrato-acoes-preview').style.display = 'none';
+    clearAlert('distrato-alert');
+
+    $('modal-distrato').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir distrato:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+function fecharDistrato() {
+  $('modal-distrato').style.display = 'none';
+  _distratoContexto = null;
+}
+
+function distratoVoltarPerguntas() {
+  $('distrato-etapa-perguntas').style.display = 'block';
+  $('distrato-etapa-preview').style.display = 'none';
+  $('distrato-acoes-perguntas').style.display = 'block';
+  $('distrato-acoes-preview').style.display = 'none';
+}
+
+function distratoGerarPreview() {
+  clearAlert('distrato-alert');
+  const ctx = _distratoContexto;
+  if (!ctx) return;
+
+  const dataEfetiva = $('distrato-data-efetiva').value;
+  const entregaChaves = $('distrato-entrega-chaves').value;
+  const motivo = $('distrato-motivo').value;
+  const multa = parseFloat($('distrato-multa').value) || 0;
+  const pendencias = parseFloat($('distrato-pendencias').value) || 0;
+  const obs = $('distrato-obs').value.trim();
+
+  if (!dataEfetiva) { showAlert('distrato-alert', 'Informe a data efetiva do distrato.'); return; }
+  if (!motivo) { showAlert('distrato-alert', 'Selecione o motivo do distrato.'); return; }
+
+  // Numeração dinâmica das cláusulas
+  let n = 4;
+  let nPendencias = null, nQuitacao, nObs = null;
+  if (multa > 0) { n = 5; }
+  if (pendencias > 0) { nPendencias = n; n++; }
+  nQuitacao = n;
+  if (obs) { n++; nObs = n; }
+
+  const dados = {
+    contrato: {
+      ...ctx.contrato,
+      numero: ctx.contrato.numero || '—',
+      inicio_br: ctx.contrato.inicio ? fmtDataBR(ctx.contrato.inicio) : '—',
+    },
+    locador: elabFormatarEntidade(ctx.locador, 'locadores'),
+    locatario: elabFormatarEntidade(ctx.locatario, 'locatarios'),
+    imovel: elabFormatarEntidade(ctx.imovel, 'imoveis'),
+    data_efetiva_br: fmtDataBR(dataEfetiva),
+    data_entrega_chaves_br: fmtDataBR(entregaChaves || dataEfetiva),
+    motivo_label: DISTRATO_MOTIVO_LABEL[motivo] || motivo,
+    multa: multa > 0 ? true : false,
+    multa_fmt: fmtBRL(multa),
+    pendencias: pendencias > 0 ? true : false,
+    pendencias_fmt: fmtBRL(pendencias),
+    obs: obs || null,
+    obs_html: obs ? (typeof textToHtml === 'function' ? textToHtml(obs) : escapeHtml(obs).replace(/\n/g, '<br>')) : '',
+    quitacao_total: pendencias === 0 && multa === 0,
+    n_clausula_pendencias: nPendencias,
+    n_clausula_quitacao: nQuitacao,
+    n_clausula_obs: nObs,
+    cidade: ctx.imovel?.endereco?.cidade || 'São Paulo',
+    data_hoje_extenso: fmtDataExtenso(),
+  };
+
+  const html = elabRenderizarTemplate(DISTRATO_TEMPLATE, dados);
+  ctx.htmlGerado = html;
+  ctx.respostas = { dataEfetiva, entregaChaves, motivo, multa, pendencias, obs };
+
+  $('distrato-preview-container').innerHTML = html;
+  $('distrato-etapa-perguntas').style.display = 'none';
+  $('distrato-etapa-preview').style.display = 'block';
+  $('distrato-acoes-perguntas').style.display = 'none';
+  $('distrato-acoes-preview').style.display = 'block';
+}
+
+async function distratoBaixarPDF() {
+  if (!_distratoContexto?.htmlGerado) return;
+  if (!window.html2pdf) {
+    showAlert('distrato-alert', 'Biblioteca html2pdf não carregou. Recarregue a página.');
+    return;
+  }
+  const wrapper = document.createElement('div');
+  wrapper.style.padding = '20mm';
+  wrapper.style.fontFamily = 'Georgia, serif';
+  wrapper.style.fontSize = '12pt';
+  wrapper.style.color = '#000';
+  wrapper.innerHTML = _distratoContexto.htmlGerado;
+  const filename = `Distrato_contrato_${_distratoContexto.contrato.numero || _distratoContexto.contratoId}_${Date.now()}.pdf`;
+  await html2pdf().set({
+    margin: 0,
+    filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  }).from(wrapper).save();
+}
+
+function distratoBaixarWord() {
+  if (!_distratoContexto?.htmlGerado) return;
+  const filename = `Distrato_contrato_${_distratoContexto.contrato.numero || _distratoContexto.contratoId}_${Date.now()}.doc`;
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Distrato</title></head><body style="font-family: Georgia, serif; font-size: 12pt;">${_distratoContexto.htmlGerado}</body></html>`;
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function distratoSalvar() {
+  if (!_distratoContexto?.htmlGerado) return;
+  const ctx = _distratoContexto;
+  clearAlert('distrato-alert');
+
+  try {
+    // 1) Atualiza contrato com status rescindido + dataEntregaChaves
+    const updatePayload = {
+      status: 'rescindido',
+      dataEntregaChaves: ctx.respostas.entregaChaves || ctx.respostas.dataEfetiva,
+      distrato: {
+        dataEfetiva: ctx.respostas.dataEfetiva,
+        motivo: ctx.respostas.motivo,
+        motivoLabel: DISTRATO_MOTIVO_LABEL[ctx.respostas.motivo],
+        multa: ctx.respostas.multa,
+        pendencias: ctx.respostas.pendencias,
+        obs: ctx.respostas.obs || null,
+        htmlGerado: ctx.htmlGerado,
+        geradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        geradoPor: State.user.uid,
+      },
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    };
+    await tenantPath().collection('contratos').doc(ctx.contratoId).update(updatePayload);
+
+    // 2) Side-effect: libera imóvel se estava alugado
+    if (ctx.contrato.imovelId) {
+      try {
+        const imovelRef = tenantPath().collection('imoveis').doc(ctx.contrato.imovelId);
+        const snap = await imovelRef.get();
+        if (snap.exists && !snap.data().multiplasUnidades) {
+          await imovelRef.update({ status: 'disponivel' });
+          invalidateImoveisCache();
+        }
+      } catch (_) {}
+    }
+
+    logAuditoria('create', 'distrato', ctx.contratoId, {
+      motivo: ctx.respostas.motivo,
+      multa: ctx.respostas.multa,
+      pendencias: ctx.respostas.pendencias,
+    });
+
+    showAlert('contrato-alert', `✓ Distrato gerado e contrato encerrado. Status atualizado para "rescindido".`, 'success');
+    $('contrato-status').value = 'rescindido';
+    fecharDistrato();
+    loadContratos();
+  } catch (err) {
+    console.error('Erro ao salvar distrato:', err);
+    showAlert('distrato-alert', 'Erro: ' + err.message);
   }
 }
 

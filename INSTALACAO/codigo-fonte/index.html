@@ -2784,7 +2784,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeNegociacaoModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-negociacao" onclick="deleteNegociacao()" style="display:none;">Excluir</button>
-        <button class="btn btn-secondary" id="btn-gerar-negociacao" onclick="gerarContratoVenda()" style="display:none;">📄 Gerar contrato</button>
         <button class="btn btn-primary" id="btn-save-negociacao" onclick="saveNegociacao()">Salvar</button>
       </div>
     </div>
@@ -3521,6 +3520,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <label>Data de fim</label>
             <input type="date" id="contrato-fim">
           </div>
+          <div class="form-group">
+            <label>Entrega das chaves</label>
+            <input type="date" id="contrato-entrega-chaves" title="Data em que as chaves foram (ou serão) entregues ao locatário">
+          </div>
         </div>
 
         <div class="form-row">
@@ -3601,7 +3604,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
-        <button class="btn btn-secondary" id="btn-gerar-contrato" onclick="gerarContratoLocacao()" style="display:none;">📄 Gerar contrato</button>
+        <button class="btn btn-secondary" id="btn-gerar-distrato" onclick="abrirDistrato()" style="display:none;" title="Gerar termo de distrato para encerramento antecipado deste contrato">📄 Gerar distrato</button>
         <button class="btn btn-secondary" id="btn-zapsign-contrato" onclick="abrirEnvioZapSign()" style="display:none;">✍️ Enviar pra assinatura</button>
         <button class="btn btn-secondary" id="btn-zapsign-status" onclick="atualizarStatusZapSign()" style="display:none;">🔄 Atualizar status</button>
         <button class="btn btn-primary" id="btn-save-contrato" onclick="saveContrato()">Salvar</button>
@@ -3738,6 +3741,88 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- ============================================ -->
+  <!-- MODAL: Gerar Distrato -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-distrato" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📄 Gerar distrato</h3>
+        <button class="modal-close" onclick="fecharDistrato()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="distrato-alert" class="alert alert-error" style="display:none;"></div>
+
+        <!-- ETAPA 1: perguntas -->
+        <div id="distrato-etapa-perguntas">
+          <p class="muted" style="font-size:13px; margin-bottom:14px;">
+            Preencha os campos abaixo para gerar o termo de distrato deste contrato. Os dados das partes e do imóvel virão do próprio contrato.
+          </p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">Data efetiva do distrato</label>
+              <input type="date" id="distrato-data-efetiva">
+            </div>
+            <div class="form-group">
+              <label>Data de entrega das chaves</label>
+              <input type="date" id="distrato-entrega-chaves" title="Se diferente da data efetiva — quando o locatário devolveu/devolverá as chaves">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="required">Motivo do distrato</label>
+            <select id="distrato-motivo">
+              <option value="">— selecione —</option>
+              <option value="termino_natural">Término natural do contrato</option>
+              <option value="rescisao_locatario">Rescisão antecipada pelo locatário</option>
+              <option value="rescisao_locador">Rescisão antecipada pelo locador</option>
+              <option value="acordo_mutuo">Acordo mútuo entre as partes</option>
+              <option value="inadimplencia">Inadimplência do locatário</option>
+              <option value="outro">Outro motivo</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Multa rescisória aplicada (R$)</label>
+              <input type="number" id="distrato-multa" min="0" step="0.01" placeholder="0,00" title="Se houver multa por rescisão antecipada. Deixe 0 se não aplicável.">
+            </div>
+            <div class="form-group">
+              <label>Valores pendentes a quitar (R$)</label>
+              <input type="number" id="distrato-pendencias" min="0" step="0.01" placeholder="0,00" title="Aluguéis em atraso, taxas, etc.">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Observações / cláusulas adicionais (opcional)</label>
+            <textarea id="distrato-obs" rows="4" placeholder="Ex: O imóvel foi devolvido em perfeito estado; vistoria realizada conjuntamente; sem pendências."></textarea>
+          </div>
+        </div>
+
+        <!-- ETAPA 2: preview -->
+        <div id="distrato-etapa-preview" style="display:none;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+            <strong>Pré-visualização do distrato</strong>
+            <button class="btn btn-secondary btn-sm" onclick="distratoVoltarPerguntas()">← Editar dados</button>
+          </div>
+          <div id="distrato-preview-container" class="contrato-preview" style="max-height:55vh; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:24px; background:white;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="fecharDistrato()">Cancelar</button>
+        <div id="distrato-acoes-perguntas">
+          <button class="btn btn-primary" onclick="distratoGerarPreview()">📄 Gerar preview →</button>
+        </div>
+        <div id="distrato-acoes-preview" style="display:none;">
+          <button class="btn btn-secondary" onclick="distratoBaixarPDF()">⬇ PDF</button>
+          <button class="btn btn-secondary" onclick="distratoBaixarWord()">⬇ Word</button>
+          <button class="btn btn-primary" onclick="distratoSalvar()">💾 Salvar e encerrar contrato</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Preview do Contrato (gerado) -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-contrato-preview" style="display:none;">
@@ -3762,6 +3847,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513o"></script>
+  <script src="app.js?v=20260513p"></script>
 </body>
 </html>
