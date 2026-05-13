@@ -1358,7 +1358,8 @@ async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis', 'stat-imoveis-venda',
                'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
-               'stat-balancetes-mes', 'stat-contratos-atrasados'];
+               'stat-balancetes-mes', 'stat-contratos-atrasados',
+               'stat-ia-contratos', 'stat-ia-comprovantes'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
@@ -1413,10 +1414,61 @@ async function loadDashboard() {
       const el = $('stat-contratos-atrasados');
       if (el) el.textContent = '—';
     }
+
+    // Stats IA do mês (não bloqueia o dashboard se falhar)
+    try {
+      const stats = await contarUsosIaDoMes(contratosSnap, negociacoesSnap, balancetesMesSnap);
+      const elC = $('stat-ia-contratos');
+      const elP = $('stat-ia-comprovantes');
+      if (elC) elC.textContent = stats.contratosIa;
+      if (elP) elP.textContent = stats.comprovantesIa;
+    } catch (e) {
+      console.warn('Erro ao contar stats IA:', e);
+      const elC = $('stat-ia-contratos'); if (elC) elC.textContent = '—';
+      const elP = $('stat-ia-comprovantes'); if (elP) elP.textContent = '—';
+    }
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
   }
+}
+
+// Conta uso de IA no mês corrente (contratos+negociações criados via IA
+// + comprovantes lidos pelo Gemini multi-comprovante).
+async function contarUsosIaDoMes(contratosSnap, negociacoesSnap, balancetesMesSnap) {
+  const hoje = new Date();
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const inicioMesMs = inicioMes.getTime();
+
+  // Contratos + Negociações criados via IA (importadoPorIA ou geradoPorWizard)
+  // este mês.
+  const ehEsteMes = (d) => {
+    const t = d.criadoEm?.toMillis?.() || d.criadoEm?.seconds * 1000 || 0;
+    return t >= inicioMesMs;
+  };
+  const isIA = (d) => d.importadoPorIA === true || d.geradoPorWizard === true;
+
+  let contratosIa = 0;
+  contratosSnap.docs.forEach(doc => {
+    const d = doc.data();
+    if (ehEsteMes(d) && isIA(d)) contratosIa++;
+  });
+  negociacoesSnap.docs.forEach(doc => {
+    const d = doc.data();
+    if (ehEsteMes(d) && isIA(d)) contratosIa++;
+  });
+
+  // Comprovantes lidos pela IA este mês: lançamentos em balancetes do mês corrente
+  // que têm iaConfidence != null.
+  let comprovantesIa = 0;
+  balancetesMesSnap.docs.forEach(doc => {
+    const lancs = doc.data().lancamentos || [];
+    lancs.forEach(l => {
+      if (l && l.iaConfidence != null) comprovantesIa++;
+    });
+  });
+
+  return { contratosIa, comprovantesIa };
 }
 
 // =============================================================
@@ -7075,6 +7127,89 @@ async function proximoNumeroSequencial(tipo) {
   });
 }
 
+// =============================================================
+// RENUMERAR — operação admin pra alinhar contratos antigos
+// =============================================================
+// Ordena docs da coleção por criadoEm ASC e renumera de 1 em diante.
+// Atualiza o contador também pra próximas inserções continuarem do certo.
+async function renumerarRegistros(colecao) {
+  if (!State.tenant) { alert('Carregue um tenant antes.'); return; }
+  if (State.userDoc?.role !== 'admin' && !State.isSuperAdmin) {
+    alert('Apenas administradores podem renumerar.');
+    return;
+  }
+  const label = colecao === 'contratos' ? 'Contratos' : 'Negociações';
+  const confirma1 = confirm(
+    `⚠️ Renumerar TODOS os ${label}\n\n` +
+    `Esta ação:\n` +
+    `• Ordena os ${label.toLowerCase()} por data de criação\n` +
+    `• Atribui números 00001, 00002, 00003... em sequência\n` +
+    `• Sobrescreve os números atuais (NÃO é reversível)\n` +
+    `• Atualiza o contador pra próximas inserções\n\n` +
+    `Recomendação: fazer backup antes via Firebase Console.\n\n` +
+    `Quer continuar?`
+  );
+  if (!confirma1) return;
+  const confirma2 = prompt(`Pra confirmar, digite RENUMERAR (maiúsculas):`);
+  if (confirma2 !== 'RENUMERAR') {
+    alert('Operação cancelada (texto incorreto).');
+    return;
+  }
+
+  try {
+    const snap = await tenantPath().collection(colecao).get();
+    if (snap.empty) {
+      alert(`Nenhum ${label.toLowerCase()} pra renumerar.`);
+      return;
+    }
+
+    // Ordena por criadoEm (mais antigo primeiro). Docs sem criadoEm vão pro fim.
+    const docs = snap.docs.map(d => ({ id: d.id, ref: d.ref, data: d.data() }));
+    docs.sort((a, b) => {
+      const ta = a.data.criadoEm?.toMillis?.() || a.data.criadoEm?.seconds * 1000 || Number.MAX_SAFE_INTEGER;
+      const tb = b.data.criadoEm?.toMillis?.() || b.data.criadoEm?.seconds * 1000 || Number.MAX_SAFE_INTEGER;
+      return ta - tb;
+    });
+
+    // Firestore: batch máx 500 ops. Vamos em chunks.
+    const chunks = [];
+    for (let i = 0; i < docs.length; i += 400) chunks.push(docs.slice(i, i + 400));
+
+    let total = 0;
+    for (const chunk of chunks) {
+      const batch = db.batch();
+      chunk.forEach((doc, idxInChunk) => {
+        const globalIdx = total + idxInChunk + 1;
+        batch.update(doc.ref, {
+          numero: String(globalIdx).padStart(5, '0'),
+          numeroSequencial: globalIdx,
+          renumeradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+      await batch.commit();
+      total += chunk.length;
+    }
+
+    // Atualiza o contador pra próximas inserções
+    await tenantPath().collection('contadores').doc(colecao).set({
+      valor: total,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    logAuditoria('renumerar', colecao, 'todos', { total });
+    alert(`✅ ${total} ${label.toLowerCase()} renumerados com sucesso!\n\nÚltimo número: ${String(total).padStart(5, '0')}\nPróxima inserção será ${String(total + 1).padStart(5, '0')}.`);
+    if (colecao === 'contratos') {
+      if (typeof loadContratos === 'function') loadContratos();
+    } else {
+      if (typeof loadNegociacoes === 'function') loadNegociacoes();
+    }
+  } catch (err) {
+    console.error('Erro ao renumerar:', err);
+    alert('❌ Erro ao renumerar: ' + err.message);
+  }
+}
+window.renumerarRegistros = renumerarRegistros;
+
 async function saveContrato() {
   clearAlert('contrato-alert');
 
@@ -10254,10 +10389,47 @@ async function importarContratoPorIA(tipoHint) {
   $('importar-contrato-progress').style.display = 'none';
   $('importar-contrato-alert').style.display = 'none';
 
+  // Reset visual da dropzone
+  const dz = $('importar-dropzone');
+  if (dz) {
+    dz.classList.remove('dragover', 'has-file');
+    const ico = dz.querySelector('.dropzone-icon');
+    if (ico) ico.textContent = '📂';
+    const txt = dz.querySelector('.dropzone-text strong');
+    if (txt) txt.textContent = 'Arraste o arquivo aqui';
+  }
+
   $('importar-contrato-file').onchange = (e) => {
     const file = e.target.files?.[0];
     if (file) processarArquivoContrato(file);
   };
+
+  // === Drag & drop ===
+  if (dz && !dz.dataset.dnd) {
+    dz.dataset.dnd = '1';
+    // Previne o navegador de abrir o arquivo se soltar fora
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+      dz.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); });
+    });
+    ['dragenter', 'dragover'].forEach(ev => {
+      dz.addEventListener(ev, () => dz.classList.add('dragover'));
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+      dz.addEventListener(ev, () => dz.classList.remove('dragover'));
+    });
+    dz.addEventListener('drop', (e) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file) {
+        // Visual: marca como "tem arquivo"
+        dz.classList.add('has-file');
+        const ico = dz.querySelector('.dropzone-icon');
+        if (ico) ico.textContent = '✅';
+        const txt = dz.querySelector('.dropzone-text strong');
+        if (txt) txt.textContent = file.name;
+        processarArquivoContrato(file);
+      }
+    });
+  }
 
   $('modal-importar-contrato').style.display = 'flex';
 }

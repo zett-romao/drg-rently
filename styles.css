@@ -474,6 +474,83 @@ label.required::after {
   transform: scale(1.02);
 }
 
+/* Cards de IA — destaque visual sutil */
+.stat-card-ia {
+  background: linear-gradient(180deg, #FFFFFF 0%, #FAF5FF 100%);
+  border-color: #d8b4fe;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card-ia::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 80px;
+  height: 80px;
+  background: radial-gradient(circle at top right, rgba(168, 85, 247, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+.stat-card-ia:hover {
+  border-color: #a855f7;
+  box-shadow:
+    0 4px 8px rgba(168, 85, 247, 0.15),
+    0 12px 24px rgba(168, 85, 247, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Dropzone (Importar contrato via IA) */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 36px 20px;
+  border: 2px dashed #c7d2fe;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+  gap: 6px;
+}
+
+.dropzone:hover {
+  border-color: var(--primary);
+  background: linear-gradient(135deg, #e0e7ff, #ede9fe);
+  transform: translateY(-1px);
+}
+
+.dropzone.dragover {
+  border-color: #6d28d9;
+  background: linear-gradient(135deg, #ddd6fe, #c4b5fd);
+  transform: scale(1.01);
+  box-shadow: 0 0 0 4px rgba(109, 40, 217, 0.18);
+}
+
+.dropzone-icon {
+  font-size: 42px;
+  line-height: 1;
+}
+
+.dropzone-text strong {
+  color: var(--primary-dark);
+  font-size: 15px;
+}
+
+.dropzone.has-file {
+  border-style: solid;
+  border-color: #22c55e;
+  background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+}
+
+.dropzone.has-file .dropzone-icon::after {
+  content: '✓';
+}
+
 .stat-card-icon {
   width: 52px;
   height: 52px;
