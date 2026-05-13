@@ -5289,6 +5289,10 @@ async function openNegociacaoModal(id) {
   }
   await populateNegociacaoSelects(selected);
   onNegociacaoImovelChange();
+
+  // Status ZapSign da negociação (carrega assíncrono)
+  carregarStatusZapSignNegociacao(id).catch(() => {});
+
   $('modal-negociacao').style.display = 'flex';
 }
 
@@ -9932,8 +9936,13 @@ async function enviarParaZapSign() {
 
     const result = await res.json();
 
-    // 4) Salva no contrato
-    await tenantPath().collection('contratos').doc(_zapsignContexto.contratoId).update({
+    // 4) Salva no contrato ou na negociação (depende do tipo)
+    const ehNegociacao = _zapsignContexto.tipo === 'negociacao';
+    const colecao = ehNegociacao ? 'negociacoes' : 'contratos';
+    const entidadeAuditoria = ehNegociacao ? 'negociacao' : 'contrato';
+    const alertEl = ehNegociacao ? 'negociacao-alert' : 'contrato-alert';
+
+    await tenantPath().collection(colecao).doc(_zapsignContexto.contratoId).update({
       zapsign: {
         openId: result.openId,
         token: result.token,
@@ -9946,12 +9955,16 @@ async function enviarParaZapSign() {
       },
     });
 
-    logAuditoria('zapsign_envio', 'contrato', _zapsignContexto.contratoId, { signers: signers.length });
+    logAuditoria('zapsign_envio', entidadeAuditoria, _zapsignContexto.contratoId, { signers: signers.length });
 
     closeEnvioZapSign();
-    // Recarrega status no modal
-    await carregarStatusZapSign(_zapsignContexto.contratoId);
-    showAlert('contrato-alert', `✅ Contrato enviado pra ZapSign! ${signers.length} signatário(s) vão receber e-mail.`, 'success');
+    // Recarrega status no modal correspondente
+    if (ehNegociacao) {
+      await carregarStatusZapSignNegociacao(_zapsignContexto.contratoId);
+    } else {
+      await carregarStatusZapSign(_zapsignContexto.contratoId);
+    }
+    showAlert(alertEl, `✅ ${ehNegociacao ? 'Contrato de venda' : 'Contrato'} enviado pra ZapSign! ${signers.length} signatário(s) vão receber e-mail.`, 'success');
   } catch (err) {
     console.error('Erro ao enviar ZapSign:', err);
     showAlert('zapsign-alert', 'Erro: ' + err.message);
@@ -9965,9 +9978,14 @@ async function gerarPdfContratoBase64() {
   // 1) Garante que o HTML do contrato está renderizado em #contrato-preview-content
   const preview = $('contrato-preview-content');
   if (!preview || !preview.innerHTML.trim()) {
-    // Tenta gerar (chama a função existente, mas fechamos o modal imediato)
+    // Detecta se é negociação (venda) ou contrato (locação) pelo contexto.
+    const ehNegociacao = _zapsignContexto?.tipo === 'negociacao';
     try {
-      await gerarContratoLocacao();
+      if (ehNegociacao && typeof gerarContratoVenda === 'function') {
+        await gerarContratoVenda();
+      } else if (typeof gerarContratoLocacao === 'function') {
+        await gerarContratoLocacao();
+      }
       $('modal-contrato-preview').style.display = 'none'; // não queremos abrir o preview pro usuário
     } catch (_) {
       return null;
@@ -10164,12 +10182,237 @@ async function baixarPdfAssinadoZapSign() {
   }
 }
 
+// =============================================================
+// ZAPSIGN PARA NEGOCIAÇÕES (Compra e Venda) — Fase F item 7
+// =============================================================
+// Reutiliza o mesmo modal #modal-zapsign do contrato. A diferença
+// está nos dados: vendedor (em vez de locador), comprador (em vez de
+// locatário) e o título "Compra e Venda" no documento.
+
+async function abrirEnvioZapSignNegociacao() {
+  const negociacaoId = $('negociacao-id').value;
+  if (!negociacaoId) {
+    showAlert('negociacao-alert', 'Salve a negociação antes de enviar pra assinatura.');
+    return;
+  }
+
+  const cfgSnap = await tenantPath().collection('config').doc('site').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.workerZapsignUrl || !cfg.zapsignToken) {
+    showAlert('negociacao-alert', 'Configure URL do Worker ZapSign + Token em Configurações → Assinatura Eletrônica.');
+    return;
+  }
+
+  try {
+    const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+    if (!nSnap.exists) { showAlert('negociacao-alert', 'Negociação não encontrada.'); return; }
+    const n = nSnap.data();
+
+    // Busca dados dos signatários: vendedor + comprador + imóvel
+    const [vendedorSnap, compradorSnap, imovelSnap] = await Promise.all([
+      n.vendedorId  ? tenantPath().collection('locadores').doc(n.vendedorId).get() : Promise.resolve(null),
+      n.compradorId ? tenantPath().collection('compradores').doc(n.compradorId).get() : Promise.resolve(null),
+      n.imovelId    ? tenantPath().collection('imoveis').doc(n.imovelId).get() : Promise.resolve(null),
+    ]);
+    const vendedor = vendedorSnap && vendedorSnap.exists ? vendedorSnap.data() : null;
+    const comprador = compradorSnap && compradorSnap.exists ? compradorSnap.data() : null;
+    const imovel = imovelSnap && imovelSnap.exists ? imovelSnap.data() : null;
+
+    const signers = [];
+    if (vendedor && vendedor.email) {
+      signers.push({
+        name: vendedor.nome,
+        email: vendedor.email,
+        cpf: (vendedor.documento || '').replace(/\D/g, ''),
+        role: 'Vendedor',
+      });
+    }
+    if (comprador && comprador.email) {
+      signers.push({
+        name: comprador.nome,
+        email: comprador.email,
+        cpf: (comprador.documento || comprador.cpf || '').replace(/\D/g, ''),
+        role: 'Comprador',
+      });
+    }
+
+    // Marca o contexto como negociação (tipo: 'negociacao')
+    _zapsignContexto = {
+      contratoId: negociacaoId, // reusa o nome do campo pra simplificar funções compartilhadas
+      tipo: 'negociacao',
+      signers,
+      negociacao: n,
+      imovel,
+    };
+
+    $('zapsign-doc-name').value = `Contrato de Compra e Venda - ${imovel?.apelido || 'Imóvel'}`;
+    $('zapsign-message').value = 'Por favor, leia e assine o contrato de compra e venda. Em caso de dúvidas, entre em contato com nossa imobiliária.';
+
+    renderSignersZapSign();
+    clearAlert('zapsign-alert');
+    $('modal-zapsign').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir modal ZapSign (negociação):', err);
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  }
+}
+
+// Atualiza status ZapSign da negociação
+async function atualizarStatusZapSignNegociacao() {
+  const negociacaoId = $('negociacao-id').value;
+  if (!negociacaoId) return;
+  const btn = $('btn-zapsign-negociacao-status');
+  btn.disabled = true; btn.textContent = '⏳ Consultando...';
+  try {
+    const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+    const n = nSnap.data();
+    if (!n.zapsign || !n.zapsign.openId) {
+      showAlert('negociacao-alert', 'Sem assinatura registrada.');
+      return;
+    }
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.data();
+    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
+
+    const res = await fetch(`${workerUrl}/docs/${n.zapsign.openId}`, {
+      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Erro ao consultar status');
+    }
+    const data = await res.json();
+
+    const updateData = {
+      'zapsign.status': data.status,
+      'zapsign.signers': data.signers || [],
+    };
+    if (data.signedFileUrl) updateData['zapsign.signedFileUrl'] = data.signedFileUrl;
+    await tenantPath().collection('negociacoes').doc(negociacaoId).update(updateData);
+
+    // Se 100% assinado e negociação ainda em rascunho/em_negociacao → marca "aceita"
+    if (data.status === 'signed' && (n.status === 'rascunho' || n.status === 'em_negociacao')) {
+      await tenantPath().collection('negociacoes').doc(negociacaoId).update({ status: 'aceita' });
+      logAuditoria('zapsign_signed', 'negociacao', negociacaoId, {});
+    }
+
+    await carregarStatusZapSignNegociacao(negociacaoId);
+    showAlert('negociacao-alert', `Status atualizado: ${data.status === 'signed' ? '✅ Totalmente assinado' : '⏳ Aguardando assinaturas'}`, 'success');
+  } catch (err) {
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '🔄 Atualizar status';
+  }
+}
+
+// Carrega status atual da assinatura da negociação
+async function carregarStatusZapSignNegociacao(negociacaoId) {
+  const box = $('zapsign-negociacao-status-box');
+  const btnEnviar = $('btn-zapsign-negociacao');
+  const btnStatus = $('btn-zapsign-negociacao-status');
+  if (!box || !btnEnviar) return;
+
+  if (!negociacaoId) {
+    box.style.display = 'none';
+    btnEnviar.style.display = 'none';
+    btnStatus.style.display = 'none';
+    return;
+  }
+
+  try {
+    const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+    if (!nSnap.exists) return;
+    const n = nSnap.data();
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    const zapsignConfigurado = !!(cfg.workerZapsignUrl && cfg.zapsignToken);
+
+    if (!zapsignConfigurado) {
+      btnEnviar.style.display = 'none';
+      btnStatus.style.display = 'none';
+      box.style.display = 'none';
+      return;
+    }
+
+    if (!n.zapsign || !n.zapsign.openId) {
+      btnEnviar.style.display = 'inline-block';
+      btnStatus.style.display = 'none';
+      box.style.display = 'none';
+      return;
+    }
+
+    btnEnviar.style.display = 'none';
+    btnStatus.style.display = 'inline-block';
+    box.style.display = 'block';
+
+    const zs = n.zapsign;
+    const statusLabels = { pending: '⏳ Aguardando assinaturas', signed: '✅ Totalmente assinado', refused: '❌ Recusado', expired: '⏰ Expirado' };
+    const statusLabel = statusLabels[zs.status] || zs.status;
+
+    const signersHtml = (zs.signers || []).map(s => {
+      const ico = s.status === 'signed' ? '✅' : s.status === 'refused' ? '❌' : '⏳';
+      return `<div style="display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px;">
+        ${ico} <strong>${escapeHtml(s.name)}</strong>
+        <span class="muted">${escapeHtml(s.email)}</span>
+        <span style="margin-left:auto; font-size:11px;">${s.status === 'signed' ? 'Assinou' : s.status === 'refused' ? 'Recusou' : 'Pendente'}</span>
+      </div>`;
+    }).join('');
+
+    let downloadBtn = '';
+    if (zs.status === 'signed' || zs.signedFileUrl) {
+      const url = zs.signedFileUrl;
+      downloadBtn = url
+        ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:8px;">📄 Baixar PDF assinado</a>`
+        : `<button class="btn btn-primary btn-sm" onclick="baixarPdfAssinadoZapSignNegociacao()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
+    }
+
+    $('zapsign-negociacao-status-content').innerHTML = `
+      <div style="margin-bottom:8px;"><strong>Status:</strong> ${statusLabel}</div>
+      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')}</div>
+      ${signersHtml}
+      ${downloadBtn}
+    `;
+  } catch (err) {
+    console.warn('Erro ao carregar status ZapSign da negociação:', err);
+  }
+}
+
+async function baixarPdfAssinadoZapSignNegociacao() {
+  const negociacaoId = $('negociacao-id').value;
+  if (!negociacaoId) return;
+  try {
+    const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+    const n = nSnap.data();
+    if (!n.zapsign || !n.zapsign.openId) return;
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.data();
+    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
+
+    const res = await fetch(`${workerUrl}/docs/${n.zapsign.openId}/pdf`, {
+      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.signedFileUrl) {
+      throw new Error(data.error || 'PDF assinado ainda não disponível.');
+    }
+    window.open(data.signedFileUrl, '_blank');
+  } catch (err) {
+    showAlert('negociacao-alert', 'Erro: ' + err.message);
+  }
+}
+
 // Exposição global pra onclick funcionar
 window.abrirEnvioZapSign = abrirEnvioZapSign;
 window.closeEnvioZapSign = closeEnvioZapSign;
 window.addSignerZapSign = addSignerZapSign;
 window.updateSignerZapSign = updateSignerZapSign;
 window.removerSignerZapSign = removerSignerZapSign;
+window.abrirEnvioZapSignNegociacao = abrirEnvioZapSignNegociacao;
+window.atualizarStatusZapSignNegociacao = atualizarStatusZapSignNegociacao;
+window.baixarPdfAssinadoZapSignNegociacao = baixarPdfAssinadoZapSignNegociacao;
 window.enviarParaZapSign = enviarParaZapSign;
 window.atualizarStatusZapSign = atualizarStatusZapSign;
 window.baixarPdfAssinadoZapSign = baixarPdfAssinadoZapSign;
