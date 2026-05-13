@@ -1339,6 +1339,22 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <button class="btn btn-primary btn-sm" onclick="tplSalvar()">💾 Salvar customização</button>
             </div>
 
+            <h4 class="form-section-title">⚖️ Monitor legislativo</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Worker verifica diariamente as URLs do Planalto e usa IA pra resumir mudanças nas leis. Você recebe email quando algo relevante for detectado. Configurar a URL do worker e clicar "Atualizar" pra ver o status.
+            </p>
+            <div class="form-row">
+              <div class="form-group" style="grid-column: span 2;">
+                <label>URL do Worker Legis Monitor</label>
+                <input type="url" id="cfg-worker-legis-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-legis-monitor.SEU-USUARIO.workers.dev">
+              </div>
+              <div class="form-group" style="align-self:end;">
+                <button class="btn btn-secondary btn-sm" onclick="legisAtualizarStatus()">↻ Atualizar status</button>
+                <button class="btn btn-secondary btn-sm" onclick="legisDispararCheck()" title="Roda verificação imediata (não espera o cron). Útil para testar.">⚡ Verificar agora</button>
+              </div>
+            </div>
+            <div id="legis-status" style="margin-top:10px; padding:12px; background:#fafafa; border:1px solid var(--border); border-radius:6px; font-size:13px; display:none;"></div>
+
             <h4 class="form-section-title">Envio automático por e-mail</h4>
 
             <div class="form-group">
@@ -4027,6 +4043,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513s"></script>
+  <script src="app.js?v=20260513t"></script>
 </body>
 </html>

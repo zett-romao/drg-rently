@@ -6280,6 +6280,8 @@ async function loadConfigImobiliaria() {
     if (zsUrl) zsUrl.value = cfg.workerZapsignUrl || '';
     const zsTok = $('cfg-zapsign-token');
     if (zsTok) zsTok.value = cfg.zapsignToken || '';
+    const lgUrl = $('cfg-worker-legis-url');
+    if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
   } catch (err) {
@@ -6349,6 +6351,7 @@ async function saveConfigImobiliaria() {
         workerGeminiUrl: $('cfg-worker-gemini-url').value.trim(),
         workerFeedUrl: $('cfg-worker-feed-url')?.value.trim() || '',
         workerZapsignUrl: $('cfg-worker-zapsign-url')?.value.trim() || '',
+        workerLegisUrl: $('cfg-worker-legis-url')?.value.trim() || '',
         zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
@@ -11891,6 +11894,82 @@ async function elabSalvarContrato() {
   } catch (err) {
     console.error('Erro ao salvar contrato do wizard:', err);
     showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+// =============================================================================
+// MONITOR LEGISLATIVO — UI cliente (busca status do worker drg-rently-legis-monitor)
+// =============================================================================
+
+async function legisAtualizarStatus() {
+  const url = $('cfg-worker-legis-url').value.trim();
+  const box = $('legis-status');
+  if (!url) {
+    box.innerHTML = '<span style="color:#b91c1c;">Informe a URL do worker primeiro.</span>';
+    box.style.display = 'block';
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = '⏳ Buscando status…';
+  try {
+    const res = await fetch(url.replace(/\/$/, '') + '/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    box.innerHTML = renderLegisStatus(data);
+  } catch (err) {
+    box.innerHTML = `<span style="color:#b91c1c;">Erro: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function renderLegisStatus(data) {
+  const ultimoCheck = data.historico?.[0];
+  const ultimoCheckTxt = ultimoCheck
+    ? `Última verificação: <strong>${new Date(ultimoCheck.executadoEm).toLocaleString('pt-BR')}</strong> · ${ultimoCheck.urlsVerificadas} URL(s) checadas · ${ultimoCheck.alertas} alerta(s) novos`
+    : 'Nenhuma verificação ainda. Aguarde o cron diário (~7h Brasília) ou clique em "Verificar agora".';
+
+  let urlsHtml = '';
+  if (data.urlsMonitoradas?.length) {
+    urlsHtml = `<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:12px;color:var(--primary);">📋 ${data.urlsMonitoradas.length} URL(s) monitoradas</summary><ul style="margin-top:6px; font-size:12px; padding-left:18px;">` +
+      data.urlsMonitoradas.map(u => `<li><strong>${escapeHtml(u.nome)}</strong> · <a href="${escapeHtml(u.url)}" target="_blank" rel="noopener">${escapeHtml(u.url)}</a> · afeta: ${(u.templatesAfetados || []).join(', ')}</li>`).join('') +
+      '</ul></details>';
+  }
+
+  let alertasHtml = '';
+  if (data.alertas?.length) {
+    alertasHtml = `<details style="margin-top:8px;" open><summary style="cursor:pointer; font-size:12px; color:#b91c1c; font-weight:bold;">🚨 ${data.alertas.length} alerta(s) histórico(s)</summary>` +
+      data.alertas.slice(0, 10).map(a => `
+        <div style="margin:8px 0; padding:10px; background:#fff8e1; border-left:3px solid #ffc107; border-radius:4px; font-size:12px;">
+          <strong>${escapeHtml(a.entrada?.nome || '')}</strong><br>
+          <span class="muted">${new Date(a.detectadoEm).toLocaleString('pt-BR')} · impacto: ${escapeHtml(a.analise?.impacto || '—')}</span>
+          <p style="margin:6px 0 0;">${escapeHtml(a.analise?.resumo_mudancas || '')}</p>
+          ${(a.analise?.patches_sugeridos || []).length ? `<p style="margin:4px 0 0; font-size:11px;"><strong>${a.analise.patches_sugeridos.length} patch(es) sugerido(s)</strong> — abra Templates do wizard para aplicar.</p>` : ''}
+        </div>
+      `).join('') +
+      (data.alertas.length > 10 ? `<p class="muted" style="font-size:11px;">… e mais ${data.alertas.length - 10} alertas anteriores.</p>` : '') +
+      '</details>';
+  } else {
+    alertasHtml = `<p style="margin-top:8px; font-size:12px; color:#16a34a;">✅ Nenhum alerta legislativo no histórico.</p>`;
+  }
+
+  return `<div>${ultimoCheckTxt}${urlsHtml}${alertasHtml}</div>`;
+}
+
+async function legisDispararCheck() {
+  const url = $('cfg-worker-legis-url').value.trim();
+  const box = $('legis-status');
+  if (!url) { box.innerHTML = '<span style="color:#b91c1c;">Informe a URL primeiro.</span>'; box.style.display = 'block'; return; }
+  if (!confirm('Disparar verificação imediata? Pode levar 30-60 segundos para responder.')) return;
+  box.style.display = 'block';
+  box.innerHTML = '⏳ Verificando agora… (pode levar 30-60s)';
+  try {
+    const res = await fetch(url.replace(/\/$/, '') + '/check', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const exec = await res.json();
+    box.innerHTML = `<p>✅ Verificação concluída em ${exec.duracaoMs}ms. ${exec.alertas} alerta(s) novos.</p>`;
+    // Re-atualiza status completo
+    setTimeout(() => legisAtualizarStatus(), 500);
+  } catch (err) {
+    box.innerHTML = `<span style="color:#b91c1c;">Erro: ${escapeHtml(err.message)}</span>`;
   }
 }
 

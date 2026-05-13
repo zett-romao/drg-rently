@@ -1,0 +1,27 @@
+# =============================================================
+# Config do Cloudflare Worker — DRG-Rently Legis Monitor
+#
+# Monitor diário das URLs do Planalto + análise via Gemini +
+# envio de email pra DRG quando detectar mudança relevante.
+#
+# Deploy automático via .github/workflows/deploy-legis-monitor.yml
+# Setup manual no Cloudflare:
+#   - Criar KV namespace "LEGIS_KV" e copiar o ID pra esta config
+#   - Adicionar secret GEMINI_API_KEY (mesma chave do drg-rently-gemini)
+#   - Adicionar variables: RESEND_WORKER_URL, EMAIL_DESTINATARIO, EMAIL_FROM, FROM_NAME
+# =============================================================
+name = "drg-rently-legis-monitor"
+main = "cloudflare-worker-legis-monitor.js"
+compatibility_date = "2024-09-01"
+
+# Cron diário às 10h UTC (7h Brasília)
+[triggers]
+crons = ["0 10 * * *"]
+
+# KV binding — o ID precisa ser substituído após criar o namespace no Cloudflare.
+# Comando para descobrir o ID após criar:
+#   wrangler kv:namespace list
+# Ou Dashboard → Workers → KV → ver o ID ao lado de "LEGIS_KV".
+# [[kv_namespaces]]
+# binding = "LEGIS_KV"
+# id = "SUBSTITUIR_PELO_ID_DO_KV"
