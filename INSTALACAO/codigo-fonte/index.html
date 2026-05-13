@@ -3604,6 +3604,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeContratoModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-contrato" onclick="deleteContrato()" style="display:none;">Excluir</button>
+        <button class="btn btn-secondary" id="btn-cobranca-debito" onclick="abrirCobrancaDebito()" style="display:none;" title="Calcular valor atualizado para cobrança (correção + multa + juros + honorários)">💰 Atualizar débito</button>
         <button class="btn btn-secondary" id="btn-gerar-distrato" onclick="abrirDistrato()" style="display:none;" title="Gerar termo de distrato para encerramento antecipado deste contrato">📄 Gerar distrato</button>
         <button class="btn btn-secondary" id="btn-zapsign-contrato" onclick="abrirEnvioZapSign()" style="display:none;">✍️ Enviar pra assinatura</button>
         <button class="btn btn-secondary" id="btn-zapsign-status" onclick="atualizarStatusZapSign()" style="display:none;">🔄 Atualizar status</button>
@@ -3742,6 +3743,95 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- ============================================ -->
   <!-- ============================================ -->
+  <!-- MODAL: Cálculo de débito atualizado (cobrança em atraso) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-cobranca" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>💰 Cálculo de débito atualizado</h3>
+        <button class="modal-close" onclick="fecharCobrancaDebito()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="cobranca-alert" class="alert alert-error" style="display:none;"></div>
+
+        <p class="muted" style="font-size:13px; margin-bottom:14px;">
+          Informe o valor base e a data do vencimento original. Os percentuais
+          são pré-preenchidos a partir do contrato — você pode editar livremente.
+          Os índices de correção monetária são buscados automaticamente no
+          Banco Central (BCB).
+        </p>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="required">Valor base devido (R$)</label>
+            <input type="number" id="cobranca-valor-base" min="0" step="0.01" placeholder="0,00" oninput="cobrancaRecalcular()">
+            <small class="muted" id="cobranca-valor-base-info">Ex: valor do aluguel ou parcela</small>
+          </div>
+          <div class="form-group">
+            <label class="required">Data do vencimento original</label>
+            <input type="date" id="cobranca-data-vencimento" onchange="cobrancaRecalcular()">
+          </div>
+          <div class="form-group">
+            <label>Data do cálculo</label>
+            <input type="date" id="cobranca-data-calculo" onchange="cobrancaRecalcular()">
+            <small class="muted">Padrão: hoje</small>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Índice de correção</label>
+            <select id="cobranca-indice" onchange="cobrancaRecalcular()">
+              <option value="IPCA">IPCA (BCB cód. 433)</option>
+              <option value="INPC">INPC (BCB cód. 188)</option>
+              <option value="IGPM">IGP-M (BCB cód. 189)</option>
+              <option value="INCC">INCC (BCB cód. 192)</option>
+              <option value="nenhum">Sem correção monetária</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Multa (%)</label>
+            <input type="number" id="cobranca-multa-pct" min="0" step="0.01" oninput="cobrancaRecalcular()">
+          </div>
+          <div class="form-group">
+            <label>Juros (% ao mês)</label>
+            <input type="number" id="cobranca-juros-pct" min="0" step="0.01" oninput="cobrancaRecalcular()">
+          </div>
+          <div class="form-group">
+            <label>Honorários (%)</label>
+            <input type="number" id="cobranca-honor-pct" min="0" step="0.01" oninput="cobrancaRecalcular()">
+          </div>
+        </div>
+
+        <div id="cobranca-loading" style="display:none; padding:8px; background:#fff8e1; border-radius:6px; font-size:13px;">
+          ⏳ Buscando índices no Banco Central...
+        </div>
+
+        <div id="cobranca-resultado" style="display:none; margin-top:18px; padding:14px 18px; background:#fafafa; border:2px solid #000; border-radius:8px;">
+          <h4 style="margin:0 0 10px;">Composição do débito atualizado</h4>
+          <table style="width:100%; font-size:14px;">
+            <tr><td>Valor base</td><td style="text-align:right;"><input type="number" id="cobranca-base-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaRecalcularDoZero()"></td></tr>
+            <tr><td>(+) Correção monetária <span class="muted" id="cobranca-corr-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-corr-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Multa <span class="muted" id="cobranca-multa-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-multa-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Juros <span class="muted" id="cobranca-juros-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-juros-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Honorários <span class="muted" id="cobranca-honor-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-honor-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr style="border-top:2px solid #000;"><td style="padding-top:10px; font-size:16px; font-weight:bold;">TOTAL ATUALIZADO</td><td style="padding-top:10px; text-align:right; font-size:18px; font-weight:bold; color:#b91c1c;" id="cobranca-total">R$ 0,00</td></tr>
+          </table>
+          <p class="muted" style="font-size:11px; margin-top:8px;">Valores são editáveis — você pode ajustar qualquer linha individualmente. Clique em "Recalcular do zero" para refazer o cálculo automático.</p>
+          <button class="btn btn-sm btn-secondary" onclick="cobrancaRecalcular()" style="margin-top:6px;">↻ Recalcular do zero</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="fecharCobrancaDebito()">Fechar</button>
+        <button class="btn btn-secondary" onclick="cobrancaBaixarPDF()" id="btn-cobranca-pdf" style="display:none;">⬇ PDF</button>
+        <button class="btn btn-secondary" onclick="cobrancaBaixarWord()" id="btn-cobranca-word" style="display:none;">⬇ Word</button>
+        <button class="btn btn-secondary" onclick="cobrancaEnviar('locatario')" id="btn-cobranca-envio-locatario" style="display:none;">✉️ Enviar ao locatário</button>
+        <button class="btn btn-primary" onclick="cobrancaEnviar('locador')" id="btn-cobranca-envio-locador" style="display:none;">✉️ Enviar ao locador</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Gerar Distrato -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-distrato" style="display:none;">
@@ -3847,6 +3937,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513p"></script>
+  <script src="app.js?v=20260513q"></script>
 </body>
 </html>

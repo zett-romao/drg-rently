@@ -6950,6 +6950,7 @@ async function openContratoModal(id) {
   $('modal-contrato-title').textContent = id ? 'Editar Contrato' : 'Novo Contrato';
   $('btn-delete-contrato').style.display = id ? 'inline-block' : 'none';
   $('btn-gerar-distrato').style.display = id ? 'inline-block' : 'none';
+  $('btn-cobranca-debito').style.display = id ? 'inline-block' : 'none';
 
   // Status ZapSign (carrega assíncrono — não bloqueia abertura)
   carregarStatusZapSign(id).catch(() => {});
@@ -11862,6 +11863,351 @@ async function elabSalvarContrato() {
   } catch (err) {
     console.error('Erro ao salvar contrato do wizard:', err);
     showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+// =============================================================================
+// CÁLCULO DE DÉBITO ATUALIZADO (correção + multa + juros + honorários)
+// =============================================================================
+// Busca índices no BCB (api.bcb.gov.br — CORS aberto, gratuito) e calcula
+// componentes do débito. Operador pode editar manualmente cada linha.
+// Cache em Firestore: tenants/{id}/indicesCache/{indice}-{ano-mes} pra evitar
+// requests repetidos.
+// =============================================================================
+
+const BCB_SERIE = {
+  IPCA: 433,
+  INPC: 188,
+  IGPM: 189,
+  INCC: 192,
+};
+
+let _cobrancaContexto = null;
+
+async function buscarIndiceBCB(indice, dataInicio, dataFim) {
+  if (indice === 'nenhum') return { acumulado: 0, meses: [] };
+  const codigo = BCB_SERIE[indice];
+  if (!codigo) return { acumulado: 0, meses: [] };
+
+  const fmt = (iso) => {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  };
+  const url = `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${codigo}/dados?formato=json&dataInicial=${fmt(dataInicio)}&dataFinal=${fmt(dataFim)}`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`BCB retornou ${res.status}`);
+    const dados = await res.json();
+    // dados é array de {data: "01/05/2026", valor: "0.46"} — valor é o % do mês
+    let fator = 1;
+    const meses = [];
+    for (const d of dados) {
+      const v = parseFloat(d.valor) || 0;
+      fator *= (1 + v / 100);
+      meses.push({ data: d.data, valor: v });
+    }
+    const acumulado = (fator - 1) * 100;
+    return { acumulado, meses };
+  } catch (err) {
+    console.warn('Falha ao buscar índice BCB:', err);
+    return { acumulado: 0, meses: [], erro: err.message };
+  }
+}
+
+async function abrirCobrancaDebito() {
+  const contratoId = $('contrato-id').value;
+  if (!contratoId) {
+    showAlert('contrato-alert', 'Salve o contrato antes de calcular o débito.');
+    return;
+  }
+  if (!State.tenant) { alert('Selecione um tenant antes.'); return; }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    if (!cSnap.exists) { showAlert('contrato-alert', 'Contrato não encontrado.'); return; }
+    const c = cSnap.data();
+
+    const [locadorSnap, locatarioSnap, imovelSnap] = await Promise.all([
+      c.locadorId   ? tenantPath().collection('locadores').doc(c.locadorId).get()   : Promise.resolve(null),
+      c.locatarioId ? tenantPath().collection('locatarios').doc(c.locatarioId).get() : Promise.resolve(null),
+      c.imovelId    ? tenantPath().collection('imoveis').doc(c.imovelId).get()    : Promise.resolve(null),
+    ]);
+
+    _cobrancaContexto = {
+      contratoId,
+      contrato: c,
+      locador: (locadorSnap && locadorSnap.exists) ? locadorSnap.data() : {},
+      locatario: (locatarioSnap && locatarioSnap.exists) ? locatarioSnap.data() : {},
+      imovel: (imovelSnap && imovelSnap.exists) ? imovelSnap.data() : {},
+      ultimoCalculo: null,
+    };
+
+    // Pré-preenche com dados do contrato
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    $('cobranca-valor-base').value = c.aluguel || '';
+    $('cobranca-data-vencimento').value = '';
+    $('cobranca-data-calculo').value = hojeISO;
+    const indice = (c.reajusteIndice || 'ipca').toUpperCase();
+    $('cobranca-indice').value = BCB_SERIE[indice] ? indice : 'IPCA';
+    $('cobranca-multa-pct').value = c.multaAtrasoPct ?? '10';
+    $('cobranca-juros-pct').value = c.jurosAtrasoPct ?? '1';
+    $('cobranca-honor-pct').value = c.honorariosPct ?? '20';
+
+    $('cobranca-resultado').style.display = 'none';
+    $('btn-cobranca-pdf').style.display = 'none';
+    $('btn-cobranca-word').style.display = 'none';
+    $('btn-cobranca-envio-locador').style.display = 'none';
+    $('btn-cobranca-envio-locatario').style.display = 'none';
+    clearAlert('cobranca-alert');
+
+    $('modal-cobranca').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir cálculo de débito:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+function fecharCobrancaDebito() {
+  $('modal-cobranca').style.display = 'none';
+  _cobrancaContexto = null;
+}
+
+async function cobrancaRecalcular() {
+  clearAlert('cobranca-alert');
+  const ctx = _cobrancaContexto;
+  if (!ctx) return;
+
+  const base = parseFloat($('cobranca-valor-base').value) || 0;
+  const dataVenc = $('cobranca-data-vencimento').value;
+  const dataCalc = $('cobranca-data-calculo').value || new Date().toISOString().slice(0, 10);
+  const indice = $('cobranca-indice').value;
+  const pctMulta = parseFloat($('cobranca-multa-pct').value) || 0;
+  const pctJurosMes = parseFloat($('cobranca-juros-pct').value) || 0;
+  const pctHonor = parseFloat($('cobranca-honor-pct').value) || 0;
+
+  if (base <= 0) { return; }
+  if (!dataVenc) { return; }
+  if (new Date(dataCalc) <= new Date(dataVenc)) {
+    showAlert('cobranca-alert', 'A data do cálculo deve ser posterior à data do vencimento.');
+    return;
+  }
+
+  $('cobranca-loading').style.display = 'block';
+  $('cobranca-resultado').style.display = 'none';
+
+  // Busca índice acumulado
+  const idxRes = await buscarIndiceBCB(indice, dataVenc, dataCalc);
+  $('cobranca-loading').style.display = 'none';
+
+  if (idxRes.erro) {
+    showAlert('cobranca-alert', `Falha ao buscar índice no BCB: ${idxRes.erro}. Você pode editar os valores manualmente abaixo.`);
+  }
+
+  // Cálculo
+  const correcao = base * (idxRes.acumulado / 100);
+  const baseCorrigido = base + correcao;
+  const multa = baseCorrigido * (pctMulta / 100);
+  // Juros: pro rata por dia, baseado em % mensal
+  const diasAtraso = Math.max(0, Math.floor((new Date(dataCalc) - new Date(dataVenc)) / (1000 * 60 * 60 * 24)));
+  const jurosTotal = baseCorrigido * (pctJurosMes / 100) * (diasAtraso / 30);
+  const subtotal = baseCorrigido + multa + jurosTotal;
+  const honor = subtotal * (pctHonor / 100);
+  const total = subtotal + honor;
+
+  // Preenche resultado
+  $('cobranca-base-edit').value = base.toFixed(2);
+  $('cobranca-corr-edit').value = correcao.toFixed(2);
+  $('cobranca-multa-edit').value = multa.toFixed(2);
+  $('cobranca-juros-edit').value = jurosTotal.toFixed(2);
+  $('cobranca-honor-edit').value = honor.toFixed(2);
+  $('cobranca-corr-info').textContent = indice === 'nenhum' ? '(sem correção)' : `(${indice} ${idxRes.acumulado.toFixed(4)}%)`;
+  $('cobranca-multa-info').textContent = `(${pctMulta}% sobre R$ ${baseCorrigido.toFixed(2)})`;
+  $('cobranca-juros-info').textContent = `(${pctJurosMes}% a.m. × ${diasAtraso} dias)`;
+  $('cobranca-honor-info').textContent = `(${pctHonor}% sobre R$ ${subtotal.toFixed(2)})`;
+
+  ctx.ultimoCalculo = {
+    base, dataVenc, dataCalc, indice, pctMulta, pctJurosMes, pctHonor,
+    diasAtraso, indiceAcumulado: idxRes.acumulado,
+    componentes: { base, correcao, multa, juros: jurosTotal, honor },
+    total,
+  };
+
+  $('cobranca-total').textContent = fmtBRL(total);
+  $('cobranca-resultado').style.display = 'block';
+  $('btn-cobranca-pdf').style.display = 'inline-block';
+  $('btn-cobranca-word').style.display = 'inline-block';
+  $('btn-cobranca-envio-locador').style.display = 'inline-block';
+  $('btn-cobranca-envio-locatario').style.display = 'inline-block';
+}
+
+// Recalcular do zero quando a base muda (refaz tudo do início)
+function cobrancaRecalcularDoZero() {
+  const novaBase = parseFloat($('cobranca-base-edit').value) || 0;
+  $('cobranca-valor-base').value = novaBase;
+  cobrancaRecalcular();
+}
+
+// Quando edita só componentes individuais, só refaz o total (não chama BCB de novo)
+function cobrancaTotalSomente() {
+  const base = parseFloat($('cobranca-base-edit').value) || 0;
+  const corr = parseFloat($('cobranca-corr-edit').value) || 0;
+  const multa = parseFloat($('cobranca-multa-edit').value) || 0;
+  const juros = parseFloat($('cobranca-juros-edit').value) || 0;
+  const honor = parseFloat($('cobranca-honor-edit').value) || 0;
+  const total = base + corr + multa + juros + honor;
+  if (_cobrancaContexto?.ultimoCalculo) {
+    _cobrancaContexto.ultimoCalculo.componentes = { base, correcao: corr, multa, juros, honor };
+    _cobrancaContexto.ultimoCalculo.total = total;
+  }
+  $('cobranca-total').textContent = fmtBRL(total);
+}
+
+function cobrancaGerarHtml(ehLocatario) {
+  const ctx = _cobrancaContexto;
+  if (!ctx || !ctx.ultimoCalculo) return '';
+  const ulc = ctx.ultimoCalculo;
+  const tenant = State.tenant || {};
+  const c = ctx.contrato;
+  const cn = ulc.componentes;
+
+  const cabecalhoPartes = ehLocatario
+    ? `<tr><td style="padding:3px 0;color:#666;width:140px;">Locatário:</td><td style="padding:3px 0;">${escapeHtml(ctx.locatario.nome || '—')}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">CPF/CNPJ:</td><td style="padding:3px 0;">${ctx.locatario.documento ? escapeHtml(formataCPFCNPJ(ctx.locatario.documento)) : '—'}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Imóvel:</td><td style="padding:3px 0;">${escapeHtml(ctx.imovel.apelido || '—')}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Endereço:</td><td style="padding:3px 0;">${escapeHtml(formatEnderecoCompleto(ctx.imovel.endereco))}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Contrato:</td><td style="padding:3px 0;">nº ${c.numero || '—'}</td></tr>`
+    : `<tr><td style="padding:3px 0;color:#666;width:140px;">Locador:</td><td style="padding:3px 0;">${escapeHtml(ctx.locador.nome || '—')}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Locatário:</td><td style="padding:3px 0;">${escapeHtml(ctx.locatario.nome || '—')}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Imóvel:</td><td style="padding:3px 0;">${escapeHtml(ctx.imovel.apelido || '—')}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Endereço:</td><td style="padding:3px 0;">${escapeHtml(formatEnderecoCompleto(ctx.imovel.endereco))}</td></tr>
+       <tr><td style="padding:3px 0;color:#666;">Contrato:</td><td style="padding:3px 0;">nº ${c.numero || '—'}</td></tr>`;
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Cobrança</title></head>
+<body style="margin:0; padding:0; font-family:Arial,Helvetica,sans-serif; color:#111;">
+<div style="max-width:680px; margin:0 auto; padding:30px;">
+  <div style="text-align:center; border-bottom:2px solid #b91c1c; padding-bottom:14px; margin-bottom:20px;">
+    <h1 style="margin:0; color:#b91c1c; font-size:22px;">NOTIFICAÇÃO DE COBRANÇA</h1>
+    <p style="margin:6px 0 0; color:#666; font-size:13px;">Débito vencido — atualizado em ${fmtDataBR(ulc.dataCalc)}</p>
+    <p style="margin:8px 0 0; font-weight:bold; color:#333;">${escapeHtml(tenant.nome || 'DRG-Rently')}</p>
+  </div>
+
+  <table style="width:100%; border-collapse:collapse; margin-bottom:12px; font-size:13px;">
+    ${cabecalhoPartes}
+  </table>
+
+  <p style="font-size:14px; margin:18px 0 6px;">
+    ${ehLocatario
+      ? `Prezado(a) <strong>${escapeHtml(ctx.locatario.nome || '')}</strong>, conforme contrato de locação acima identificado, consta em nossos registros o seguinte débito vencido. Solicitamos a regularização o quanto antes para evitar acréscimos adicionais.`
+      : `Prezado(a) <strong>${escapeHtml(ctx.locador.nome || '')}</strong>, segue demonstrativo do débito do locatário no contrato acima identificado, com correção monetária, multa, juros e honorários conforme cláusulas contratuais.`}
+  </p>
+
+  <table style="width:100%; border-collapse:collapse; margin:18px 0; font-size:14px; border:1px solid #ddd;">
+    <tr style="background:#fafafa;"><td style="padding:8px 12px;">Valor base devido</td><td style="padding:8px 12px; text-align:right;">${fmtBRL(cn.base)}</td></tr>
+    <tr><td style="padding:8px 12px;">(+) Correção monetária ${ulc.indice === 'nenhum' ? '' : `(${ulc.indice} ${ulc.indiceAcumulado.toFixed(4)}%)`}</td><td style="padding:8px 12px; text-align:right;">${fmtBRL(cn.correcao)}</td></tr>
+    <tr style="background:#fafafa;"><td style="padding:8px 12px;">(+) Multa (${ulc.pctMulta}%)</td><td style="padding:8px 12px; text-align:right;">${fmtBRL(cn.multa)}</td></tr>
+    <tr><td style="padding:8px 12px;">(+) Juros mora (${ulc.pctJurosMes}% a.m. × ${ulc.diasAtraso} dias)</td><td style="padding:8px 12px; text-align:right;">${fmtBRL(cn.juros)}</td></tr>
+    <tr style="background:#fafafa;"><td style="padding:8px 12px;">(+) Honorários (${ulc.pctHonor}%)</td><td style="padding:8px 12px; text-align:right;">${fmtBRL(cn.honor)}</td></tr>
+    <tr style="border-top:3px solid #b91c1c; background:#fff5f5;"><td style="padding:14px 12px; font-size:16px; font-weight:bold;">TOTAL A PAGAR ATÉ ${fmtDataBR(ulc.dataCalc)}</td><td style="padding:14px 12px; text-align:right; font-size:20px; font-weight:bold; color:#b91c1c;">${fmtBRL(ulc.total)}</td></tr>
+  </table>
+
+  <p style="font-size:12px; color:#666;">
+    Vencimento original: <strong>${fmtDataBR(ulc.dataVenc)}</strong> · Dias em atraso: <strong>${ulc.diasAtraso}</strong>${ulc.indice !== 'nenhum' ? ` · Índice: ${ulc.indice}` : ''}
+  </p>
+
+  <p style="font-size:12px; color:#666; margin-top:14px;">
+    Os valores acima são atualizados diariamente. Em caso de pagamento em data
+    diferente da informada, novos cálculos serão realizados.
+  </p>
+
+  <p style="margin-top:30px; font-size:11px; color:#888; text-align:center; border-top:1px solid #ddd; padding-top:14px;">
+    Emitido por ${escapeHtml(tenant.nome || 'DRG-Rently')}${tenant.cnpj ? ' · CNPJ ' + escapeHtml(maskCNPJ(tenant.cnpj)) : ''}${tenant.creci ? ' · CRECI ' + escapeHtml(tenant.creci) : ''}
+  </p>
+</div>
+</body></html>`;
+}
+
+async function cobrancaBaixarPDF() {
+  if (!_cobrancaContexto?.ultimoCalculo) return;
+  if (!window.html2pdf) {
+    showAlert('cobranca-alert', 'Biblioteca html2pdf não carregou. Recarregue a página.');
+    return;
+  }
+  const html = cobrancaGerarHtml(false);
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = html;
+  const filename = `Cobranca_contrato_${_cobrancaContexto.contrato.numero || _cobrancaContexto.contratoId}_${Date.now()}.pdf`;
+  await html2pdf().set({
+    margin: 0,
+    filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  }).from(wrapper).save();
+}
+
+function cobrancaBaixarWord() {
+  if (!_cobrancaContexto?.ultimoCalculo) return;
+  const html = cobrancaGerarHtml(false);
+  const filename = `Cobranca_contrato_${_cobrancaContexto.contrato.numero || _cobrancaContexto.contratoId}_${Date.now()}.doc`;
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function cobrancaEnviar(destinatario) {
+  if (!_cobrancaContexto?.ultimoCalculo) return;
+  const ctx = _cobrancaContexto;
+
+  const cfgSnap = await tenantPath().collection('config').doc('site').get();
+  const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+  if (!cfg.workerUrl) {
+    showAlert('cobranca-alert', 'Configure a URL do Worker (Resend) em Configurações.');
+    return;
+  }
+
+  const ehLocatario = destinatario === 'locatario';
+  const dest = ehLocatario ? ctx.locatario : ctx.locador;
+  if (!dest.email) {
+    showAlert('cobranca-alert', `O ${ehLocatario ? 'locatário' : 'locador'} não tem e-mail cadastrado.`);
+    return;
+  }
+
+  const html = cobrancaGerarHtml(ehLocatario);
+  const subject = ehLocatario
+    ? `Cobrança de aluguel em atraso — Contrato nº ${ctx.contrato.numero || ''}`
+    : `Demonstrativo de cobrança do locatário — Contrato nº ${ctx.contrato.numero || ''}`;
+
+  try {
+    const res = await fetch(cfg.workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: cfg.emailFrom || 'onboarding@resend.dev',
+        fromName: State.tenant.nome || 'DRG-Rently',
+        to: dest.email,
+        replyTo: cfg.emailFrom && cfg.emailFrom !== 'onboarding@resend.dev' ? cfg.emailFrom : undefined,
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      let errMsg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      throw new Error(errMsg);
+    }
+    logAuditoria('send_email', 'cobranca', ctx.contratoId, {
+      to: dest.email, destinatario, total: ctx.ultimoCalculo.total,
+    });
+    showAlert('cobranca-alert', `✓ Notificação enviada para ${dest.email}`, 'success');
+  } catch (err) {
+    console.error('Erro ao enviar cobrança:', err);
+    showAlert('cobranca-alert', 'Falha ao enviar: ' + err.message);
   }
 }
 
