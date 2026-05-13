@@ -1,0 +1,10 @@
+# =============================================================
+# Config do Cloudflare Worker — DRG-Rently Gemini
+#
+# Usado pelo workflow GitHub Actions em .github/workflows/deploy-worker.yml
+# Não inclui secret GEMINI_API_KEY — esse continua sendo gerenciado
+# manualmente no painel do Cloudflare (Settings → Variables and Secrets).
+# =============================================================
+name = "drg-rently-gemini"
+main = "cloudflare-worker-gemini.js"
+compatibility_date = "2024-09-01"
