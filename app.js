@@ -6240,6 +6240,8 @@ function onSlugInput() {
 
 async function loadConfigImobiliaria() {
   if (!State.tenant) return;
+  // Carrega editor de templates do wizard em paralelo (não bloqueia se falhar)
+  carregarTplEditor().catch(() => {});
   const tipoPessoa = State.tenant.tipoPessoa || 'PJ';
   // Tenants legados sem tipoPessoa: presume PJ se tem CNPJ, PF se tem CPF
   const ehPF = tipoPessoa === 'PF' || (!State.tenant.cnpj && State.tenant.cpf);
@@ -7012,6 +7014,17 @@ async function openContratoModal(id) {
         $('contrato-reajuste-periodicidade').value = c.reajustePeriodicidade || 'anual';
         $('contrato-primeiro-aluguel-escritorio').checked = !!c.primeiroAluguelEscritorio;
         $('contrato-inadimplente').checked = !!c.inadimplente;
+
+        // Banner de versionamento — só aparece se o contrato foi gerado pelo wizard
+        if (c.geradoPorWizard) {
+          const data = c.criadoEm?.toDate ? fmtDataBR(c.criadoEm.toDate().toISOString().slice(0, 10)) : '—';
+          const info = `Template <code>${c.templateId || 'desconhecido'}</code> (v${c.templateVersao || '?'}) em ${data}`;
+          $('contrato-wizard-info').innerHTML = info;
+          $('contrato-wizard-badge').style.display = 'block';
+          $('contrato-wizard-badge').dataset.htmlSalvo = c.contratoHtml || '';
+        } else {
+          $('contrato-wizard-badge').style.display = 'none';
+        }
         $('contrato-clausulas').value = c.clausulas || '';
         $('contrato-obs').value = c.obs || '';
       }
@@ -11611,8 +11624,10 @@ async function elabValidarEGerar() {
 
   try {
     const dados = await elabResolverDados();
-    const html = elabRenderizarTemplate(tpl.template, dados);
+    const templateAtivo = await obterTemplate(_elabContrato.modalidade);
+    const html = elabRenderizarTemplate(templateAtivo, dados);
     _elabContrato.htmlGerado = html;
+    _elabContrato.templateUsado = (_tplOverridesCache && _tplOverridesCache[_elabContrato.modalidade]) ? 'customizado' : 'padrao';
     _elabContrato.dadosResolvidos = dados;
     $('elab-preview-container').innerHTML = html;
     $('elab-etapa-wizard').style.display = 'none';
@@ -11876,6 +11891,236 @@ async function elabSalvarContrato() {
   } catch (err) {
     console.error('Erro ao salvar contrato do wizard:', err);
     showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+function abrirHtmlGeradoContrato() {
+  const html = $('contrato-wizard-badge').dataset.htmlSalvo;
+  if (!html) { alert('HTML gerado não foi salvo neste contrato.'); return; }
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Contrato gerado</title><style>body{font-family:Georgia,serif;font-size:12pt;padding:30px;max-width:800px;margin:0 auto;color:#000;}h1,h3{color:#333;}</style></head><body>${html}</body></html>`);
+    win.document.close();
+  } else {
+    alert('Não foi possível abrir nova janela. Verifique bloqueio de pop-up.');
+  }
+}
+
+// =============================================================================
+// EDITOR DE TEMPLATES (CUSTOMIZAÇÃO POR TENANT) + VERSIONAMENTO
+// =============================================================================
+// Override armazenado em tenants/{id}/templatesContrato/{templateKey}.
+// templateKey ∈ { 'locacao', 'venda', 'distrato' }.
+// Quando o wizard ou o gerador de distrato precisam do template,
+// chamam obterTemplate(key) — busca override primeiro, fallback para inline.
+// =============================================================================
+
+let _tplEditor = { tabAtual: 'locacao', customizado: false, dirty: false };
+
+const TPL_PLACEHOLDERS = {
+  locacao: [
+    { ph: '{{locador.nome}}', d: 'Nome do locador' },
+    { ph: '{{locador.documento_fmt}}', d: 'CPF/CNPJ formatado' },
+    { ph: '{{locador.endereco_completo}}', d: 'Endereço completo do locador' },
+    { ph: '{{locatario.nome}}', d: 'Nome do locatário' },
+    { ph: '{{locatario.documento_fmt}}', d: 'CPF/CNPJ formatado' },
+    { ph: '{{imovel.endereco_completo}}', d: 'Endereço do imóvel' },
+    { ph: '{{imovel.matricula}}', d: 'Matrícula do registro' },
+    { ph: '{{imovel.iptu}}', d: 'Inscrição IPTU' },
+    { ph: '{{prazo_meses}}', d: 'Prazo em meses' },
+    { ph: '{{inicio_br}} / {{fim_br}}', d: 'Datas formato BR' },
+    { ph: '{{aluguel_fmt}}', d: 'Aluguel em R$' },
+    { ph: '{{dia_vencimento}}', d: 'Dia de vencimento' },
+    { ph: '{{reajuste_indice}} / {{reajuste_periodicidade}}', d: 'Reajuste' },
+    { ph: '{{multa_atraso}}, {{juros_atraso}}, {{honorarios_advocaticios}}', d: 'Multa, juros, honorários (%)' },
+    { ph: '{{multa_rescisoria_meses}}', d: 'Multa rescisória em meses' },
+    { ph: '{{garantia.identificacao}}, {{garantia.clausula_detalhada}}', d: 'Dados da garantia (se houver)' },
+    { ph: '{{foro}}, {{cidade}}, {{data_hoje_extenso}}', d: 'Foro, cidade, data por extenso' },
+    { ph: '{{#if garantia}}...{{/if}}', d: 'Condicional — só mostra se há garantia' },
+    { ph: '{{#if clausulas_extras}}...{{/if}}', d: 'Condicional — cláusulas extras opcionais' },
+  ],
+  venda: [
+    { ph: '{{vendedor.nome}}, {{vendedor.documento_fmt}}', d: 'Vendedor' },
+    { ph: '{{comprador.nome}}, {{comprador.documento_fmt}}', d: 'Comprador' },
+    { ph: '{{imovel.endereco_completo}}, {{imovel.matricula}}, {{imovel.iptu}}', d: 'Imóvel' },
+    { ph: '{{valor_total_fmt}}, {{valor_entrada_fmt}}, {{saldo_fmt}}', d: 'Valores' },
+    { ph: '{{forma_pagamento_label}}', d: 'Forma de pagamento por extenso' },
+    { ph: '{{banco_financiamento}}, {{prazo_quitacao}}', d: 'Financiamento (se houver)' },
+    { ph: '{{data_pagamento_entrada_br}}, {{data_posse_br}}', d: 'Datas' },
+    { ph: '{{multa_inadimplencia}}, {{percentual_comissao}}', d: 'Percentuais' },
+    { ph: '{{responsavel_comissao_label}}', d: 'Quem paga a comissão' },
+    { ph: '{{foro}}, {{cidade}}, {{data_hoje_extenso}}', d: 'Foro, cidade, data' },
+    { ph: '{{#if tem_entrada}} / {{tem_financiamento}} / {{tem_comissao}}', d: 'Condicionais' },
+  ],
+  distrato: [
+    { ph: '{{contrato.numero}}, {{contrato.inicio_br}}', d: 'Contrato original' },
+    { ph: '{{locador.nome}}, {{locador.documento_fmt}}', d: 'Locador' },
+    { ph: '{{locatario.nome}}, {{locatario.documento_fmt}}', d: 'Locatário' },
+    { ph: '{{imovel.endereco_completo}}', d: 'Imóvel' },
+    { ph: '{{data_efetiva_br}}, {{data_entrega_chaves_br}}', d: 'Datas' },
+    { ph: '{{motivo_label}}', d: 'Motivo do distrato' },
+    { ph: '{{multa_fmt}}, {{pendencias_fmt}}', d: 'Valores' },
+    { ph: '{{#if multa}}...{{/if}} / {{#if pendencias}}...{{/if}}', d: 'Condicionais' },
+    { ph: '{{cidade}}, {{data_hoje_extenso}}', d: 'Cidade e data' },
+  ],
+};
+
+const TPL_DEFAULTS = {
+  get locacao()  { return ELAB_TEMPLATES.locacao.template; },
+  get venda()    { return ELAB_TEMPLATES.venda.template; },
+  get distrato() { return DISTRATO_TEMPLATE; },
+};
+
+// Cache do override do tenant atual
+let _tplOverridesCache = null;
+
+async function carregarOverridesTemplates() {
+  if (!State.tenant) return {};
+  try {
+    const snap = await tenantPath().collection('templatesContrato').get();
+    const out = {};
+    snap.docs.forEach(d => { out[d.id] = d.data(); });
+    _tplOverridesCache = out;
+    return out;
+  } catch (err) {
+    console.warn('Falha ao carregar overrides de template:', err);
+    return {};
+  }
+}
+
+async function obterTemplate(templateKey) {
+  if (_tplOverridesCache && _tplOverridesCache[templateKey]?.template) {
+    return _tplOverridesCache[templateKey].template;
+  }
+  if (_tplOverridesCache === null) {
+    await carregarOverridesTemplates();
+    if (_tplOverridesCache[templateKey]?.template) return _tplOverridesCache[templateKey].template;
+  }
+  return TPL_DEFAULTS[templateKey] || '';
+}
+
+async function carregarTplEditor() {
+  await carregarOverridesTemplates();
+  await trocarTabTpl(_tplEditor.tabAtual || 'locacao');
+}
+
+async function trocarTabTpl(tab) {
+  _tplEditor.tabAtual = tab;
+  document.querySelectorAll('#section-configuracoes .tab-btn[data-tab]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tab);
+  });
+
+  const override = _tplOverridesCache && _tplOverridesCache[tab];
+  _tplEditor.customizado = !!(override && override.template);
+  _tplEditor.dirty = false;
+
+  const editor = $('tpl-editor');
+  if (editor) editor.value = _tplEditor.customizado ? override.template : (TPL_DEFAULTS[tab] || '');
+
+  const aviso = $('tpl-aviso');
+  if (aviso) aviso.style.display = _tplEditor.customizado ? 'block' : 'none';
+
+  const status = $('tpl-status');
+  if (status) {
+    status.textContent = _tplEditor.customizado
+      ? `Customizado em ${override.atualizadoEm?.toDate ? fmtDataBR(override.atualizadoEm.toDate().toISOString().slice(0, 10)) : '—'}`
+      : 'Usando template padrão do sistema.';
+  }
+
+  const placeholdersDiv = $('tpl-placeholders');
+  if (placeholdersDiv) {
+    placeholdersDiv.innerHTML = (TPL_PLACEHOLDERS[tab] || []).map(p =>
+      `<div style="margin-bottom:4px;"><code>${escapeHtml(p.ph)}</code> — <span class="muted">${escapeHtml(p.d)}</span></div>`
+    ).join('');
+  }
+}
+
+function onTplEditorInput() {
+  _tplEditor.dirty = true;
+  const status = $('tpl-status');
+  if (status) status.textContent = '✏️ Alterações não salvas — clique em "Salvar customização".';
+}
+
+async function tplSalvar() {
+  if (!State.tenant) { alert('Selecione um tenant antes.'); return; }
+  const tab = _tplEditor.tabAtual;
+  const conteudo = $('tpl-editor').value;
+  if (!conteudo.trim()) { alert('O conteúdo do template não pode ficar vazio.'); return; }
+
+  try {
+    await tenantPath().collection('templatesContrato').doc(tab).set({
+      template: conteudo,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      atualizadoPor: State.user.uid,
+    }, { merge: true });
+    _tplOverridesCache = null; // força recarga na próxima leitura
+    await carregarOverridesTemplates();
+    _tplEditor.customizado = true;
+    _tplEditor.dirty = false;
+    logAuditoria('update', 'template_contrato', tab, { tamanho: conteudo.length });
+    showAlert('cfg-alert', `✓ Template de ${tab} salvo.`, 'success');
+    $('tpl-aviso').style.display = 'block';
+    $('tpl-status').textContent = 'Customização salva.';
+  } catch (err) {
+    console.error('Erro ao salvar template:', err);
+    showAlert('cfg-alert', 'Erro ao salvar template: ' + err.message);
+  }
+}
+
+async function tplRestaurarPadrao() {
+  if (!confirm('Restaurar o template padrão? A customização atual será apagada.')) return;
+  if (!State.tenant) { alert('Selecione um tenant antes.'); return; }
+  const tab = _tplEditor.tabAtual;
+  try {
+    await tenantPath().collection('templatesContrato').doc(tab).delete();
+    _tplOverridesCache = null;
+    await carregarOverridesTemplates();
+    await trocarTabTpl(tab);
+    logAuditoria('delete', 'template_contrato', tab, { motivo: 'restaurar_padrao' });
+    showAlert('cfg-alert', `✓ Template de ${tab} restaurado ao padrão.`, 'success');
+  } catch (err) {
+    console.error('Erro ao restaurar template:', err);
+    showAlert('cfg-alert', 'Erro: ' + err.message);
+  }
+}
+
+function tplPreview() {
+  const conteudo = $('tpl-editor').value;
+  if (!conteudo.trim()) { alert('Edite o template antes de visualizar.'); return; }
+  // Renderiza com dados de exemplo
+  const dadosExemplo = {
+    locador: { nome: 'João da Silva', documento_fmt: '123.456.789-00', endereco_completo: 'Rua Exemplo, 100, São Paulo/SP', nacionalidade_or: 'brasileiro', estadoCivil_or: 'casado', profissao_or: 'engenheiro', rg_or: '12.345.678' },
+    locatario: { nome: 'Maria Souza', documento_fmt: '987.654.321-00', endereco_completo: 'Av. Modelo, 200, São Paulo/SP', nacionalidade_or: 'brasileira', estadoCivil_or: 'solteira', profissao_or: 'médica', rg_or: '98.765.432' },
+    vendedor: { nome: 'João da Silva', documento_fmt: '123.456.789-00', endereco_completo: 'Rua Exemplo, 100', nacionalidade_or: 'brasileiro', estadoCivil_or: 'casado', profissao_or: 'engenheiro' },
+    comprador: { nome: 'Maria Souza', documento_fmt: '987.654.321-00', endereco_completo: 'Av. Modelo, 200', nacionalidade_or: 'brasileira', estadoCivil_or: 'solteira', profissao_or: 'médica' },
+    imovel: { endereco_completo: 'Rua das Flores, 123 — Vila Mariana, São Paulo/SP', apelido: 'Apto 302', matricula: '12345', iptu: '67890' },
+    contrato: { numero: '00007', inicio_br: '01/06/2026' },
+    finalidade: 'residencial', finalidade_upper: 'RESIDENCIAL',
+    prazo_meses: 30, inicio_br: '01/06/2026', fim_br: '30/11/2028',
+    aluguel_fmt: 'R$ 2.500,00', dia_vencimento: 5,
+    reajuste_indice: 'IPCA', reajuste_periodicidade: 'anual',
+    multa_atraso: 10, juros_atraso: 1, honorarios_advocaticios: 20,
+    multa_rescisoria_meses: 3,
+    valor_total_fmt: 'R$ 450.000,00', valor_entrada_fmt: 'R$ 100.000,00', saldo_fmt: 'R$ 350.000,00',
+    forma_pagamento_label: 'financiamento', banco_financiamento: 'Caixa Econômica', prazo_quitacao: '60 dias',
+    data_pagamento_entrada_br: '15/06/2026', data_posse_br: '15/08/2026',
+    multa_inadimplencia: 10, percentual_comissao: 6, responsavel_comissao_label: 'VENDEDOR',
+    tem_entrada: true, tem_financiamento: true, tem_comissao: true,
+    multa: true, multa_fmt: 'R$ 7.500,00', pendencias: false,
+    data_efetiva_br: '30/06/2026', data_entrega_chaves_br: '01/07/2026',
+    motivo_label: 'rescisão antecipada pelo LOCATÁRIO',
+    n_clausula_finais: 11, n_clausula_extras: 12, n_clausula_pendencias: null, n_clausula_quitacao: 5, n_clausula_obs: null,
+    foro: 'São Paulo', cidade: 'São Paulo', data_hoje_extenso: fmtDataExtenso(),
+    tenant: { nome: State.tenant?.nome || 'Sua Imobiliária', creci_or: 'CRECI 0000' },
+    garantia: { papel_upper: 'FIADOR', tipo_label: 'fiador', identificacao: 'Fiador João Souza (CPF 111.222.333-44)', identificacao_curta: 'João Souza', clausula_detalhada: 'O FIADOR responde solidariamente por todas as obrigações...' },
+  };
+  const html = elabRenderizarTemplate(conteudo, dadosExemplo);
+  const win = window.open('', '_blank');
+  if (win) {
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Preview do template</title><style>body{font-family:Georgia,serif;font-size:12pt;padding:30px;max-width:800px;margin:0 auto;color:#000;}h1,h3{color:#333;}</style></head><body><div style="padding:8px 12px; background:#fff8e1; border-left:3px solid #ffc107; margin-bottom:20px; font-size:11px;">⚠️ Preview com dados de exemplo. Os valores reais serão substituídos quando um contrato for elaborado pelo wizard.</div>${html}</body></html>`);
+    win.document.close();
+  } else {
+    alert('Não foi possível abrir nova janela. Verifique bloqueio de pop-up.');
   }
 }
 
@@ -12471,7 +12716,7 @@ function distratoVoltarPerguntas() {
   $('distrato-acoes-preview').style.display = 'none';
 }
 
-function distratoGerarPreview() {
+async function distratoGerarPreview() {
   clearAlert('distrato-alert');
   const ctx = _distratoContexto;
   if (!ctx) return;
@@ -12520,7 +12765,8 @@ function distratoGerarPreview() {
     data_hoje_extenso: fmtDataExtenso(),
   };
 
-  const html = elabRenderizarTemplate(DISTRATO_TEMPLATE, dados);
+  const templateAtivo = await obterTemplate('distrato');
+  const html = elabRenderizarTemplate(templateAtivo, dados);
   ctx.htmlGerado = html;
   ctx.respostas = { dataEfetiva, entregaChaves, motivo, multa, pendencias, obs };
 
