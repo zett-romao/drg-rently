@@ -754,6 +754,7 @@ function showSection(name) {
     locatarios: 'Locatários',
     garantias: 'Garantias',
     imoveis: 'Imóveis',
+    'elab-contrato': 'Elaborar contrato',
     contratos: 'Contratos',
     balancetes: 'Balancetes Mensais',
     portais: 'Portais Imobiliários',
@@ -10188,6 +10189,10 @@ document.addEventListener('DOMContentLoaded', () => {
 let _importContrato = null;
 
 async function importarContratoPorIA(tipoHint) {
+  if (!State.tenant) {
+    alert('Selecione um tenant antes de importar contratos (você está no painel Super Admin ou ainda não escolheu uma conta).');
+    return;
+  }
   try {
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
@@ -11197,5 +11202,683 @@ async function abrirContratoImportado() {
   } else {
     showSection('section-negociacoes');
     if (typeof openNegociacaoModal === 'function') openNegociacaoModal(id);
+  }
+}
+
+// =============================================================================
+// ELABORAR CONTRATO (wizard guiado: locação ou venda → preview → PDF/Word/ZapSign)
+// =============================================================================
+// Templates base com aviso amarelo de revisão jurídica.
+// Schema de perguntas condicionais — campo `condicao: { campoY: 'valor' }` só
+// mostra a pergunta se respostas[campoY] === valor.
+// =============================================================================
+
+const ELAB_AVISO_REVISAO = `<div style="background:#fff8e1; border:2px solid #ffc107; padding:12px 16px; margin:0 0 20px 0; font-size:13px; color:#444;"><strong>⚠️ MODELO BASE</strong> — Este template é um exemplo. Recomendamos revisão jurídica antes de uso comercial. Edite livremente o texto após gerar.</div>`;
+
+const ELAB_TEMPLATES = {
+  locacao: {
+    id: 'locacao_residencial_v1',
+    versao: 1,
+    modalidade: 'locacao',
+    nome: 'Contrato de Locação Residencial',
+    perguntas: [
+      { id: 'locador_id', tipo: 'select_entidade', colecao: 'locadores', label: 'Quem é o locador?', obrigatorio: true },
+      { id: 'locatario_id', tipo: 'select_entidade', colecao: 'locatarios', label: 'Quem é o locatário?', obrigatorio: true },
+      { id: 'imovel_id', tipo: 'select_entidade', colecao: 'imoveis', label: 'Qual é o imóvel?', obrigatorio: true },
+      { id: 'finalidade', tipo: 'select', label: 'Finalidade da locação', opcoes: [
+        { v: 'residencial', l: 'Residencial' },
+        { v: 'comercial', l: 'Comercial' },
+        { v: 'temporada', l: 'Temporada' },
+      ], default: 'residencial' },
+      { id: 'inicio', tipo: 'date', label: 'Data de início', obrigatorio: true },
+      { id: 'prazo_meses', tipo: 'number', label: 'Prazo (meses)', default: 30, obrigatorio: true },
+      { id: 'aluguel', tipo: 'money', label: 'Valor do aluguel mensal (R$)', obrigatorio: true },
+      { id: 'dia_vencimento', tipo: 'number', label: 'Dia de vencimento do aluguel (1-31)', default: 5 },
+      { id: 'reajuste_indice', tipo: 'select', label: 'Índice de reajuste', opcoes: [
+        { v: 'IPCA', l: 'IPCA (IBGE) — recomendado' },
+        { v: 'IGPM', l: 'IGP-M (FGV)' },
+        { v: 'INPC', l: 'INPC (IBGE)' },
+        { v: 'INCC', l: 'INCC (FGV)' },
+      ], default: 'IPCA' },
+      { id: 'reajuste_periodicidade', tipo: 'select', label: 'Periodicidade do reajuste', opcoes: [
+        { v: 'anual', l: 'Anual' },
+        { v: 'semestral', l: 'Semestral' },
+      ], default: 'anual' },
+      { id: 'multa_atraso', tipo: 'number', label: 'Multa por atraso (%)', default: 10 },
+      { id: 'juros_atraso', tipo: 'number', label: 'Juros mora (% ao mês)', default: 1 },
+      { id: 'honorarios_advocaticios', tipo: 'number', label: 'Honorários advocatícios em cobrança (%)', default: 20 },
+      { id: 'multa_rescisoria_meses', tipo: 'number', label: 'Multa rescisória (em meses de aluguel proporcionais)', default: 3 },
+      { id: 'tem_garantia', tipo: 'yesno', label: 'Há garantia locatícia?', default: 'sim' },
+      { id: 'garantia_id', tipo: 'select_entidade', colecao: 'garantias', label: 'Selecione a garantia', condicao: { tem_garantia: 'sim' } },
+      { id: 'foro', tipo: 'text', label: 'Foro (comarca de eleição para disputas)', obrigatorio: true },
+      { id: 'clausulas_extras', tipo: 'textarea', label: 'Cláusulas adicionais (opcional)' },
+    ],
+    template: `${ELAB_AVISO_REVISAO}
+<h1 style="text-align:center;">CONTRATO DE LOCAÇÃO {{finalidade_upper}}</h1>
+
+<p>Pelo presente instrumento particular de locação, as partes abaixo qualificadas têm entre si justo e contratado:</p>
+
+<p><strong>LOCADOR:</strong> {{locador.nome}}, {{locador.nacionalidade_or}}, {{locador.estadoCivil_or}}, {{locador.profissao_or}}, portador do documento de identidade nº {{locador.rg_or}} e inscrito no CPF/CNPJ sob o nº {{locador.documento_fmt}}, residente e domiciliado em {{locador.endereco_completo}}, doravante denominado simplesmente <strong>LOCADOR</strong>.</p>
+
+<p><strong>LOCATÁRIO:</strong> {{locatario.nome}}, {{locatario.nacionalidade_or}}, {{locatario.estadoCivil_or}}, {{locatario.profissao_or}}, portador do documento de identidade nº {{locatario.rg_or}} e inscrito no CPF/CNPJ sob o nº {{locatario.documento_fmt}}, residente e domiciliado em {{locatario.endereco_completo}}, doravante denominado simplesmente <strong>LOCATÁRIO</strong>.</p>
+
+{{#if garantia}}<p><strong>{{garantia.papel_upper}}:</strong> {{garantia.identificacao}}, na qualidade de {{garantia.tipo_label}} solidário, doravante denominado <strong>{{garantia.papel_upper}}</strong>.</p>{{/if}}
+
+<h3>CLÁUSULA 1ª — DO OBJETO</h3>
+<p>O LOCADOR dá em locação ao LOCATÁRIO o imóvel localizado em <strong>{{imovel.endereco_completo}}</strong>{{#if imovel.matricula}}, matrícula nº {{imovel.matricula}} no Registro de Imóveis competente{{/if}}{{#if imovel.iptu}}, inscrição municipal (IPTU) nº {{imovel.iptu}}{{/if}}, doravante denominado <strong>IMÓVEL</strong>, que será destinado exclusivamente à finalidade <strong>{{finalidade}}</strong>.</p>
+
+<h3>CLÁUSULA 2ª — DO PRAZO</h3>
+<p>A presente locação vigorará pelo prazo de {{prazo_meses}} ({{prazo_meses}}) meses, iniciando-se em <strong>{{inicio_br}}</strong> e terminando em <strong>{{fim_br}}</strong>, independentemente de aviso ou notificação.</p>
+
+<h3>CLÁUSULA 3ª — DO ALUGUEL</h3>
+<p>O aluguel mensal é de <strong>{{aluguel_fmt}}</strong>, a ser pago pelo LOCATÁRIO ao LOCADOR até o dia <strong>{{dia_vencimento}}</strong> de cada mês subsequente ao vencido, por meio de depósito ou transferência bancária em conta indicada pelo LOCADOR, ou via boleto/PIX emitido pela administradora.</p>
+
+<h3>CLÁUSULA 4ª — DO REAJUSTE</h3>
+<p>O valor do aluguel será reajustado a cada {{reajuste_periodicidade}} pela variação acumulada do <strong>{{reajuste_indice}}</strong> no período, observada a periodicidade mínima legal. Em caso de extinção do índice, será adotado o que vier a substituí-lo oficialmente.</p>
+
+<h3>CLÁUSULA 5ª — DA MORA, MULTA E JUROS</h3>
+<p>O atraso no pagamento do aluguel ou de qualquer encargo importará na aplicação de multa moratória de <strong>{{multa_atraso}}%</strong> sobre o valor devido, acrescida de juros de mora de <strong>{{juros_atraso}}% ao mês</strong>, calculados <em>pro rata die</em>, e correção monetária pelo índice contratual.</p>
+
+<h3>CLÁUSULA 6ª — DOS ENCARGOS</h3>
+<p>Ficam a cargo do LOCATÁRIO, durante toda a vigência do contrato, o pagamento de: (a) taxa de água, esgoto, energia elétrica, gás, telefone, internet e demais serviços individuais; (b) taxas de condomínio ordinárias; (c) IPTU; e (d) demais encargos exigíveis durante a locação.</p>
+<p>Caberão ao LOCADOR os encargos extraordinários de condomínio, assim definidos pela Lei 8.245/91, art. 22, X.</p>
+
+<h3>CLÁUSULA 7ª — DA CONSERVAÇÃO E DEVOLUÇÃO</h3>
+<p>O LOCATÁRIO recebe o IMÓVEL em perfeito estado de conservação, conforme vistoria de entrada, comprometendo-se a devolvê-lo nas mesmas condições ao final da locação, respondendo por quaisquer danos causados por uso indevido.</p>
+
+<h3>CLÁUSULA 8ª — DAS BENFEITORIAS</h3>
+<p>Qualquer obra, reforma ou benfeitoria — necessária, útil ou voluptuária — somente poderá ser realizada pelo LOCATÁRIO mediante autorização prévia e por escrito do LOCADOR, ficando incorporada ao IMÓVEL sem direito a retenção ou indenização, salvo disposição expressa em contrário.</p>
+
+<h3>CLÁUSULA 9ª — DA RESCISÃO ANTECIPADA</h3>
+<p>Em caso de devolução antecipada do IMÓVEL pelo LOCATÁRIO, será devida multa proporcional de até <strong>{{multa_rescisoria_meses}}</strong> alugueres, na forma do art. 4º da Lei 8.245/91.</p>
+
+{{#if garantia}}<h3>CLÁUSULA 10ª — DA GARANTIA</h3>
+<p>{{garantia.clausula_detalhada}}</p>{{/if}}
+
+<h3>CLÁUSULA {{n_clausula_finais}}ª — DO FORO</h3>
+<p>As partes elegem o foro da comarca de <strong>{{foro}}</strong> como competente para dirimir quaisquer dúvidas ou litígios decorrentes do presente contrato, renunciando a qualquer outro, por mais privilegiado que seja.</p>
+
+{{#if clausulas_extras}}<h3>CLÁUSULA {{n_clausula_extras}}ª — DISPOSIÇÕES ADICIONAIS</h3>
+<p>{{clausulas_extras_html}}</p>{{/if}}
+
+<p style="margin-top:30px;">E, por estarem justas e contratadas, as partes assinam o presente instrumento em duas vias de igual teor.</p>
+
+<p style="text-align:right; margin-top:20px;">{{cidade}}, {{data_hoje_extenso}}.</p>
+
+<div style="margin-top:60px; display:flex; justify-content:space-around; gap:30px;">
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{locador.nome}}</div>
+    <div style="font-size:11px;">LOCADOR</div>
+  </div>
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{locatario.nome}}</div>
+    <div style="font-size:11px;">LOCATÁRIO</div>
+  </div>
+</div>
+
+{{#if garantia}}<div style="margin-top:30px; text-align:center;">
+  <div style="border-top:1px solid #000; padding-top:6px; max-width:260px; margin:0 auto;">{{garantia.identificacao_curta}}</div>
+  <div style="font-size:11px;">{{garantia.papel_upper}}</div>
+</div>{{/if}}
+
+<div style="margin-top:40px; font-size:11px; color:#888;">Testemunhas:</div>
+<div style="margin-top:20px; display:flex; gap:30px;">
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+</div>
+`,
+  },
+
+  venda: {
+    id: 'compra_venda_v1',
+    versao: 1,
+    modalidade: 'venda',
+    nome: 'Contrato de Compra e Venda',
+    perguntas: [
+      { id: 'vendedor_id', tipo: 'select_entidade', colecao: 'locadores', label: 'Quem é o vendedor?', obrigatorio: true },
+      { id: 'comprador_id', tipo: 'select_entidade', colecao: 'compradores', label: 'Quem é o comprador?', obrigatorio: true },
+      { id: 'imovel_id', tipo: 'select_entidade', colecao: 'imoveis', label: 'Qual é o imóvel?', obrigatorio: true },
+      { id: 'valor_total', tipo: 'money', label: 'Valor total da venda (R$)', obrigatorio: true },
+      { id: 'forma_pagamento', tipo: 'select', label: 'Forma de pagamento', opcoes: [
+        { v: 'a_vista', l: 'À vista' },
+        { v: 'financiamento', l: 'Financiamento bancário' },
+        { v: 'parcelado_direto', l: 'Parcelado direto com o vendedor' },
+        { v: 'permuta', l: 'Permuta' },
+        { v: 'misto', l: 'Misto (entrada + financiamento)' },
+      ], obrigatorio: true },
+      { id: 'tem_entrada', tipo: 'yesno', label: 'Há entrada/sinal?', default: 'sim' },
+      { id: 'valor_entrada', tipo: 'money', label: 'Valor da entrada (R$)', condicao: { tem_entrada: 'sim' } },
+      { id: 'data_pagamento_entrada', tipo: 'date', label: 'Data do pagamento da entrada', condicao: { tem_entrada: 'sim' } },
+      { id: 'tem_financiamento', tipo: 'yesno', label: 'O comprador usará financiamento bancário?', default: 'nao' },
+      { id: 'banco_financiamento', tipo: 'text', label: 'Banco financiador', condicao: { tem_financiamento: 'sim' } },
+      { id: 'prazo_quitacao', tipo: 'text', label: 'Prazo para quitação (ex: "60 dias da assinatura")', condicao: { tem_financiamento: 'sim' } },
+      { id: 'data_posse', tipo: 'date', label: 'Data prevista para entrega da posse' },
+      { id: 'tem_comissao', tipo: 'yesno', label: 'Há comissão de corretagem?', default: 'sim' },
+      { id: 'percentual_comissao', tipo: 'number', label: 'Percentual da comissão (%)', default: 6, condicao: { tem_comissao: 'sim' } },
+      { id: 'responsavel_comissao', tipo: 'select', label: 'Quem paga a comissão?', condicao: { tem_comissao: 'sim' }, opcoes: [
+        { v: 'vendedor', l: 'Vendedor' },
+        { v: 'comprador', l: 'Comprador' },
+        { v: 'ambos', l: 'Vendedor e comprador (50%/50%)' },
+      ], default: 'vendedor' },
+      { id: 'multa_inadimplencia', tipo: 'number', label: 'Multa em caso de inadimplência (%)', default: 10 },
+      { id: 'foro', tipo: 'text', label: 'Foro (comarca de eleição)', obrigatorio: true },
+      { id: 'clausulas_extras', tipo: 'textarea', label: 'Cláusulas adicionais (opcional)' },
+    ],
+    template: `${ELAB_AVISO_REVISAO}
+<h1 style="text-align:center;">INSTRUMENTO PARTICULAR DE COMPROMISSO DE COMPRA E VENDA</h1>
+
+<p>Pelo presente instrumento particular, as partes abaixo qualificadas têm entre si justo e contratado:</p>
+
+<p><strong>VENDEDOR:</strong> {{vendedor.nome}}, {{vendedor.nacionalidade_or}}, {{vendedor.estadoCivil_or}}, {{vendedor.profissao_or}}, portador do CPF/CNPJ nº {{vendedor.documento_fmt}}, residente e domiciliado em {{vendedor.endereco_completo}}, doravante denominado <strong>VENDEDOR</strong>.</p>
+
+<p><strong>COMPRADOR:</strong> {{comprador.nome}}, {{comprador.nacionalidade_or}}, {{comprador.estadoCivil_or}}, {{comprador.profissao_or}}, portador do CPF/CNPJ nº {{comprador.documento_fmt}}, residente e domiciliado em {{comprador.endereco_completo}}, doravante denominado <strong>COMPRADOR</strong>.</p>
+
+<h3>CLÁUSULA 1ª — DO OBJETO</h3>
+<p>O VENDEDOR, na condição de legítimo proprietário, promete vender ao COMPRADOR, que promete adquirir, o imóvel situado em <strong>{{imovel.endereco_completo}}</strong>{{#if imovel.matricula}}, matrícula nº {{imovel.matricula}} no Registro de Imóveis competente{{/if}}{{#if imovel.iptu}}, inscrição municipal (IPTU) nº {{imovel.iptu}}{{/if}}, doravante denominado <strong>IMÓVEL</strong>, livre e desembaraçado de quaisquer ônus reais.</p>
+
+<h3>CLÁUSULA 2ª — DO PREÇO E FORMA DE PAGAMENTO</h3>
+<p>O preço total da compra é de <strong>{{valor_total_fmt}}</strong>, a ser pago da seguinte forma:</p>
+<ul>
+{{#if tem_entrada}}<li>Entrada/sinal de <strong>{{valor_entrada_fmt}}</strong>, paga em <strong>{{data_pagamento_entrada_br}}</strong>, dando-se as partes mutuamente quitação;</li>{{/if}}
+{{#if tem_financiamento}}<li>Saldo de <strong>{{saldo_fmt}}</strong> a ser pago pelo COMPRADOR através de financiamento bancário junto ao <strong>{{banco_financiamento}}</strong>, no prazo de <strong>{{prazo_quitacao}}</strong>;</li>{{/if}}
+{{#if !tem_financiamento}}<li>Saldo de <strong>{{saldo_fmt}}</strong> conforme acordado entre as partes, na modalidade <strong>{{forma_pagamento_label}}</strong>.</li>{{/if}}
+</ul>
+
+<h3>CLÁUSULA 3ª — DA POSSE</h3>
+<p>A posse plena do IMÓVEL será entregue ao COMPRADOR em <strong>{{data_posse_br}}</strong>, mediante quitação total do preço ajustado, ressalvadas as hipóteses de antecipação ou prorrogação por acordo mútuo formalizado por escrito.</p>
+
+<h3>CLÁUSULA 4ª — DA ESCRITURA</h3>
+<p>Cumpridas todas as obrigações pelo COMPRADOR, especialmente o pagamento integral do preço, será outorgada a respectiva escritura pública de compra e venda, com todas as despesas (ITBI, escritura, registro) por conta do COMPRADOR, salvo disposição em contrário.</p>
+
+<h3>CLÁUSULA 5ª — DAS DECLARAÇÕES DO VENDEDOR</h3>
+<p>O VENDEDOR declara, sob as penas da lei, que: (a) o IMÓVEL é de sua exclusiva propriedade e está livre e desembaraçado de quaisquer ônus, gravames, hipotecas ou pendências judiciais; (b) não há ações reais ou pessoais reipersecutórias relativas ao bem; (c) o IPTU, taxas e tributos estão quitados até a data de assinatura.</p>
+
+<h3>CLÁUSULA 6ª — DA INADIMPLÊNCIA</h3>
+<p>O descumprimento de qualquer obrigação pecuniária por parte do COMPRADOR sujeitará a parte inadimplente à multa de <strong>{{multa_inadimplencia}}%</strong> sobre o valor em mora, acrescida de juros legais e correção monetária, sem prejuízo da rescisão deste contrato a critério da parte prejudicada.</p>
+
+{{#if tem_comissao}}<h3>CLÁUSULA 7ª — DA CORRETAGEM</h3>
+<p>As partes reconhecem a intermediação prestada pela imobiliária <strong>{{tenant.nome}}</strong> ({{tenant.creci_or}}), à qual será devida comissão de corretagem no percentual de <strong>{{percentual_comissao}}%</strong> sobre o valor total da venda, a ser paga pelo(a) <strong>{{responsavel_comissao_label}}</strong> no ato da assinatura deste instrumento ou da escritura definitiva, conforme acordado.</p>{{/if}}
+
+<h3>CLÁUSULA {{n_clausula_finais}}ª — DO FORO</h3>
+<p>As partes elegem o foro da comarca de <strong>{{foro}}</strong> como competente para dirimir quaisquer dúvidas ou litígios decorrentes deste contrato, renunciando a qualquer outro, por mais privilegiado que seja.</p>
+
+{{#if clausulas_extras}}<h3>CLÁUSULA {{n_clausula_extras}}ª — DISPOSIÇÕES ADICIONAIS</h3>
+<p>{{clausulas_extras_html}}</p>{{/if}}
+
+<p style="margin-top:30px;">E, por estarem justas e contratadas, as partes assinam o presente instrumento em duas vias de igual teor.</p>
+
+<p style="text-align:right; margin-top:20px;">{{cidade}}, {{data_hoje_extenso}}.</p>
+
+<div style="margin-top:60px; display:flex; justify-content:space-around; gap:30px;">
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{vendedor.nome}}</div>
+    <div style="font-size:11px;">VENDEDOR</div>
+  </div>
+  <div style="text-align:center; flex:1;">
+    <div style="border-top:1px solid #000; padding-top:6px;">{{comprador.nome}}</div>
+    <div style="font-size:11px;">COMPRADOR</div>
+  </div>
+</div>
+
+<div style="margin-top:40px; font-size:11px; color:#888;">Testemunhas:</div>
+<div style="margin-top:20px; display:flex; gap:30px;">
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+  <div style="flex:1; border-top:1px solid #000; padding-top:6px; font-size:11px;">Nome / CPF</div>
+</div>
+`,
+  },
+};
+
+let _elabContrato = null;
+
+function elabIniciar(modalidade) {
+  if (!State.tenant) {
+    showAlert('elab-alert', 'Selecione um tenant antes de elaborar contratos.');
+    return;
+  }
+  const tpl = ELAB_TEMPLATES[modalidade];
+  if (!tpl) return;
+
+  _elabContrato = {
+    modalidade,
+    templateId: tpl.id,
+    versao: tpl.versao,
+    respostas: {},
+    htmlGerado: null,
+    contratoSalvoId: null,
+  };
+  // Preenche defaults
+  tpl.perguntas.forEach(p => {
+    if (p.default !== undefined) _elabContrato.respostas[p.id] = p.default;
+  });
+
+  $('elab-etapa-escolha').style.display = 'none';
+  $('elab-etapa-wizard').style.display = 'block';
+  $('elab-etapa-preview').style.display = 'none';
+  $('btn-elab-reiniciar').style.display = 'inline-block';
+  $('elab-wizard-titulo').textContent = tpl.nome;
+
+  elabRenderWizard();
+}
+
+function elabReiniciar() {
+  _elabContrato = null;
+  $('elab-etapa-escolha').style.display = 'block';
+  $('elab-etapa-wizard').style.display = 'none';
+  $('elab-etapa-preview').style.display = 'none';
+  $('btn-elab-reiniciar').style.display = 'none';
+  clearAlert('elab-alert');
+}
+
+function elabVoltarWizard() {
+  $('elab-etapa-wizard').style.display = 'block';
+  $('elab-etapa-preview').style.display = 'none';
+}
+
+function elabAvaliarCondicao(p) {
+  if (!p.condicao) return true;
+  return Object.entries(p.condicao).every(([campo, valor]) => _elabContrato.respostas[campo] === valor);
+}
+
+async function elabRenderWizard() {
+  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
+  const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+  const respondidas = visiveis.filter(p => _elabContrato.respostas[p.id] !== undefined && _elabContrato.respostas[p.id] !== '').length;
+  const total = visiveis.length;
+  $('elab-wizard-progresso').textContent = `${respondidas} de ${total} respondidas`;
+  $('elab-wizard-barra').style.width = total ? `${(respondidas / total) * 100}%` : '0%';
+
+  // Pre-carrega caches de entidades usadas
+  await ensureLocadoresCache();
+  await ensureLocatariosCache();
+  await ensureImoveisCache();
+  await ensureGarantiasCache();
+  if (typeof ensureCompradoresCache === 'function') await ensureCompradoresCache();
+
+  const container = $('elab-perguntas-container');
+  container.innerHTML = visiveis.map(p => elabHtmlPergunta(p)).join('');
+}
+
+function elabHtmlPergunta(p) {
+  const valor = _elabContrato.respostas[p.id] ?? '';
+  const requiredMark = p.obrigatorio ? '<span style="color:var(--danger);"> *</span>' : '';
+  let inputHtml = '';
+  switch (p.tipo) {
+    case 'text':
+      inputHtml = `<input type="text" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+      break;
+    case 'textarea':
+      inputHtml = `<textarea rows="3" oninput="elabResposta('${p.id}', this.value)">${escapeHtml(valor)}</textarea>`;
+      break;
+    case 'number':
+      inputHtml = `<input type="number" step="any" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+      break;
+    case 'money':
+      inputHtml = `<input type="number" step="0.01" min="0" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+      break;
+    case 'date':
+      inputHtml = `<input type="date" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+      break;
+    case 'yesno':
+      inputHtml = `<select onchange="elabResposta('${p.id}', this.value)">
+        <option value="">— selecione —</option>
+        <option value="sim" ${valor === 'sim' ? 'selected' : ''}>Sim</option>
+        <option value="nao" ${valor === 'nao' ? 'selected' : ''}>Não</option>
+      </select>`;
+      break;
+    case 'select':
+      inputHtml = `<select onchange="elabResposta('${p.id}', this.value)">
+        <option value="">— selecione —</option>
+        ${p.opcoes.map(o => `<option value="${o.v}" ${valor === o.v ? 'selected' : ''}>${escapeHtml(o.l)}</option>`).join('')}
+      </select>`;
+      break;
+    case 'select_entidade':
+      const cache = elabGetCache(p.colecao);
+      inputHtml = `<select onchange="elabResposta('${p.id}', this.value)">
+        <option value="">— selecione —</option>
+        ${cache.map(e => `<option value="${e.id}" ${valor === e.id ? 'selected' : ''}>${escapeHtml(elabLabelEntidade(p.colecao, e))}</option>`).join('')}
+      </select>`;
+      break;
+    default:
+      inputHtml = `<input type="text" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+  }
+  return `<div class="form-group" style="margin-bottom:12px;">
+    <label>${escapeHtml(p.label)}${requiredMark}</label>
+    ${inputHtml}
+  </div>`;
+}
+
+function elabGetCache(colecao) {
+  if (colecao === 'locadores') return (typeof _locadoresCache !== 'undefined' && _locadoresCache) || [];
+  if (colecao === 'locatarios') return (typeof _locatariosCache !== 'undefined' && _locatariosCache) || [];
+  if (colecao === 'imoveis') return (typeof _imoveisCache !== 'undefined' && _imoveisCache) || [];
+  if (colecao === 'garantias') return (typeof _garantiasCache !== 'undefined' && _garantiasCache) || [];
+  if (colecao === 'compradores') return (typeof _compradoresCache !== 'undefined' && _compradoresCache) || [];
+  return [];
+}
+
+function elabLabelEntidade(colecao, e) {
+  if (colecao === 'imoveis') return e.apelido || e.id;
+  if (colecao === 'garantias') {
+    const tipoLabel = GARANTIA_TIPO_LABEL?.[e.tipo] || e.tipo;
+    if (typeof garantiaIdentificacao === 'function') return `${garantiaIdentificacao(e)} (${tipoLabel})`;
+    return `${e.tipo}`;
+  }
+  return e.nome || e.id;
+}
+
+function elabResposta(id, valor) {
+  if (!_elabContrato) return;
+  _elabContrato.respostas[id] = valor;
+  // Se a resposta afeta condicionais, re-renderiza o wizard inteiro
+  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
+  const afetaCondicao = tpl.perguntas.some(p => p.condicao && p.condicao[id] !== undefined);
+  if (afetaCondicao) elabRenderWizard();
+  else {
+    // Só atualiza barra de progresso
+    const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+    const respondidas = visiveis.filter(p => _elabContrato.respostas[p.id] !== undefined && _elabContrato.respostas[p.id] !== '').length;
+    $('elab-wizard-progresso').textContent = `${respondidas} de ${visiveis.length} respondidas`;
+    $('elab-wizard-barra').style.width = visiveis.length ? `${(respondidas / visiveis.length) * 100}%` : '0%';
+  }
+}
+
+async function elabValidarEGerar() {
+  clearAlert('elab-alert');
+  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
+  const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+  const faltando = visiveis.filter(p => p.obrigatorio && (!_elabContrato.respostas[p.id] || _elabContrato.respostas[p.id] === ''));
+  if (faltando.length) {
+    showAlert('elab-alert', `Preencha os campos obrigatórios: ${faltando.map(p => p.label).join(', ')}`);
+    return;
+  }
+
+  try {
+    const dados = await elabResolverDados();
+    const html = elabRenderizarTemplate(tpl.template, dados);
+    _elabContrato.htmlGerado = html;
+    _elabContrato.dadosResolvidos = dados;
+    $('elab-preview-container').innerHTML = html;
+    $('elab-etapa-wizard').style.display = 'none';
+    $('elab-etapa-preview').style.display = 'block';
+  } catch (err) {
+    console.error('Erro ao gerar contrato:', err);
+    showAlert('elab-alert', 'Erro ao gerar contrato: ' + err.message);
+  }
+}
+
+// Resolve as respostas em um objeto pronto pro template (busca entidades por id)
+async function elabResolverDados() {
+  const r = _elabContrato.respostas;
+  const tenant = State.tenant || {};
+  const dados = {
+    ...r,
+    tenant: {
+      ...tenant,
+      creci_or: tenant.creci ? `CRECI ${tenant.creci}` : 'imobiliária',
+    },
+    cidade: 'São Paulo',
+    data_hoje_extenso: fmtDataExtenso(),
+    finalidade: r.finalidade || 'residencial',
+    finalidade_upper: (r.finalidade || 'residencial').toUpperCase(),
+  };
+
+  // Resolve entidades
+  const tplPerguntas = ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
+  for (const p of tplPerguntas) {
+    if (p.tipo === 'select_entidade' && r[p.id]) {
+      const snap = await tenantPath().collection(p.colecao).doc(r[p.id]).get();
+      if (snap.exists) {
+        const ent = snap.data();
+        // Mapeia o nome de variável pra forma "limpa": locador_id -> locador
+        const baseName = p.id.replace(/_id$/, '');
+        dados[baseName] = elabFormatarEntidade(ent, p.colecao);
+        if (p.colecao === 'imoveis' && ent.endereco?.cidade) dados.cidade = ent.endereco.cidade;
+      }
+    }
+  }
+
+  // Formatação de valores
+  if (r.aluguel) dados.aluguel_fmt = fmtBRL(r.aluguel);
+  if (r.valor_total) {
+    dados.valor_total_fmt = fmtBRL(r.valor_total);
+    const entrada = parseFloat(r.valor_entrada) || 0;
+    dados.saldo_fmt = fmtBRL((parseFloat(r.valor_total) || 0) - entrada);
+  }
+  if (r.valor_entrada) dados.valor_entrada_fmt = fmtBRL(r.valor_entrada);
+
+  // Datas BR
+  if (r.inicio) dados.inicio_br = fmtDataBR(r.inicio);
+  if (r.inicio && r.prazo_meses) {
+    const fim = calcDataFim(r.inicio, r.prazo_meses);
+    dados.fim_br = fmtDataBR(fim);
+  }
+  if (r.data_pagamento_entrada) dados.data_pagamento_entrada_br = fmtDataBR(r.data_pagamento_entrada);
+  if (r.data_posse) dados.data_posse_br = fmtDataBR(r.data_posse);
+
+  // Form pagamento label
+  const fpMap = { a_vista: 'à vista', financiamento: 'financiamento', parcelado_direto: 'parcelado direto', permuta: 'permuta', misto: 'misto' };
+  if (r.forma_pagamento) dados.forma_pagamento_label = fpMap[r.forma_pagamento] || r.forma_pagamento;
+
+  // Responsável comissão label
+  const rcMap = { vendedor: 'VENDEDOR', comprador: 'COMPRADOR', ambos: 'VENDEDOR e COMPRADOR (50%/50%)' };
+  if (r.responsavel_comissao) dados.responsavel_comissao_label = rcMap[r.responsavel_comissao] || r.responsavel_comissao;
+
+  // Cláusulas extras como HTML
+  if (r.clausulas_extras) {
+    dados.clausulas_extras_html = (typeof textToHtml === 'function' ? textToHtml(r.clausulas_extras) : escapeHtml(r.clausulas_extras).replace(/\n/g, '<br>'));
+  }
+
+  // Numeração de cláusulas finais (após eventuais opcionais)
+  if (_elabContrato.modalidade === 'locacao') {
+    let n = 10;
+    if (r.tem_garantia === 'sim') n = 11;
+    dados.n_clausula_finais = n;
+    dados.n_clausula_extras = n + 1;
+  } else {
+    let n = 7;
+    if (r.tem_comissao === 'sim') n = 8;
+    dados.n_clausula_finais = n;
+    dados.n_clausula_extras = n + 1;
+  }
+
+  // Garantia: monta blocos derivados
+  if (r.garantia_id && dados.garantia) {
+    const g = dados.garantia;
+    const tipoLabel = (typeof GARANTIA_TIPO_LABEL !== 'undefined' && GARANTIA_TIPO_LABEL[g.tipo]) || g.tipo;
+    g.tipo_label = tipoLabel;
+    g.papel_upper = g.tipo === 'fiador' ? 'FIADOR' : (g.tipo === 'seguro_fianca' ? 'GARANTIA' : 'CAUÇÃO');
+    g.identificacao = typeof garantiaIdentificacao === 'function' ? garantiaIdentificacao(g) : (g.fiador?.nome || tipoLabel);
+    g.identificacao_curta = g.fiador?.nome || tipoLabel;
+    g.clausula_detalhada = elabClausulaGarantia(g);
+  }
+
+  return dados;
+}
+
+function elabClausulaGarantia(g) {
+  if (g.tipo === 'fiador' && g.fiador) {
+    return `Fica constituído como FIADOR e principal pagador, com renúncia expressa aos benefícios dos artigos 827 e 838 do Código Civil, <strong>${escapeHtml(g.fiador.nome || '')}</strong>, CPF nº ${formataCPFCNPJ(g.fiador.cpf || '')}, que responderá solidariamente por todas as obrigações decorrentes deste contrato, inclusive durante eventual prorrogação por prazo indeterminado.`;
+  }
+  if (g.tipo === 'caucao' && g.caucao) {
+    return `Fica entregue, a título de CAUÇÃO, ${g.caucao.modalidade === 'dinheiro' ? `o valor de ${fmtBRL(g.caucao.valor || 0)} em dinheiro` : 'o bem descrito a seguir'}: ${escapeHtml(g.caucao.bemDescricao || '')}, a ser restituído ao final da locação, atualizado, descontadas eventuais pendências.`;
+  }
+  if (g.tipo === 'seguro_fianca' && g.seguro) {
+    return `A garantia locatícia será o SEGURO-FIANÇA contratado junto à seguradora ${escapeHtml(g.seguro.seguradora || '')}, apólice nº ${escapeHtml(g.seguro.apolice || '')}, com vigência de ${g.seguro.vigenciaInicio ? fmtDataBR(g.seguro.vigenciaInicio) : '—'} a ${g.seguro.vigenciaFim ? fmtDataBR(g.seguro.vigenciaFim) : '—'} e cobertura de ${fmtBRL(g.seguro.cobertura || 0)}.`;
+  }
+  return '';
+}
+
+function elabFormatarEntidade(e, colecao) {
+  if (colecao === 'imoveis') {
+    return {
+      ...e,
+      endereco_completo: typeof formatEnderecoCompleto === 'function' ? formatEnderecoCompleto(e.endereco) : (e.endereco?.logradouro || ''),
+    };
+  }
+  // Pessoas (locador/locatario/comprador) + garantias
+  const docMasked = e.documento ? formataCPFCNPJ(e.documento) : '';
+  return {
+    ...e,
+    documento_fmt: docMasked,
+    endereco_completo: typeof formatEnderecoCompleto === 'function' ? formatEnderecoCompleto(e.endereco) : '',
+    nacionalidade_or: e.nacionalidade || 'brasileiro(a)',
+    estadoCivil_or: e.estadoCivil || 'estado civil não informado',
+    profissao_or: e.profissao || 'profissão não informada',
+    rg_or: e.rg || 's/n',
+  };
+}
+
+// Template engine simples: {{var}}, {{a.b.c}}, {{#if var}}...{{/if}}, {{#if !var}}...{{/if}}
+function elabRenderizarTemplate(template, dados) {
+  // Processa {{#if condicao}}...{{/if}} (sem aninhamento profundo)
+  let out = template.replace(/\{\{#if (!?)([\w.]+)\}\}([\s\S]*?)\{\{\/if\}\}/g, (m, neg, path, content) => {
+    const v = elabGetPath(dados, path);
+    const truthy = !!v && v !== 'nao' && v !== 'não' && v !== 'false' && v !== '0';
+    return (neg === '!' ? !truthy : truthy) ? content : '';
+  });
+  // Substitui variáveis {{var}}, {{a.b}}
+  out = out.replace(/\{\{([\w.]+)\}\}/g, (m, path) => {
+    const v = elabGetPath(dados, path);
+    if (v === undefined || v === null) return '';
+    return String(v);
+  });
+  return out;
+}
+
+function elabGetPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+async function elabBaixarPDF() {
+  if (!_elabContrato?.htmlGerado) return;
+  if (!window.html2pdf) {
+    showAlert('elab-alert', 'Biblioteca html2pdf não carregou. Recarregue a página.');
+    return;
+  }
+  const wrapper = document.createElement('div');
+  wrapper.style.padding = '20mm';
+  wrapper.style.fontFamily = 'Georgia, serif';
+  wrapper.style.fontSize = '12pt';
+  wrapper.style.color = '#000';
+  wrapper.innerHTML = _elabContrato.htmlGerado;
+  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
+  const filename = `${tpl.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+  await html2pdf().set({
+    margin: 0,
+    filename,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  }).from(wrapper).save();
+}
+
+function elabBaixarWord() {
+  if (!_elabContrato?.htmlGerado) return;
+  // .doc com HTML embutido — Word abre sem problemas.
+  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
+  const filename = `${tpl.nome.replace(/\s+/g, '_')}_${Date.now()}.doc`;
+  const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${escapeHtml(tpl.nome)}</title></head><body style="font-family: Georgia, serif; font-size: 12pt;">${_elabContrato.htmlGerado}</body></html>`;
+  const blob = new Blob(['﻿', html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function elabSalvarContrato() {
+  if (!_elabContrato?.htmlGerado) return;
+  const btnAlert = 'elab-alert';
+  clearAlert(btnAlert);
+  try {
+    const r = _elabContrato.respostas;
+    const ehLocacao = _elabContrato.modalidade === 'locacao';
+    const colecao = ehLocacao ? 'contratos' : 'negociacoes';
+
+    const seq = await proximoNumeroSequencial(colecao);
+
+    let payload;
+    if (ehLocacao) {
+      payload = {
+        numero: seq.numero,
+        numeroSequencial: seq.numeroSequencial,
+        status: 'rascunho',
+        imovelId: r.imovel_id,
+        locadorId: r.locador_id,
+        locatarioId: r.locatario_id,
+        garantiaId: r.garantia_id || null,
+        prazoMeses: parseInt(r.prazo_meses, 10) || 30,
+        inicio: r.inicio || null,
+        fim: r.inicio && r.prazo_meses ? calcDataFim(r.inicio, r.prazo_meses) : null,
+        aluguel: parseFloat(r.aluguel) || 0,
+        diaVencimento: parseInt(r.dia_vencimento, 10) || 5,
+        reajusteIndice: (r.reajuste_indice || 'IPCA').toLowerCase(),
+        reajustePeriodicidade: r.reajuste_periodicidade || 'anual',
+        multaRescisoria: (parseFloat(r.aluguel) || 0) * (parseInt(r.multa_rescisoria_meses, 10) || 3),
+        taxaAdm: 10,
+        clausulas: r.clausulas_extras || null,
+        foro: r.foro || null,
+        obs: 'Gerado pelo wizard Elaborar contrato',
+        geradoPorWizard: true,
+        templateId: _elabContrato.templateId,
+        templateVersao: _elabContrato.versao,
+        contratoHtml: _elabContrato.htmlGerado,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user.uid,
+      };
+    } else {
+      payload = {
+        numero: seq.numero,
+        numeroSequencial: seq.numeroSequencial,
+        status: 'rascunho',
+        imovelId: r.imovel_id,
+        vendedorId: r.vendedor_id,
+        compradorId: r.comprador_id,
+        valor: parseFloat(r.valor_total) || 0,
+        formaPagamento: r.forma_pagamento || 'a_vista',
+        entrada: parseFloat(r.valor_entrada) || null,
+        comissao: parseFloat(r.percentual_comissao) || 0,
+        dataPosse: r.data_posse || null,
+        clausulas: r.clausulas_extras || null,
+        foro: r.foro || null,
+        obs: 'Gerado pelo wizard Elaborar contrato',
+        geradoPorWizard: true,
+        templateId: _elabContrato.templateId,
+        templateVersao: _elabContrato.versao,
+        contratoHtml: _elabContrato.htmlGerado,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user.uid,
+      };
+    }
+
+    const ref = await tenantPath().collection(colecao).add(payload);
+    _elabContrato.contratoSalvoId = ref.id;
+    logAuditoria('create', colecao, ref.id, { numero: seq.numero, geradoPorWizard: true });
+    showAlert(btnAlert, `✓ Contrato nº ${seq.numero} salvo. Você pode acessar pela seção de ${ehLocacao ? 'Contratos' : 'Negociações'}.`, 'success');
+  } catch (err) {
+    console.error('Erro ao salvar contrato do wizard:', err);
+    showAlert(btnAlert, 'Erro ao salvar: ' + err.message);
+  }
+}
+
+async function elabEnviarZapSign() {
+  if (!_elabContrato?.htmlGerado) return;
+  // Salva primeiro (precisa do contratoId pro fluxo do ZapSign)
+  if (!_elabContrato.contratoSalvoId) {
+    await elabSalvarContrato();
+    if (!_elabContrato.contratoSalvoId) return;
+  }
+  // Reusa o fluxo existente: seta contrato-id (mesmo sem o modal de contrato aberto) e chama abrirEnvioZapSign
+  if (_elabContrato.modalidade !== 'locacao') {
+    showAlert('elab-alert', 'Envio para ZapSign disponível apenas para contratos de locação na Fase A. Vendas usam o módulo de Negociações.');
+    return;
+  }
+  $('contrato-id').value = _elabContrato.contratoSalvoId;
+  if (typeof abrirEnvioZapSign === 'function') {
+    await abrirEnvioZapSign();
+  } else {
+    showAlert('elab-alert', 'Função de envio ZapSign não disponível.');
   }
 }

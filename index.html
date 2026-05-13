@@ -198,6 +198,7 @@
 
         <div class="nav-group">
           <div class="nav-group-title">Operação</div>
+          <a class="nav-link" data-section="elab-contrato"><span class="nav-ico">✍️</span><span>Elaborar contrato</span></a>
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
           <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
@@ -433,6 +434,76 @@
                   <tr><td colspan="7" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================================ -->
+        <!-- ELABORAR CONTRATO (wizard guiado) -->
+        <!-- ============================================ -->
+        <section class="section" id="section-elab-contrato" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>✍️ Elaborar contrato</h3>
+                <p class="muted">Escolha a modalidade e responda às perguntas para gerar o contrato.</p>
+              </div>
+              <button class="btn btn-secondary" id="btn-elab-reiniciar" onclick="elabReiniciar()" style="display:none;">↻ Reiniciar</button>
+            </div>
+
+            <div id="elab-alert" class="alert alert-error" style="display:none;"></div>
+
+            <!-- ETAPA 1: escolha de modalidade -->
+            <div id="elab-etapa-escolha">
+              <div style="text-align:center; padding:30px 10px;">
+                <h3 style="margin-bottom:10px;">Que tipo de contrato você quer elaborar?</h3>
+                <p class="muted" style="margin-bottom:24px;">Você responde algumas perguntas e o sistema monta o contrato pronto.</p>
+                <div style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap;">
+                  <button class="btn btn-primary" style="padding:20px 28px; font-size:16px;" onclick="elabIniciar('locacao')">🏠 Contrato de Locação Residencial</button>
+                  <button class="btn btn-primary" style="padding:20px 28px; font-size:16px;" onclick="elabIniciar('venda')">💼 Contrato de Compra e Venda</button>
+                </div>
+                <p class="muted" style="margin-top:20px; font-size:12px;">Templates base — recomendamos revisão jurídica antes de uso comercial.</p>
+              </div>
+            </div>
+
+            <!-- ETAPA 2: wizard de perguntas -->
+            <div id="elab-etapa-wizard" style="display:none;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding:10px 14px; background:#fff8e1; border-radius:8px;">
+                <div>
+                  <strong id="elab-wizard-titulo">Contrato</strong>
+                  <div class="muted" style="font-size:12px;" id="elab-wizard-progresso">Pergunta 1 de N</div>
+                </div>
+                <div style="width:200px; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden;">
+                  <div id="elab-wizard-barra" style="height:100%; background:var(--primary); width:0%; transition:width 0.2s;"></div>
+                </div>
+              </div>
+
+              <div id="elab-perguntas-container"></div>
+
+              <div style="margin-top:18px; display:flex; justify-content:space-between; gap:8px;">
+                <button class="btn btn-secondary" onclick="elabReiniciar()">← Voltar à escolha</button>
+                <button class="btn btn-primary" onclick="elabValidarEGerar()">📄 Visualizar contrato →</button>
+              </div>
+            </div>
+
+            <!-- ETAPA 3: preview + ações -->
+            <div id="elab-etapa-preview" style="display:none;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                <div>
+                  <strong>Pré-visualização</strong>
+                  <div class="muted" style="font-size:12px;">Confira o conteúdo antes de baixar ou enviar.</div>
+                </div>
+                <button class="btn btn-secondary" onclick="elabVoltarWizard()">← Editar respostas</button>
+              </div>
+
+              <div id="elab-preview-container" class="contrato-preview" style="max-height:60vh; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:24px; background:white;"></div>
+
+              <div style="margin-top:18px; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                <button class="btn btn-secondary" onclick="elabBaixarPDF()">⬇ Baixar PDF</button>
+                <button class="btn btn-secondary" onclick="elabBaixarWord()">⬇ Baixar Word</button>
+                <button class="btn btn-secondary" onclick="elabSalvarContrato()">💾 Salvar no sistema</button>
+                <button class="btn btn-primary" onclick="elabEnviarZapSign()">✍️ Enviar para assinatura</button>
+              </div>
             </div>
           </div>
         </section>
@@ -3691,6 +3762,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260513n"></script>
+  <script src="app.js?v=20260513o"></script>
 </body>
 </html>
