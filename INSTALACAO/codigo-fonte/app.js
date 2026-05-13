@@ -6298,6 +6298,8 @@ async function loadConfigImobiliaria() {
   if (!State.tenant) return;
   // Carrega editor de templates do wizard em paralelo (não bloqueia se falhar)
   carregarTplEditor().catch(() => {});
+  // Editor de perguntas do wizard (Fase F item 4)
+  carregarPergEditor().catch(() => {});
   const tipoPessoa = State.tenant.tipoPessoa || 'PJ';
   // Tenants legados sem tipoPessoa: presume PJ se tem CNPJ, PF se tem CPF
   const ehPF = tipoPessoa === 'PF' || (!State.tenant.cnpj && State.tenant.cpf);
@@ -11886,6 +11888,9 @@ function elabIniciar(modalidade) {
   const tpl = ELAB_TEMPLATES[modalidade];
   if (!tpl) return;
 
+  // Carrega perguntas com overrides (Fase F item 4)
+  const perguntas = await getElabPerguntasMescladas(modalidade);
+
   _elabContrato = {
     modalidade,
     templateId: tpl.id,
@@ -11893,9 +11898,10 @@ function elabIniciar(modalidade) {
     respostas: {},
     htmlGerado: null,
     contratoSalvoId: null,
+    perguntas, // ← mescladas com override do tenant
   };
   // Preenche defaults
-  tpl.perguntas.forEach(p => {
+  perguntas.forEach(p => {
     if (p.default !== undefined) _elabContrato.respostas[p.id] = p.default;
   });
 
@@ -11928,8 +11934,8 @@ function elabAvaliarCondicao(p) {
 }
 
 async function elabRenderWizard() {
-  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
-  const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+  const perguntas = _elabContrato.perguntas || ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
+  const visiveis = perguntas.filter(elabAvaliarCondicao);
   const respondidas = visiveis.filter(p => _elabContrato.respostas[p.id] !== undefined && _elabContrato.respostas[p.id] !== '').length;
   const total = visiveis.length;
   $('elab-wizard-progresso').textContent = `${respondidas} de ${total} respondidas`;
@@ -12018,12 +12024,12 @@ function elabResposta(id, valor) {
   if (!_elabContrato) return;
   _elabContrato.respostas[id] = valor;
   // Se a resposta afeta condicionais, re-renderiza o wizard inteiro
-  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
-  const afetaCondicao = tpl.perguntas.some(p => p.condicao && p.condicao[id] !== undefined);
+  const perguntas = _elabContrato.perguntas || ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
+  const afetaCondicao = perguntas.some(p => p.condicao && p.condicao[id] !== undefined);
   if (afetaCondicao) elabRenderWizard();
   else {
     // Só atualiza barra de progresso
-    const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+    const visiveis = perguntas.filter(elabAvaliarCondicao);
     const respondidas = visiveis.filter(p => _elabContrato.respostas[p.id] !== undefined && _elabContrato.respostas[p.id] !== '').length;
     $('elab-wizard-progresso').textContent = `${respondidas} de ${visiveis.length} respondidas`;
     $('elab-wizard-barra').style.width = visiveis.length ? `${(respondidas / visiveis.length) * 100}%` : '0%';
@@ -12032,8 +12038,8 @@ function elabResposta(id, valor) {
 
 async function elabValidarEGerar() {
   clearAlert('elab-alert');
-  const tpl = ELAB_TEMPLATES[_elabContrato.modalidade];
-  const visiveis = tpl.perguntas.filter(elabAvaliarCondicao);
+  const perguntas = _elabContrato.perguntas || ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
+  const visiveis = perguntas.filter(elabAvaliarCondicao);
   const faltando = visiveis.filter(p => p.obrigatorio && (!_elabContrato.respostas[p.id] || _elabContrato.respostas[p.id] === ''));
   if (faltando.length) {
     showAlert('elab-alert', `Preencha os campos obrigatórios: ${faltando.map(p => p.label).join(', ')}`);
@@ -12073,7 +12079,7 @@ async function elabResolverDados() {
   };
 
   // Resolve entidades
-  const tplPerguntas = ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
+  const tplPerguntas = _elabContrato.perguntas || ELAB_TEMPLATES[_elabContrato.modalidade].perguntas;
   for (const p of tplPerguntas) {
     if (p.tipo === 'select_entidade' && r[p.id]) {
       const snap = await tenantPath().collection(p.colecao).doc(r[p.id]).get();
@@ -12491,6 +12497,239 @@ async function obterTemplate(templateKey) {
     if (_tplOverridesCache[templateKey]?.template) return _tplOverridesCache[templateKey].template;
   }
   return TPL_DEFAULTS[templateKey] || '';
+}
+
+// =============================================================
+// EDITOR DE PERGUNTAS DO WIZARD (Fase F item 4)
+// =============================================================
+// Override em tenants/{id}/elabPerguntas/{modalidade}.
+// Cliente pode mudar: label, default, obrigatorio, opcoes (se select).
+// NÃO pode mudar: id, tipo, colecao, condicao (mexem na lógica do template).
+
+let _perguntasOverridesCache = null;
+
+async function carregarOverridesPerguntas() {
+  if (!State.tenant) return {};
+  try {
+    const snap = await tenantPath().collection('elabPerguntas').get();
+    const out = {};
+    snap.docs.forEach(d => { out[d.id] = d.data(); });
+    _perguntasOverridesCache = out;
+    return out;
+  } catch (err) {
+    console.warn('Falha ao carregar overrides de perguntas:', err);
+    return {};
+  }
+}
+
+// Editor de perguntas — estado da UI
+let _pergEditor = { tab: 'locacao', dirty: false, customizado: false, perguntas: [] };
+
+async function carregarPergEditor() {
+  await carregarOverridesPerguntas();
+  await trocarTabPerguntas(_pergEditor.tab || 'locacao');
+}
+
+async function trocarTabPerguntas(tab) {
+  if (_pergEditor.dirty) {
+    if (!confirm('Há alterações não salvas. Trocar de aba mesmo assim?')) return;
+  }
+  _pergEditor.tab = tab;
+  _pergEditor.dirty = false;
+  document.querySelectorAll('#section-configuracoes .tab-btn[data-tab-perg]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tabPerg === tab);
+  });
+  const perguntas = await getElabPerguntasMescladas(tab);
+  _pergEditor.perguntas = JSON.parse(JSON.stringify(perguntas)); // deep clone
+  _pergEditor.customizado = !!(_perguntasOverridesCache && _perguntasOverridesCache[tab]?.perguntas?.length);
+  renderPergEditor();
+}
+
+function renderPergEditor() {
+  const lista = $('perg-editor-lista');
+  const aviso = $('perg-aviso');
+  if (!lista) return;
+  aviso.style.display = _pergEditor.customizado ? 'block' : 'none';
+
+  lista.innerHTML = _pergEditor.perguntas.map((p, idx) => {
+    const tipoLabel = {
+      text: 'Texto', textarea: 'Texto longo', number: 'Número',
+      money: 'Valor (R$)', date: 'Data', select: 'Lista',
+      select_entidade: 'Cadastro (' + (p.colecao || '') + ')',
+      yesno: 'Sim/Não',
+    }[p.tipo] || p.tipo;
+
+    let opcoesHtml = '';
+    if (p.tipo === 'select' && Array.isArray(p.opcoes)) {
+      opcoesHtml = `
+        <div class="form-group" style="margin-top:6px;">
+          <label style="font-size:11px;">Opções (uma por linha — formato <code>valor | rótulo</code>)</label>
+          <textarea rows="${Math.max(2, p.opcoes.length)}"
+            oninput="pergUpdateOpcoes(${idx}, this.value)"
+            style="font-family:Consolas,Monaco,monospace; font-size:11px;"
+          >${p.opcoes.map(o => (o.v || '') + ' | ' + (o.l || '')).join('\n')}</textarea>
+        </div>`;
+    }
+
+    let defaultHtml = '';
+    if (p.tipo === 'text' || p.tipo === 'textarea') {
+      defaultHtml = `<input type="text" value="${escapeHtml(p.default || '')}" oninput="pergUpdate(${idx}, 'default', this.value)">`;
+    } else if (p.tipo === 'number' || p.tipo === 'money') {
+      defaultHtml = `<input type="number" step="any" value="${p.default ?? ''}" oninput="pergUpdate(${idx}, 'default', this.value)">`;
+    } else if (p.tipo === 'date') {
+      defaultHtml = `<input type="date" value="${p.default || ''}" oninput="pergUpdate(${idx}, 'default', this.value)">`;
+    } else if (p.tipo === 'yesno') {
+      defaultHtml = `<select onchange="pergUpdate(${idx}, 'default', this.value)">
+        <option value="">— sem padrão —</option>
+        <option value="sim" ${p.default === 'sim' ? 'selected' : ''}>Sim</option>
+        <option value="nao" ${p.default === 'nao' ? 'selected' : ''}>Não</option>
+      </select>`;
+    } else if (p.tipo === 'select') {
+      defaultHtml = `<input type="text" value="${escapeHtml(p.default || '')}" oninput="pergUpdate(${idx}, 'default', this.value)" placeholder="Ex: IPCA">`;
+    } else {
+      defaultHtml = '<span class="muted" style="font-size:11px;">— sem padrão pra este tipo —</span>';
+    }
+
+    return `
+      <div class="card" style="margin-bottom:12px; padding:14px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+          <div>
+            <strong style="font-size:13px;">#${idx + 1} · <code style="font-size:11px;">${p.id}</code></strong>
+            <span class="muted" style="font-size:11px; margin-left:6px;">Tipo: ${tipoLabel}</span>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:6px;">
+          <label style="font-size:11px;">Rótulo (texto que aparece no wizard)</label>
+          <input type="text" value="${escapeHtml(p.label || '')}" oninput="pergUpdate(${idx}, 'label', this.value)">
+        </div>
+        <div class="form-row" style="margin-bottom:0;">
+          <div class="form-group" style="margin-bottom:0;">
+            <label style="font-size:11px;">Valor padrão</label>
+            ${defaultHtml}
+          </div>
+          <div class="form-group" style="margin-bottom:0; align-self:end;">
+            <label class="toggle-row" style="font-size:12px;">
+              <input type="checkbox" ${p.obrigatorio ? 'checked' : ''} onchange="pergUpdate(${idx}, 'obrigatorio', this.checked)">
+              <span>Obrigatória</span>
+            </label>
+          </div>
+        </div>
+        ${opcoesHtml}
+      </div>
+    `;
+  }).join('');
+}
+
+function pergUpdate(idx, campo, valor) {
+  if (!_pergEditor.perguntas[idx]) return;
+  _pergEditor.perguntas[idx][campo] = valor;
+  _pergEditor.dirty = true;
+  $('perg-status').textContent = '✏️ Alterações não salvas';
+  $('perg-status').style.color = '#92400e';
+}
+
+function pergUpdateOpcoes(idx, raw) {
+  if (!_pergEditor.perguntas[idx]) return;
+  const opcoes = raw.split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => {
+      const [v, ...resto] = l.split('|').map(s => s.trim());
+      return { v, l: resto.join(' | ') || v };
+    });
+  _pergEditor.perguntas[idx].opcoes = opcoes;
+  _pergEditor.dirty = true;
+  $('perg-status').textContent = '✏️ Alterações não salvas';
+  $('perg-status').style.color = '#92400e';
+}
+
+async function pergSalvar() {
+  if (!State.tenant) return;
+  // Salva só os campos que diferem do padrão (pra economizar)
+  const tplOriginal = ELAB_TEMPLATES[_pergEditor.tab].perguntas;
+  const overrides = [];
+  _pergEditor.perguntas.forEach(p => {
+    const orig = tplOriginal.find(o => o.id === p.id);
+    if (!orig) return;
+    const diff = { id: p.id };
+    let alterou = false;
+    if (p.label !== orig.label) { diff.label = p.label; alterou = true; }
+    if ((p.default ?? '') !== (orig.default ?? '')) { diff.default = p.default; alterou = true; }
+    if (!!p.obrigatorio !== !!orig.obrigatorio) { diff.obrigatorio = !!p.obrigatorio; alterou = true; }
+    if (p.tipo === 'select' && JSON.stringify(p.opcoes || []) !== JSON.stringify(orig.opcoes || [])) {
+      diff.opcoes = p.opcoes; alterou = true;
+    }
+    if (alterou) overrides.push(diff);
+  });
+
+  try {
+    if (overrides.length === 0) {
+      // Sem diffs → apaga o doc (volta ao padrão)
+      await tenantPath().collection('elabPerguntas').doc(_pergEditor.tab).delete().catch(() => {});
+    } else {
+      await tenantPath().collection('elabPerguntas').doc(_pergEditor.tab).set({
+        perguntas: overrides,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        atualizadoPor: State.user.uid,
+      });
+    }
+    logAuditoria('update', 'elabPerguntas', _pergEditor.tab, { count: overrides.length });
+    _pergEditor.dirty = false;
+    _pergEditor.customizado = overrides.length > 0;
+    _perguntasOverridesCache = null; // força reload na próxima abertura do wizard
+    $('perg-status').textContent = `✅ Customização salva (${overrides.length} pergunta(s) modificada(s)).`;
+    $('perg-status').style.color = '#065f46';
+    $('perg-aviso').style.display = overrides.length > 0 ? 'block' : 'none';
+  } catch (err) {
+    console.error('Erro ao salvar perguntas:', err);
+    $('perg-status').textContent = '❌ Erro ao salvar: ' + err.message;
+    $('perg-status').style.color = '#b91c1c';
+  }
+}
+
+async function pergRestaurarPadrao() {
+  if (!confirm(`Restaurar perguntas padrão da modalidade "${_pergEditor.tab}"?\n\nTodas as customizações desta aba serão perdidas.`)) return;
+  try {
+    await tenantPath().collection('elabPerguntas').doc(_pergEditor.tab).delete().catch(() => {});
+    _perguntasOverridesCache = null;
+    logAuditoria('delete', 'elabPerguntas', _pergEditor.tab, {});
+    await trocarTabPerguntas(_pergEditor.tab);
+    $('perg-status').textContent = '↻ Perguntas restauradas ao padrão.';
+    $('perg-status').style.color = '#065f46';
+  } catch (err) {
+    $('perg-status').textContent = '❌ Erro: ' + err.message;
+    $('perg-status').style.color = '#b91c1c';
+  }
+}
+
+window.trocarTabPerguntas = trocarTabPerguntas;
+window.pergUpdate = pergUpdate;
+window.pergUpdateOpcoes = pergUpdateOpcoes;
+window.pergSalvar = pergSalvar;
+window.pergRestaurarPadrao = pergRestaurarPadrao;
+
+// Retorna perguntas (de ELAB_TEMPLATES) com overrides aplicados (mesclados por id).
+async function getElabPerguntasMescladas(modalidade) {
+  const tpl = ELAB_TEMPLATES[modalidade];
+  if (!tpl) return [];
+  if (_perguntasOverridesCache === null) {
+    await carregarOverridesPerguntas();
+  }
+  const override = _perguntasOverridesCache?.[modalidade];
+  const overrideById = {};
+  (override?.perguntas || []).forEach(p => { if (p.id) overrideById[p.id] = p; });
+  return tpl.perguntas.map(p => {
+    const ov = overrideById[p.id];
+    if (!ov) return p;
+    // Mescla campos seguros (não permite mudar id, tipo, colecao, condicao)
+    return {
+      ...p,
+      label: ov.label !== undefined ? ov.label : p.label,
+      default: ov.default !== undefined ? ov.default : p.default,
+      obrigatorio: ov.obrigatorio !== undefined ? !!ov.obrigatorio : p.obrigatorio,
+      opcoes: Array.isArray(ov.opcoes) && ov.opcoes.length > 0 ? ov.opcoes : p.opcoes,
+    };
+  });
 }
 
 async function carregarTplEditor() {
