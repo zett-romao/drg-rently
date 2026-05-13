@@ -1,7 +1,7 @@
 # 📘 Manual de Operação — DRG-Rently
 
-**Versão:** 1.1
-**Atualizado em:** 2026-05-13
+**Versão:** 1.2
+**Atualizado em:** 2026-05-14
 **Para quem:** Imobiliárias (PJ) e Corretores Autônomos (PF) clientes da D.R. Global
 
 > 💡 O DRG-Rently atende **tanto Pessoa Jurídica** (imobiliárias) **quanto
@@ -19,15 +19,26 @@
 5. [Imóveis — coração do sistema](#5-imóveis)
 6. [Garantias](#6-garantias)
 7. [Contratos](#7-contratos)
+   - 7a. [Elaborar contrato pelo Wizard](#7a-elaborar-contrato-pelo-wizard)
+   - 7b. [Importar contrato existente via IA](#7b-importar-contrato-existente-via-ia)
+   - 7c. [Assinatura eletrônica (ZapSign)](#7c-assinatura-eletrônica-zapsign)
+   - 7d. [Distrato no contrato vigente](#7d-distrato-no-contrato-vigente)
+   - 7e. [Cobrança de débito atualizado](#7e-cobrança-de-débito-atualizado)
 8. [Negociações (Vendas)](#8-negociações-vendas)
 9. [Balancetes mensais](#9-balancetes-mensais)
+   - 9a. [IA multi-comprovante (Gemini Vision)](#9a-ia-multi-comprovante)
 10. [Vitrine pública](#10-vitrine-pública)
 11. [Portais imobiliários (XML Feed)](#11-portais-imobiliários)
 12. [Operadores e perfis customizados](#12-operadores-e-perfis)
 13. [Importação CSV em massa](#13-importação-csv-em-massa)
 14. [Alertas e relatórios](#14-alertas-e-relatórios)
+    - 14a. [Card "🚨 Contratos atrasados"](#14a-card-contratos-atrasados)
+    - 14b. [Cards "🤖 IA" no Dashboard](#14b-cards-ia-no-dashboard)
 15. [LGPD e auditoria](#15-lgpd-e-auditoria)
-16. [Solução de problemas](#16-solução-de-problemas)
+16. [Monitor legislativo (IA jurídica)](#16-monitor-legislativo)
+17. [App mobile (PWA — Progressive Web App)](#17-app-mobile-pwa)
+18. [Manutenção administrativa](#18-manutenção-administrativa)
+19. [Solução de problemas](#19-solução-de-problemas)
 
 ---
 
@@ -348,6 +359,122 @@ Existem 3 tipos:
 
 ---
 
+### 7a. Elaborar contrato pelo Wizard
+
+✨ **Novo em 2026-05** — Cria contratos profissionais respondendo perguntas guiadas, sem se preocupar com formatação.
+
+#### Como usar
+1. Menu → **Contratos** → **✍️ Elaborar contrato**
+2. Escolha a modalidade: **Locação** ou **Venda**
+3. Responda as perguntas em sequência:
+   - Quem é o locador? (escolhe do cadastro ou cria novo)
+   - Quem é o locatário?
+   - Qual o imóvel?
+   - Qual a garantia? (fiador/caução/seguro)
+   - Prazo, valor, dia de vencimento, índice de reajuste, etc.
+4. **Preview**: o sistema mostra o contrato pronto em HTML
+5. **Salvar**: grava em Contratos (status: rascunho) + gera **número sequencial automático** (00001, 00002…)
+6. **Exportar**: PDF, Word (.docx) ou imprimir
+
+#### Templates customizáveis
+Cada tenant pode personalizar os textos das cláusulas em **Configurações → Templates de contrato** (3 abas: locação, venda, distrato). Suporta variáveis como `{{locador.nome}}`, `{{imovel.endereco}}`, etc.
+
+> 💡 Banner de versionamento aparece quando o template é editado: o contrato sempre lembra qual versão do template foi usada.
+
+---
+
+### 7b. Importar contrato existente via IA
+
+🤖 **Novo em 2026-05** — Para tenants migrando de outros sistemas ou querendo digitalizar contratos antigos.
+
+#### Como usar
+1. Menu → **Contratos** ou **Negociações** → **🤖 Importar contrato**
+2. **Arraste o arquivo** (PDF, .docx ou imagem JPG/PNG) na dropzone OU clique pra escolher
+3. A IA (Gemini Vision) processa em 15-40 segundos e extrai:
+   - Partes (locador, locatário, fiador)
+   - Dados do imóvel
+   - Valores, prazo, índice de reajuste
+   - Cláusulas relevantes
+4. **Revisão em 3 abas**:
+   - ① Partes — confirma quem cadastrar como locador/locatário/fiador
+   - ② Imóvel — reusar imóvel existente ou criar novo
+   - ③ Contrato — valores e prazos
+5. **Detecção automática de duplicatas** — se o locador já existe, sugere reusar
+6. **Confirma**: cria locadores/locatários/imóvel/garantia + contrato em **batch atômico**
+
+#### Marcação na auditoria
+Contratos importados ficam com `importadoPorIA: true` e aparecem no Dashboard em **🤖 Contratos via IA (este mês)**.
+
+---
+
+### 7c. Assinatura eletrônica (ZapSign)
+
+✍️ **Novo em 2026-05** — Cliente assina o contrato no celular/computador sem precisar imprimir.
+
+#### Pré-requisitos
+1. Conta na **ZapSign** (https://app.zapsign.com.br) — plano que aceita seu volume mensal
+2. **Token API** gerado em Configurações da ZapSign → Integrações → API
+3. Cole o token em **DRG-Rently → Configurações → ✍️ Assinatura Eletrônica**
+4. Cole também a **URL do Worker** (fornecida pela DRG)
+
+#### Como enviar pra assinatura
+1. Abre o contrato (rascunho ou vigente)
+2. Botão **✍️ Enviar pra assinatura**
+3. Confirma os signatários (auto-preenche: locador, locatário, fiador com e-mail)
+4. Edita mensagem se quiser
+5. **Enviar** — ZapSign envia e-mail pra cada signatário
+6. Volta ao contrato e veja status em tempo real:
+   - ⏳ Pendente · 📧 Enviado · ✅ Assinado por X de Y
+7. Quando todos assinam:
+   - ✅ Status do contrato muda de `rascunho` → `vigente` automaticamente
+   - PDF final assinado fica baixável (com certificado digital ICP-Brasil)
+
+> 💡 **Locação E Venda** suportadas (desde a Fase F item 7).
+
+---
+
+### 7d. Distrato no contrato vigente
+
+📄 **Novo em 2026-05** — Encerra contrato com documento formal de distrato + libera imóvel automaticamente.
+
+#### Como gerar distrato
+1. Abre o contrato vigente
+2. Botão **📄 Gerar distrato**
+3. Preenche:
+   - **Data do distrato** (quando acabou efetivamente)
+   - **Data de entrega das chaves** (importante pra cálculo de débito)
+   - **Motivo** (opcional)
+   - **Cláusulas adicionais** (opcional)
+4. **Preview + Salvar**: gera documento + atualiza contrato:
+   - Status muda pra `encerrado`
+   - Campo `dataDistrato` preenchido
+   - Campo `dataEntregaChaves` preenchido
+   - Imóvel volta automaticamente pra **disponível**
+
+---
+
+### 7e. Cobrança de débito atualizado
+
+💰 **Novo em 2026-05** — Calcula débito de aluguel atrasado com correção monetária, multa, juros e honorários.
+
+#### Como usar
+1. Abre o contrato com locatário inadimplente
+2. Botão **💰 Cálculo de débito**
+3. Preenche:
+   - **Aluguéis em atraso** (lista mês a mês)
+   - **Índice de correção** (IPCA / INPC / IGPM / INCC — busca na **API do Banco Central** em tempo real)
+   - **Multa** (% padrão)
+   - **Juros mensal** (% pro rata die)
+   - **Honorários advocatícios** (% se for cobrança judicial)
+4. Sistema calcula o **débito atualizado em tempo real**
+5. **Exportar relatório**: PDF ou Word com detalhamento mês a mês
+6. **Enviar por e-mail** ao locatário (notificação extrajudicial)
+
+#### Cards no Dashboard
+Card **🚨 Contratos atrasados** mostra o total de contratos inadimplentes do tenant — clica pra ver a lista.
+
+---
+
 ## 8. Negociações (Vendas)
 
 Funil de vendas paralelo ao de locação:
@@ -396,6 +523,29 @@ Por imóvel, mês a mês:
 3. Aguarde o Gemini extrair: **valor, vencimento, beneficiário, linha digitável**
 4. Revise os dados (você ainda pode editar)
 5. Confirme → cria o lançamento e anexa o boleto
+
+### 9a. IA multi-comprovante
+
+🤖 **Novo em 2026-05** — Sobe **VÁRIOS comprovantes** num único arquivo e a IA processa todos de uma vez.
+
+#### Como usar
+1. No balancete aberto, botão **🤖 Ler comprovante** (no bloco Entradas ou Despesas)
+2. **Arraste UM arquivo** com vários comprovantes (PDF multi-página ou imagem)
+3. A IA processa em 15-30 segundos e detecta cada documento separadamente
+4. Modal de revisão mostra **uma card por documento**:
+   - Tipo: 💰 Comprovante de pagamento / 📄 Boleto a pagar / 🧾 Nota Fiscal / 📋 Recibo
+   - Direção: 🟢 Entrada / 🔴 Saída / ⚠️ Ambíguo
+   - Confiança: % (campos abaixo de 85% destacados em amarelo)
+   - Sugestão de bloco + categoria
+   - Toggle "Lançar este" (NF/Cupom vêm desmarcados — só lança comprovantes pagos)
+5. **Vinculação automática ao contrato**: se o comprovante bate com aluguel + CPF do locatário, vincula sozinho (badge 🔗 verde)
+6. Confirma → todos os lançamentos marcados entram no balancete de uma vez
+
+#### Apuração em tempo real
+Card **📊 Apuração em tempo real** no topo do balancete mostra sempre:
+- 🟢 Receitas / 🔴 Despesas / 🧾 Taxa Adm / 💰 **LÍQUIDO ao locador**
+
+Atualiza a cada lançamento (não precisa fechar pra ver o líquido).
 
 ### Fechamento
 
@@ -573,6 +723,23 @@ Pra cadastros em volume:
 
 Exporta tudo em CSV ou PDF.
 
+### 14a. Card "🚨 Contratos atrasados"
+
+Detecta contratos com aluguel inadimplente:
+- **Automaticamente**: olha balancete do mês anterior — se não tem entrada de aluguel, considera atrasado
+- **Manualmente**: você marca um contrato como atrasado pelo botão `inadimplente`
+
+Card no Dashboard mostra o total — clica pra ver a lista clicável de devedores.
+
+### 14b. Cards "🤖 IA" no Dashboard
+
+✨ **Novo em 2026-05** — Visibilidade do ROI da IA:
+
+- **🤖 Contratos via IA (este mês)**: conta contratos criados pelo Wizard (`geradoPorWizard`) + importados via IA (`importadoPorIA`)
+- **📑 Comprovantes via IA (este mês)**: conta lançamentos no balancete lidos pelo Gemini multi-comprovante
+
+Mostra quanto tempo a IA está economizando pro escritório.
+
 ---
 
 ## 15. LGPD e auditoria
@@ -598,7 +765,103 @@ Mostra os últimos 200 registros. Logs são imutáveis (não podem ser apagados 
 
 ---
 
-## 16. Solução de problemas
+## 16. Monitor legislativo
+
+🤖 **Novo em 2026-05** — Vigia diariamente o **Planalto** e te avisa quando lei relevante mudar.
+
+### Como funciona
+
+1. **Cron diário às 7h (Brasília)**: um robô (Cloudflare Worker) baixa as páginas das leis monitoradas:
+   - Lei do Inquilinato (Lei 8.245/91)
+   - Código Civil (artigos relevantes)
+   - LGPD
+   - Outras URLs do Planalto cadastradas
+2. Compara com a versão anterior salva no KV (banco-chave-valor do Cloudflare)
+3. **Se detecta mudança**: chama o **Gemini** pra analisar o impacto:
+   - Classifica em **Alto / Médio / Baixo**
+   - Resume em linguagem clara o que mudou
+   - Sugere ações pra imobiliária
+4. **Envia e-mail** pra DRG (e pra você, se configurar)
+5. **Histórico** fica salvo em `tenants/{id}/legisAlertas` pra você consultar
+
+### Onde ver
+
+**Configurações → Monitor legislativo** (admin only)
+- Status: 🟢 Ativo · 🟡 Sem mudanças hoje · 🔴 Erro
+- Última execução
+- Lista de alertas recentes (clica pra ver detalhes da análise IA)
+- Botão **🔄 Executar agora** (forçar análise sem esperar cron)
+
+### Vantagem competitiva
+
+Concorrentes (Superlógica, Group Software) **não têm isso**. Argumento de venda: *"o DRG-Rently te avisa antes da Receita mudar a Lei do Inquilinato"*.
+
+---
+
+## 17. App mobile (PWA)
+
+📱 **Novo em 2026-05** — O DRG-Rently se instala como **app nativo** no celular.
+
+### Como instalar
+
+#### Android (Chrome / Edge / Firefox)
+1. Abre **https://zett-romao.github.io/drg-rently/** no celular
+2. Aparece banner **"📱 Instale o DRG-Rently"** no rodapé
+3. Toca em **"Instalar"** → confirma
+4. Ícone do app aparece na tela inicial
+5. Abre o app → roda sem barra de URL, em tela cheia
+
+#### iOS (Safari)
+1. Abre o app no Safari
+2. Toca no ícone de **compartilhar** (quadrado com seta pra cima)
+3. **"Adicionar à Tela de Início"**
+4. Confirma
+
+### Recursos do PWA
+
+- **Funciona offline** (cache inteligente — mas sem internet, não consegue salvar)
+- **Atalhos longos no ícone**:
+  - 📊 Dashboard
+  - 🏢 Novo Imóvel
+  - 🌐 Vitrine Pública
+- **Atualizações automáticas** — banner "🔄 Nova versão disponível!" aparece
+- **Notificações push** (em desenvolvimento — backend já pronto)
+
+### Layout mobile
+
+- **Sidebar** vira menu hamburger (☰) que desliza da esquerda
+- **Tabelas** com scroll horizontal
+- **Modais** em tela cheia
+- **Cards** se reorganizam em uma coluna
+
+---
+
+## 18. Manutenção administrativa
+
+🛠 **Novo em 2026-05** — Em **Configurações → 🛠 Manutenção (administrador)**:
+
+### Renumerar contratos / negociações
+
+Renumera **todos** os contratos (ou negociações) em ordem cronológica:
+1. Sistema busca todos os registros do tipo
+2. Ordena por `criadoEm` ASC
+3. Renumera: 00001, 00002, 00003…
+4. Atualiza o contador de sequência
+
+**Quando usar**:
+- Tenant migrou de outro sistema e contratos antigos não têm número
+- Quer "limpar" a sequência depois de muitas exclusões
+- Quer começar do zero (zerar e renumerar)
+
+⚠️ **Cuidado**:
+- **Ação irreversível** (não tem desfazer)
+- Confirma 2 vezes (clique + digitar "RENUMERAR")
+- Recomendado: backup antes via Firebase Console
+- Restrito a role `admin` ou `super_admin`
+
+---
+
+## 19. Solução de problemas
 
 ### "Missing or insufficient permissions"
 → Suas regras Firestore podem estar desatualizadas. Contate o suporte D.R. Global.
