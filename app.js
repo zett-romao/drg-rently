@@ -4431,15 +4431,49 @@ function addLancamento(bloco) {
 
 function removeLanc(id) {
   console.log('[removeLanc] chamado com id:', id, '— total atual:', _balanceteLancamentos.length);
-  if (!confirm('Remover este lançamento?')) {
+  // Tenta confirm; alguns navegadores bloqueiam dialogs em contextos específicos
+  let okRemover = true;
+  try {
+    okRemover = confirm('Remover este lançamento?');
+  } catch (e) {
+    console.warn('[removeLanc] confirm() bloqueado ou indisponível — removendo sem confirmação:', e);
+    okRemover = true;
+  }
+  if (!okRemover) {
     console.log('[removeLanc] usuário cancelou no confirm');
     return;
   }
   const antes = _balanceteLancamentos.length;
   _balanceteLancamentos = _balanceteLancamentos.filter(l => l.id !== id);
   console.log('[removeLanc] após filter:', antes, '→', _balanceteLancamentos.length);
+  if (antes === _balanceteLancamentos.length) {
+    console.warn('[removeLanc] ⚠️ FILTRO NÃO REMOVEU NADA — id pode estar errado. IDs atuais:', _balanceteLancamentos.map(l => l.id));
+  }
   renderLancamentos();
   recalcBalancete();
+}
+
+// Event delegation: garante que o clique no × sempre funcione,
+// mesmo se o onclick inline tiver algum problema de escopo.
+// Usa CAPTURE PHASE pra rodar ANTES do onclick inline e cancela ele
+// via stopImmediatePropagation (evita chamada dupla).
+if (typeof document !== 'undefined' && !window._lancDelegated) {
+  window._lancDelegated = true;
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest && e.target.closest('.lanc-del');
+    if (!btn) return;
+    const row = btn.closest('.lanc-row');
+    if (!row) return;
+    const id = row.dataset.id;
+    if (!id) {
+      console.warn('[click .lanc-del] row sem data-id', row);
+      return;
+    }
+    console.log('[click .lanc-del] delegated → removeLanc(', id, ')');
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    removeLanc(id);
+  }, true); // <-- capture phase = true
 }
 
 // Expor funções de edição de lançamentos pro onclick inline (defesa em profundidade)
