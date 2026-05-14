@@ -1880,7 +1880,7 @@ async function applyDashboardOrder() {
 
 async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
-               'stat-imoveis-disponiveis', 'stat-imoveis-venda',
+               'stat-imoveis-disponiveis',
                'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
                'stat-balancetes-mes', 'stat-contratos-atrasados'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
@@ -1922,7 +1922,6 @@ async function loadDashboard() {
     $('stat-locatarios').textContent = locatariosSnap.size;
     $('stat-imoveis-alugados').textContent = imoveisAlugados;
     $('stat-imoveis-disponiveis').textContent = imoveisDisponiveis;
-    $('stat-imoveis-venda').textContent = imoveisVenda;
     $('stat-contratos-vigentes').textContent = contratosVigentes;
     $('stat-garantias-ativas').textContent = garantiasAtivas;
     $('stat-negociacoes').textContent = negociacoesAndamento;
@@ -6841,9 +6840,99 @@ async function populateLocadorSelect(selectEl, selectedId) {
   }
 }
 
+// Estado dos filtros da tabela de Imóveis
+let _imoveisCarregados = [];
+let _imovelLocMap = {};
+let _filtroImovelFinalidade = 'todos';
+let _filtroImovelStatus = 'todos';
+
+function setFiltroImovelFinalidade(fin) {
+  _filtroImovelFinalidade = fin || 'todos';
+  document.querySelectorAll('#imoveis-filtros-finalidade .papel-filtro-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.fin === _filtroImovelFinalidade);
+  });
+  renderImoveisTable();
+}
+
+function setFiltroImovelStatus(st) {
+  _filtroImovelStatus = st || 'todos';
+  document.querySelectorAll('#imoveis-filtros-status .papel-filtro-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.st === _filtroImovelStatus);
+  });
+  renderImoveisTable();
+}
+
+function renderImoveisTable() {
+  const tbody = $('tbody-imoveis');
+  if (!tbody) return;
+
+  let lista = _imoveisCarregados;
+  // Filtro finalidade (locacao | venda | ambos | todos)
+  if (_filtroImovelFinalidade !== 'todos') {
+    if (_filtroImovelFinalidade === 'ambos') {
+      lista = lista.filter(im => (im.finalidade || 'locacao') === 'ambos');
+    } else {
+      lista = lista.filter(im => {
+        const f = im.finalidade || 'locacao';
+        return f === _filtroImovelFinalidade || f === 'ambos';
+      });
+    }
+  }
+  // Filtro status
+  if (_filtroImovelStatus !== 'todos') {
+    lista = lista.filter(im => (im.status || 'disponivel') === _filtroImovelStatus);
+  }
+
+  if (lista.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum imóvel corresponde aos filtros.</td></tr>`;
+    return;
+  }
+
+  const finBadge = {
+    locacao: '<span class="papel-chip" style="background:#CCFBF1; color:#0F766E;">🏠 Locação</span>',
+    venda: '<span class="papel-chip" style="background:#FEF3C7; color:#92400E;">💼 Venda</span>',
+    ambos: '<span class="papel-chip" style="background:linear-gradient(135deg,#CCFBF1,#FEF3C7); color:#475569;">🔁 Ambos</span>',
+  };
+
+  const rows = lista.map((im, i) => {
+    const status = im.status || 'disponivel';
+    const finalidade = im.finalidade || 'locacao';
+    const locNome = _imovelLocMap[im.locadorId] || (im.locadorId ? '⚠ locador apagado' : '—');
+
+    // Valor a exibir: depende da finalidade
+    let valorTxt = '—';
+    if (finalidade === 'venda') {
+      valorTxt = im.valorVenda ? fmtBRL(im.valorVenda) : '—';
+    } else if (finalidade === 'ambos') {
+      valorTxt = `${fmtBRL(im.aluguelSugerido)}/mês`;
+      if (im.valorVenda) valorTxt += `<br><span class="muted" style="font-size:11px;">Venda: ${fmtBRL(im.valorVenda)}</span>`;
+    } else {
+      valorTxt = im.aluguelSugerido ? `${fmtBRL(im.aluguelSugerido)}/mês` : '—';
+    }
+
+    return `
+      <tr ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
+        <td>${i + 1}</td>
+        <td><strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}</td>
+        <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
+        <td>${finBadge[finalidade] || finalidade}</td>
+        <td>${escapeHtml(locNome)}</td>
+        <td>${valorTxt}</td>
+        <td><span class="badge-status ${status}">${IMOVEL_STATUS_LABEL[status] || status}</span></td>
+        <td>
+          <div class="action-btns">
+            <button class="btn btn-sm btn-secondary" onclick="openImovelModal('${im._id}')">Editar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+  tbody.innerHTML = rows.join('');
+}
+
 async function loadImoveis() {
   const tbody = $('tbody-imoveis');
-  tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="8" class="empty">Carregando…</td></tr>`;
 
   try {
     const [imSnap, locs] = await Promise.all([
@@ -6852,38 +6941,21 @@ async function loadImoveis() {
     ]);
 
     if (imSnap.empty) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum imóvel cadastrado. Clique em "Novo Imóvel" para começar.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum imóvel cadastrado. Clique em "Novo Imóvel" para começar.</td></tr>`;
+      _imoveisCarregados = [];
       return;
     }
-
-    const locMap = Object.fromEntries(locs.map(l => [l.id, l.nome]));
-
-    const rows = imSnap.docs.map((doc, i) => {
-      const im = doc.data();
-      const status = im.status || 'disponivel';
-      const locNome = locMap[im.locadorId] || (im.locadorId ? '⚠ locador apagado' : '—');
-      return `
-        <tr>
-          <td>${i + 1}</td>
-          <td><strong>${im.apelido || '—'}</strong></td>
-          <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
-          <td>${locNome}</td>
-          <td>${fmtBRL(im.aluguelSugerido)}</td>
-          <td><span class="badge-status ${status}">${IMOVEL_STATUS_LABEL[status] || status}</span></td>
-          <td>
-            <div class="action-btns">
-              <button class="btn btn-sm btn-secondary" onclick="openImovelModal('${doc.id}')">Editar</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = rows.join('');
+    _imovelLocMap = Object.fromEntries(locs.map(l => [l.id, l.nome]));
+    _imoveisCarregados = imSnap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    renderImoveisTable();
   } catch (err) {
     console.error('Erro ao carregar imóveis:', err);
-    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
   }
 }
+
+window.setFiltroImovelFinalidade = setFiltroImovelFinalidade;
+window.setFiltroImovelStatus = setFiltroImovelStatus;
 
 function onImovelFinalidadeChange() {
   const fin = $('imovel-finalidade').value;
