@@ -1065,13 +1065,13 @@ function filtrarTenantsPorKpi(filtroStatus, cardEl) {
     renderTenantsTable();
   }
 
-  // Rola até a tabela pra ficar visível
-  const tabelaCard = document.querySelector('#section-superadmin .card');
-  if (tabelaCard) {
-    // pega o último .card direto filho (a tabela)
-    const cards = document.querySelectorAll('#section-superadmin > .card');
-    const ultimo = cards[cards.length - 1];
-    if (ultimo) ultimo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Rola até a tabela "Imobiliárias clientes" (card que contém #tbody-tenants)
+  const tbody = document.getElementById('tbody-tenants');
+  if (tbody) {
+    const cardTabela = tbody.closest('.card');
+    if (cardTabela) {
+      cardTabela.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 }
 
