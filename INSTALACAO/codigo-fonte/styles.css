@@ -682,10 +682,53 @@ label.required::after {
 }
 
 .stat-card-value {
-  font-size: 26px;
+  font-size: clamp(18px, 2vw, 26px);
   font-weight: 700;
   color: var(--text);
-  line-height: 1.1;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Variante pra valores monetários (strings longas tipo "R$ 1.320,00") */
+.stat-card-value.is-money {
+  font-size: clamp(15px, 1.5vw, 20px);
+  letter-spacing: -0.2px;
+}
+
+/* KPI card ativo (quando usado como filtro) */
+.stat-card.is-active-filter {
+  border-color: var(--primary);
+  background: linear-gradient(180deg, #FFFFFF 0%, var(--primary-light) 100%);
+  box-shadow:
+    0 0 0 2px rgba(71, 85, 105, 0.18),
+    0 4px 10px rgba(15, 23, 42, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* <details> com visual claro de abre/fecha */
+details.card > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  user-select: none;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::before {
+  content: '▶';
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+details.card[open] > summary::before {
+  transform: rotate(90deg);
+}
+details.card > summary:hover {
+  color: var(--primary-dark);
 }
 
 .stat-card-label {

@@ -1005,17 +1005,74 @@ function renderSuperAdminKpis(tenants) {
     .reduce((acc, t) => acc + (t.valorMensalidade || 0), 0);
 
   kpis.innerHTML = `
-    <div class="stat-card"><div class="stat-card-icon stat-icon-blue">🏢</div>
-      <div class="stat-card-body"><div class="stat-card-value">${total}</div><div class="stat-card-label">Total de Tenants</div></div></div>
-    <div class="stat-card"><div class="stat-card-icon stat-icon-green">✓</div>
-      <div class="stat-card-body"><div class="stat-card-value">${ativos}</div><div class="stat-card-label">Ativos</div></div></div>
-    <div class="stat-card"><div class="stat-card-icon stat-icon-amber">⏳</div>
-      <div class="stat-card-body"><div class="stat-card-value">${trials}</div><div class="stat-card-label">Em Trial</div></div></div>
-    <div class="stat-card"><div class="stat-card-icon stat-icon-rose">⚠</div>
-      <div class="stat-card-body"><div class="stat-card-value">${inadimplentes}</div><div class="stat-card-label">Inadimplentes</div></div></div>
-    <div class="stat-card"><div class="stat-card-icon stat-icon-purple">💰</div>
-      <div class="stat-card-body"><div class="stat-card-value">${fmtBRL(mrr)}</div><div class="stat-card-label">MRR (mensal recorrente)</div></div></div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('', this)" title="Mostrar todos os tenants">
+      <div class="stat-card-icon stat-icon-blue">🏢</div>
+      <div class="stat-card-body"><div class="stat-card-value">${total}</div><div class="stat-card-label">Total de Tenants</div></div>
+    </div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('ativo', this)" title="Filtrar apenas tenants ativos">
+      <div class="stat-card-icon stat-icon-green">✓</div>
+      <div class="stat-card-body"><div class="stat-card-value">${ativos}</div><div class="stat-card-label">Ativos</div></div>
+    </div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('trial', this)" title="Filtrar tenants em período de teste">
+      <div class="stat-card-icon stat-icon-amber">⏳</div>
+      <div class="stat-card-body"><div class="stat-card-value">${trials}</div><div class="stat-card-label">Em Trial</div></div>
+    </div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('inadimplente', this)" title="Filtrar tenants inadimplentes">
+      <div class="stat-card-icon stat-icon-rose">⚠</div>
+      <div class="stat-card-body"><div class="stat-card-value">${inadimplentes}</div><div class="stat-card-label">Inadimplentes</div></div>
+    </div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('mrr', this)" title="Mostrar apenas tenants pagantes (que compõem o MRR)">
+      <div class="stat-card-icon stat-icon-purple">💰</div>
+      <div class="stat-card-body"><div class="stat-card-value is-money">${fmtBRL(mrr)}</div><div class="stat-card-label">MRR (mensal recorrente)</div></div>
+    </div>
   `;
+}
+
+// Filtra a tabela de tenants ao clicar num KPI card
+function filtrarTenantsPorKpi(filtroStatus, cardEl) {
+  // Marca o card clicado como ativo (visual)
+  document.querySelectorAll('#superadmin-kpis .stat-card').forEach(c => c.classList.remove('is-active-filter'));
+  if (cardEl) cardEl.classList.add('is-active-filter');
+
+  const selStatus = $('filtro-tenant-status');
+  const selPlano = $('filtro-tenant-plano');
+  if (!selStatus) return;
+
+  if (filtroStatus === 'mrr') {
+    // MRR: tenants pagantes (qualquer plano exceto trial), e ativos
+    selStatus.value = '';
+    if (selPlano) {
+      // Não temos opção "não trial", então deixa vazio e filtra via outra lógica abaixo
+      selPlano.value = '';
+    }
+    // Aplica filtro custom: ativos não-trial. Reusa _tenantsCarregados.
+    const tbody = $('tbody-tenants');
+    if (tbody && Array.isArray(_tenantsCarregados)) {
+      const lista = _tenantsCarregados.filter(t => t.ativo !== false && t.plano !== 'trial');
+      if (lista.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum tenant pagante (todos em trial ou desativados).</td></tr>`;
+      } else {
+        // Re-renderiza usando a função padrão temporariamente trocando _tenantsCarregados
+        const backup = _tenantsCarregados;
+        _tenantsCarregados = lista;
+        renderTenantsTable();
+        _tenantsCarregados = backup;
+      }
+    }
+  } else {
+    selStatus.value = filtroStatus || '';
+    if (selPlano) selPlano.value = '';
+    renderTenantsTable();
+  }
+
+  // Rola até a tabela pra ficar visível
+  const tabelaCard = document.querySelector('#section-superadmin .card');
+  if (tabelaCard) {
+    // pega o último .card direto filho (a tabela)
+    const cards = document.querySelectorAll('#section-superadmin > .card');
+    const ultimo = cards[cards.length - 1];
+    if (ultimo) ultimo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 function renderTenantsTable() {
