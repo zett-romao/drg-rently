@@ -88,9 +88,9 @@ let _allImoveis = []; // cache pra filtros
 
     // SEO
     document.title = `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`;
-    $$('meta-desc').setAttribute('content', `Imóveis disponíveis para locação na ${tenant.nome || 'imobiliária'}`);
+    $$('meta-desc').setAttribute('content', `Imóveis disponíveis na ${tenant.nome || 'imobiliária'}`);
     $$('og-title').setAttribute('content', `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`);
-    $$('og-desc').setAttribute('content', `Confira nossos imóveis disponíveis para locação`);
+    $$('og-desc').setAttribute('content', `Confira nossos imóveis disponíveis`);
 
     // Carrega imóveis + suas primeiras fotos
     _allImoveis = await Promise.all(imSnap.docs.map(async (doc) => {
