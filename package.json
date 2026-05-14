@@ -1,0 +1,13 @@
+{
+  "name": "drg-rently",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DRG-Rently SaaS — dependências dos Cloudflare Workers que precisam de bundling.",
+  "type": "module",
+  "scripts": {
+    "deploy:passkey": "wrangler deploy --config wrangler-passkey.toml"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "^11.0.0"
+  }
+}

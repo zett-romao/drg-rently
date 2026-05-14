@@ -1,0 +1,36 @@
+name: Deploy Cloudflare Worker (Passkey)
+
+# Dispara em mudanças no worker passkey, package.json (deps) ou no wrangler.
+# Também pode ser disparado manualmente via aba Actions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker-passkey.js'
+      - 'wrangler-passkey.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-passkey.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Deploy worker via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler-passkey.toml

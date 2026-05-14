@@ -10737,6 +10737,281 @@ window.atualizarStatusZapSign = atualizarStatusZapSign;
 window.baixarPdfAssinadoZapSign = baixarPdfAssinadoZapSign;
 
 // =============================================================
+// PASSKEY (WebAuthn) — login biométrico
+// =============================================================
+
+// URL padrão do Worker passkey (override possível via Configurações futuras)
+const PASSKEY_WORKER_URL_DEFAULT = 'https://drg-rently-passkey.zett-romao.workers.dev';
+
+function getPasskeyWorkerUrl() {
+  return localStorage.getItem('drg-passkey-worker-url') || PASSKEY_WORKER_URL_DEFAULT;
+}
+
+// Detecta se o navegador/dispositivo suporta Passkeys
+async function isPasskeySupported() {
+  if (!window.PublicKeyCredential) return false;
+  try {
+    const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    return !!available;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Mostra/esconde o botão de login com biometria conforme suporte
+async function atualizarBotaoBiometria() {
+  const btn = document.getElementById('btn-login-biometria');
+  if (!btn) return;
+  const supported = await isPasskeySupported();
+  btn.style.display = supported ? 'block' : 'none';
+}
+
+// ----- Converters base64url ↔ ArrayBuffer -----
+function b64uToBuf(b64u) {
+  const b64 = b64u.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+  const bin = atob(b64 + pad);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr.buffer;
+}
+function bufToB64u(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Converte options recebidas do Worker (base64url strings) para ArrayBuffers
+// no formato que navigator.credentials.create() espera.
+function optionsCreationToBuffer(opts) {
+  return {
+    ...opts,
+    challenge: b64uToBuf(opts.challenge),
+    user: { ...opts.user, id: b64uToBuf(opts.user.id) },
+    excludeCredentials: (opts.excludeCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })),
+  };
+}
+function optionsRequestToBuffer(opts) {
+  return {
+    ...opts,
+    challenge: b64uToBuf(opts.challenge),
+    allowCredentials: (opts.allowCredentials || []).map(c => ({ ...c, id: b64uToBuf(c.id) })),
+  };
+}
+
+// Converte PublicKeyCredential (resposta do navegador) para JSON serializável
+function attestationToJson(cred) {
+  return {
+    id: cred.id,
+    rawId: bufToB64u(cred.rawId),
+    type: cred.type,
+    response: {
+      clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+      attestationObject: bufToB64u(cred.response.attestationObject),
+      transports: typeof cred.response.getTransports === 'function' ? cred.response.getTransports() : [],
+    },
+    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+  };
+}
+function assertionToJson(cred) {
+  return {
+    id: cred.id,
+    rawId: bufToB64u(cred.rawId),
+    type: cred.type,
+    response: {
+      clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+      authenticatorData: bufToB64u(cred.response.authenticatorData),
+      signature: bufToB64u(cred.response.signature),
+      userHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null,
+    },
+    clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {},
+  };
+}
+
+// =============================================================
+// Cadastrar nova passkey (usuário precisa estar logado)
+// =============================================================
+async function passkeyCadastrar() {
+  if (!State.user) {
+    showAlert('cfg-alert', 'Faça login antes de cadastrar uma passkey.');
+    return;
+  }
+  const supported = await isPasskeySupported();
+  if (!supported) {
+    showAlert('cfg-alert', 'Seu dispositivo não suporta biometria. Configure Windows Hello / TouchID / FaceID primeiro.');
+    return;
+  }
+
+  const url = getPasskeyWorkerUrl();
+  if (!url) {
+    showAlert('cfg-alert', 'URL do Worker Passkey não configurada.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-cadastrar-passkey');
+  if (btn) { btn.disabled = true; btn.textContent = 'Cadastrando…'; }
+
+  try {
+    // 1. Pede options ao Worker
+    const beginResp = await fetch(`${url.replace(/\/+$/, '')}/register/begin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: State.user.uid,
+        email: State.user.email,
+        displayName: State.userDoc?.nome || State.user.email,
+      }),
+    });
+    const beginData = await beginResp.json();
+    if (!beginData.ok) throw new Error(beginData.error || 'Erro no /register/begin');
+
+    // 2. Chama navigator.credentials.create (SO pede biometria aqui)
+    const options = optionsCreationToBuffer(beginData.options);
+    const cred = await navigator.credentials.create({ publicKey: options });
+    if (!cred) throw new Error('Cadastro cancelado pelo usuário.');
+
+    // 3. Envia attestation pro Worker validar e salvar
+    const completeResp = await fetch(`${url.replace(/\/+$/, '')}/register/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: State.user.uid,
+        attestationResponse: attestationToJson(cred),
+      }),
+    });
+    const completeData = await completeResp.json();
+    if (!completeData.ok) throw new Error(completeData.error || 'Erro no /register/complete');
+
+    showAlert('cfg-alert', '✅ Passkey cadastrada com sucesso! Use "Entrar com biometria" no próximo login.', 'success');
+    await carregarPasskeysList();
+  } catch (e) {
+    console.error('Erro ao cadastrar passkey:', e);
+    showAlert('cfg-alert', `Erro: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔐 Cadastrar biometria neste dispositivo'; }
+  }
+}
+
+// =============================================================
+// Login com passkey (na tela de login, antes da sessão)
+// =============================================================
+async function passkeyLogin() {
+  const supported = await isPasskeySupported();
+  if (!supported) {
+    showAlert('login-alert', 'Seu dispositivo não suporta biometria.');
+    return;
+  }
+
+  const url = getPasskeyWorkerUrl();
+  if (!url) {
+    showAlert('login-alert', 'URL do Worker Passkey não configurada.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-login-biometria');
+  if (btn) { btn.disabled = true; btn.textContent = 'Aguardando biometria…'; }
+
+  try {
+    // 1. Pede options ao Worker (discoverable — sem uid)
+    const beginResp = await fetch(`${url.replace(/\/+$/, '')}/login/begin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const beginData = await beginResp.json();
+    if (!beginData.ok) throw new Error(beginData.error || 'Erro no /login/begin');
+
+    // 2. navigator.credentials.get (SO pede biometria)
+    const options = optionsRequestToBuffer(beginData.options);
+    const cred = await navigator.credentials.get({ publicKey: options });
+    if (!cred) throw new Error('Login cancelado.');
+
+    // 3. Envia assertion pro Worker validar
+    const completeResp = await fetch(`${url.replace(/\/+$/, '')}/login/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId: beginData.sessionId,
+        assertionResponse: assertionToJson(cred),
+      }),
+    });
+    const completeData = await completeResp.json();
+    if (!completeData.ok) throw new Error(completeData.error || 'Erro no /login/complete');
+
+    // 4. Sign-in com custom token Firebase → onAuthStateChanged cuida do resto
+    await auth.signInWithCustomToken(completeData.customToken);
+  } catch (e) {
+    console.error('Erro no login com passkey:', e);
+    showAlert('login-alert', `Erro ao logar com biometria: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔐 Entrar com biometria'; }
+  }
+}
+
+// =============================================================
+// Listar passkeys do user (Configurações)
+// =============================================================
+async function carregarPasskeysList() {
+  const div = document.getElementById('passkeys-list');
+  if (!div || !State.user) return;
+  const url = getPasskeyWorkerUrl();
+  if (!url) { div.innerHTML = '<p class="muted">Worker passkey não configurado.</p>'; return; }
+
+  div.innerHTML = '<p class="muted">Carregando…</p>';
+  try {
+    const resp = await fetch(`${url.replace(/\/+$/, '')}/credentials/list?uid=${encodeURIComponent(State.user.uid)}`);
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error);
+    if (!data.credentials || data.credentials.length === 0) {
+      div.innerHTML = '<p class="muted">Nenhuma passkey cadastrada ainda. Clique em "🔐 Cadastrar biometria" acima.</p>';
+      return;
+    }
+    div.innerHTML = data.credentials.map(c => {
+      const dt = new Date(c.createdAt).toLocaleString('pt-BR');
+      const tipo = c.deviceType === 'multiDevice' ? '☁️ Sincronizada (cloud)' : '🔒 Apenas este dispositivo';
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border:1px solid var(--border); border-radius:8px; margin-bottom:8px; background:var(--card-bg);">
+          <div>
+            <div style="font-weight:600;">🔑 Passkey</div>
+            <div class="muted" style="font-size:12px;">Cadastrada em ${dt} · ${tipo}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="passkeyRemover('${c.id}')">🗑 Remover</button>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('Erro ao listar passkeys:', e);
+    div.innerHTML = `<p class="alert alert-error" style="display:block;">Erro: ${e.message}</p>`;
+  }
+}
+
+async function passkeyRemover(credId) {
+  if (!confirm('Remover esta passkey? Você não poderá mais logar com biometria deste dispositivo.')) return;
+  const url = getPasskeyWorkerUrl();
+  try {
+    const resp = await fetch(`${url.replace(/\/+$/, '')}/credentials/${encodeURIComponent(credId)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: State.user.uid }),
+    });
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error);
+    showAlert('cfg-alert', 'Passkey removida.', 'success');
+    await carregarPasskeysList();
+  } catch (e) {
+    console.error('Erro ao remover:', e);
+    showAlert('cfg-alert', `Erro: ${e.message}`);
+  }
+}
+
+// Expor pra HTML onclick
+window.passkeyCadastrar = passkeyCadastrar;
+window.passkeyLogin = passkeyLogin;
+window.passkeyRemover = passkeyRemover;
+window.carregarPasskeysList = carregarPasskeysList;
+
+// =============================================================
 // Init
 // =============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -10824,6 +11099,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-login').addEventListener('click', doLogin);
   $('btn-signup').addEventListener('click', doSignupTenant);
   $('btn-logout').addEventListener('click', doLogout);
+
+  // Mostra/esconde botão de login com biometria conforme suporte
+  atualizarBotaoBiometria();
   $('link-show-signup').addEventListener('click', () => {
     clearAlert('signup-alert');
     showScreen('screen-signup');
