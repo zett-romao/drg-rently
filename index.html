@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514n">
+  <link rel="stylesheet" href="styles.css?v=20260514o">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -382,6 +382,12 @@
                 <p class="muted">Cadastro unificado de proprietários — atuam como <strong>locadores</strong> em aluguéis e como <strong>vendedores</strong> em negociações de venda.</p>
               </div>
               <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
+            </div>
+
+            <div class="papel-filtros">
+              <button type="button" class="papel-filtro-btn active" data-papel="todos" onclick="setFiltroPapel('todos')">Todos</button>
+              <button type="button" class="papel-filtro-btn" data-papel="locador" onclick="setFiltroPapel('locador')">🏠 Só locadores</button>
+              <button type="button" class="papel-filtro-btn" data-papel="vendedor" onclick="setFiltroPapel('vendedor')">💼 Só vendedores</button>
             </div>
 
             <div class="table-wrap">
@@ -1594,7 +1600,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   <div class="modal-overlay" id="modal-locador" style="display:none;">
     <div class="modal modal-lg">
       <div class="modal-header">
-        <h3 id="modal-locador-title">Novo Locador</h3>
+        <h3 id="modal-locador-title">Novo Proprietário</h3>
         <button class="modal-close" onclick="closeLocadorModal()">×</button>
       </div>
 
@@ -1602,6 +1608,23 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="locador-alert" class="alert alert-error" style="display:none;"></div>
 
         <input type="hidden" id="locador-id">
+
+        <!-- Papéis: locador (aluga) e/ou vendedor (vende) -->
+        <div class="papeis-box">
+          <label class="papeis-titulo">Esta pessoa pode atuar como: <small class="muted">(marque pelo menos um)</small></label>
+          <div class="papeis-checks">
+            <label class="papel-check">
+              <input type="checkbox" id="locador-papel-locador" checked>
+              <span class="papel-emoji">🏠</span>
+              <span class="papel-label">Locador <small>(aluga imóveis)</small></span>
+            </label>
+            <label class="papel-check">
+              <input type="checkbox" id="locador-papel-vendedor" checked>
+              <span class="papel-emoji">💼</span>
+              <span class="papel-label">Vendedor <small>(vende imóveis)</small></span>
+            </label>
+          </div>
+        </div>
 
         <h4 class="form-section-title">Dados pessoais</h4>
 
@@ -4215,6 +4238,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514n"></script>
+  <script src="app.js?v=20260514o"></script>
 </body>
 </html>

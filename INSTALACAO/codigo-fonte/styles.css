@@ -743,6 +743,117 @@ label.required::after {
 }
 
 /* =========================================================
+   PAPÉIS — checkboxes "Pode atuar como: Locador / Vendedor"
+   ========================================================= */
+.papeis-box {
+  background: linear-gradient(135deg, #F1F5F9, #E2E8F0);
+  border: 1px solid #CBD5E1;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.papeis-titulo {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.papeis-checks {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.papel-check {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: white;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.papel-check:hover {
+  border-color: var(--primary);
+}
+.papel-check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.papel-check input[type="checkbox"]:checked + .papel-emoji + .papel-label,
+.papel-check:has(input[type="checkbox"]:checked) {
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.papel-emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+.papel-label {
+  flex: 1;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.papel-label small {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+/* Chips de papel na listagem */
+.papel-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.papel-chip.locador { background: #DBEAFE; color: #1E40AF; }
+.papel-chip.vendedor { background: #FEF3C7; color: #92400E; }
+.papel-chip.ambos { background: linear-gradient(135deg, #DBEAFE, #FEF3C7); color: #475569; }
+
+/* Filtro de papel na lista */
+.papel-filtros {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.papel-filtro-btn {
+  background: white;
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.papel-filtro-btn:hover {
+  border-color: var(--primary);
+}
+.papel-filtro-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* =========================================================
    ELABORAR CONTRATO — Wizard redesenhado
    ========================================================= */
 

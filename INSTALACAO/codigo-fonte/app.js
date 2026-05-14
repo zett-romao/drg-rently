@@ -1799,6 +1799,66 @@ function storageTenantRef() {
   return storage.ref().child(`tenants/${State.tenant.id}`);
 }
 
+// Estado do filtro de papéis (locador/vendedor/todos)
+let _locadoresFiltroPapel = 'todos';
+let _locadoresCarregados = [];
+
+function setFiltroPapel(papel) {
+  _locadoresFiltroPapel = papel;
+  document.querySelectorAll('.papel-filtro-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.papel === papel);
+  });
+  renderLocadoresTable();
+}
+
+function getPapeis(l) {
+  // Compatibilidade: cadastros antigos sem .papeis assumem ambos true
+  return l.papeis || { locador: true, vendedor: true };
+}
+
+function renderLocadoresTable() {
+  const tbody = $('tbody-locadores');
+  if (!tbody) return;
+
+  const filtrados = _locadoresCarregados.filter(l => {
+    if (_locadoresFiltroPapel === 'todos') return true;
+    const p = getPapeis(l);
+    if (_locadoresFiltroPapel === 'locador') return !!p.locador;
+    if (_locadoresFiltroPapel === 'vendedor') return !!p.vendedor;
+    return true;
+  });
+
+  if (filtrados.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum registro com esse filtro.</td></tr>`;
+    return;
+  }
+
+  const rows = filtrados.map((l, i) => {
+    const docFmt = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '—';
+    const telFmt = l.telefone ? maskTelefone(l.telefone) : '—';
+    const p = getPapeis(l);
+    let chip = '';
+    if (p.locador && p.vendedor) chip = '<span class="papel-chip ambos">🏠 + 💼 ambos</span>';
+    else if (p.locador) chip = '<span class="papel-chip locador">🏠 locador</span>';
+    else if (p.vendedor) chip = '<span class="papel-chip vendedor">💼 vendedor</span>';
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${l.nome || '—'}</strong>${l.tipo === 'PJ' ? ' <span class="muted" style="font-size:11px;">(PJ)</span>' : ''} ${chip}</td>
+        <td>${docFmt}</td>
+        <td>${telFmt}</td>
+        <td>${l.email || '—'}</td>
+        <td>
+          <div class="action-btns">
+            <button class="btn btn-sm btn-secondary" onclick="openLocadorModal('${l._id}')">Editar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+  tbody.innerHTML = rows.join('');
+}
+
 async function loadLocadores() {
   const tbody = $('tbody-locadores');
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
@@ -1806,35 +1866,19 @@ async function loadLocadores() {
   try {
     const snap = await tenantPath().collection('locadores').orderBy('nome').get();
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum locador cadastrado. Clique em "Novo Locador" para começar.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum cadastro ainda. Clique em "Novo Locador/Vendedor" para começar.</td></tr>`;
+      _locadoresCarregados = [];
       return;
     }
-
-    const rows = snap.docs.map((doc, i) => {
-      const l = doc.data();
-      const docFmt = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '—';
-      const telFmt = l.telefone ? maskTelefone(l.telefone) : '—';
-      return `
-        <tr>
-          <td>${i + 1}</td>
-          <td><strong>${l.nome || '—'}</strong>${l.tipo === 'PJ' ? ' <span class="muted" style="font-size:11px;">(PJ)</span>' : ''}</td>
-          <td>${docFmt}</td>
-          <td>${telFmt}</td>
-          <td>${l.email || '—'}</td>
-          <td>
-            <div class="action-btns">
-              <button class="btn btn-sm btn-secondary" onclick="openLocadorModal('${doc.id}')">Editar</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = rows.join('');
+    _locadoresCarregados = snap.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
+    renderLocadoresTable();
   } catch (err) {
     console.error('Erro ao carregar locadores:', err);
     tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
   }
 }
+
+window.setFiltroPapel = setFiltroPapel;
 
 async function buscarCEPLocador() {
   const input = $('locador-cep');
@@ -1971,7 +2015,7 @@ async function openLocadorModal(id) {
   clearAlert('locador-alert');
 
   $('locador-id').value = id || '';
-  $('modal-locador-title').textContent = id ? 'Editar Locador' : 'Novo Locador';
+  $('modal-locador-title').textContent = id ? 'Editar Proprietário' : 'Novo Proprietário';
   $('btn-delete-locador').style.display = id ? 'inline-block' : 'none';
 
   // Limpar campos
@@ -1985,6 +2029,9 @@ async function openLocadorModal(id) {
   $('locador-nacionalidade').value = 'Brasileira';
   $('locador-cep-status').style.display = 'none';
   $('locador-doc-status').style.display = 'none';
+  // Por padrão, novo cadastro pode atuar como locador E vendedor (compatibilidade total)
+  $('locador-papel-locador').checked = true;
+  $('locador-papel-vendedor').checked = true;
   onLocadorTipoChange();
 
   if (id) {
@@ -2014,6 +2061,10 @@ async function openLocadorModal(id) {
         $('locador-pix').value = l.pix || '';
         $('locador-banco').value = l.banco || '';
         $('locador-obs').value = l.obs || '';
+        // Papéis (compatibilidade com cadastros antigos sem o campo: assume ambos true)
+        const papeis = l.papeis || { locador: true, vendedor: true };
+        $('locador-papel-locador').checked = papeis.locador !== false;
+        $('locador-papel-vendedor').checked = papeis.vendedor !== false;
       }
     } catch (err) {
       console.error('Erro ao carregar locador:', err);
@@ -2047,10 +2098,17 @@ async function saveLocador() {
     showAlert('locador-alert', 'CPF / CNPJ é obrigatório.');
     return;
   }
+  const papelLocador = $('locador-papel-locador').checked;
+  const papelVendedor = $('locador-papel-vendedor').checked;
+  if (!papelLocador && !papelVendedor) {
+    showAlert('locador-alert', 'Marque pelo menos um papel: Locador ou Vendedor.');
+    return;
+  }
 
   const data = {
     tipo: $('locador-tipo').value,
     nome,
+    papeis: { locador: papelLocador, vendedor: papelVendedor },
     documento: documento.replace(/\D/g, ''),
     rg: $('locador-rg').value.trim() || null,
     nascimento: $('locador-nascimento').value || null,
@@ -5525,8 +5583,13 @@ async function populateNegociacaoSelects(selected) {
     .concat(imoveisVenda.map(i => `<option value="${i.id}"${i.id === selected?.imovelId ? ' selected' : ''}>${i.apelido} · ${fmtBRL(i.valorVenda)}</option>`))
     .join('');
 
+  // Filtra apenas quem pode atuar como vendedor (compat: sem papeis = pode tudo)
+  const vendedoresElegiveis = locadores.filter(l => {
+    const p = l.papeis || { locador: true, vendedor: true };
+    return p.vendedor !== false;
+  });
   $('negociacao-vendedor').innerHTML = ['<option value="">— Selecione —</option>']
-    .concat(locadores.map(l => `<option value="${l.id}"${l.id === selected?.vendedorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
+    .concat(vendedoresElegiveis.map(l => `<option value="${l.id}"${l.id === selected?.vendedorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
     .join('');
 
   $('negociacao-comprador').innerHTML = ['<option value="">— Selecione —</option>']
@@ -7251,9 +7314,13 @@ async function populateContratoSelects(selected) {
     ensureGarantiasCache(),
   ]);
 
-  // Locador
+  // Locador — filtra apenas quem pode atuar como locador (compat: sem papeis = pode tudo)
+  const locadoresElegiveis = locadores.filter(l => {
+    const p = l.papeis || { locador: true, vendedor: true };
+    return p.locador !== false;
+  });
   $('contrato-locador').innerHTML = ['<option value="">— Selecione —</option>']
-    .concat(locadores.map(l => `<option value="${l.id}"${l.id === selected?.locadorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
+    .concat(locadoresElegiveis.map(l => `<option value="${l.id}"${l.id === selected?.locadorId ? ' selected' : ''}>${l.nome}${l.tipo === 'PJ' ? ' (PJ)' : ''}</option>`))
     .join('');
 
   // Locatário (badge do status na label)
