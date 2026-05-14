@@ -2689,6 +2689,15 @@ function showInlineStatus(elementId, msg, kind = 'info', autoHideMs = 0) {
   el.className = 'status-inline is-' + kind;
   el.innerHTML = msg;
   el.style.display = 'block';
+  // Scroll suave até o elemento se estiver fora do viewport (especialmente útil
+  // em modais longos onde a mensagem fica próxima do botão Salvar lá embaixo).
+  try {
+    const rect = el.getBoundingClientRect();
+    const fora = rect.bottom < 0 || rect.top > (window.innerHeight || document.documentElement.clientHeight);
+    if (fora) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  } catch (_) {}
   if (autoHideMs > 0) {
     if (el._hideTimer) clearTimeout(el._hideTimer);
     el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, autoHideMs);
@@ -7053,13 +7062,35 @@ function closeImovelModal() {
 
 async function saveImovel() {
   clearAlert('imovel-alert');
+  clearInlineStatus('imovel-acoes-status');
 
   const id = $('imovel-id').value;
   const apelido = $('imovel-apelido').value.trim();
   const locadorId = $('imovel-locador').value;
 
-  if (!apelido) { showAlert('imovel-alert', 'Apelido / Identificação é obrigatório.'); return; }
-  if (!locadorId) { showAlert('imovel-alert', 'Selecione o locador (proprietário).'); return; }
+  // Validações com foco automático no campo + scroll suave
+  if (!apelido) {
+    showInlineStatus('imovel-acoes-status', '⚠️ <strong>Apelido / Identificação</strong> é obrigatório. Preencha o campo no topo do modal.', 'error');
+    const inp = $('imovel-apelido');
+    if (inp) {
+      inp.focus({ preventScroll: false });
+      try { inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+      inp.classList.add('input-erro-pulse');
+      setTimeout(() => inp.classList.remove('input-erro-pulse'), 2000);
+    }
+    return;
+  }
+  if (!locadorId) {
+    showInlineStatus('imovel-acoes-status', '⚠️ Selecione o <strong>locador (proprietário)</strong> do imóvel.', 'error');
+    const sel = $('imovel-locador');
+    if (sel) {
+      sel.focus({ preventScroll: false });
+      try { sel.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+      sel.classList.add('input-erro-pulse');
+      setTimeout(() => sel.classList.remove('input-erro-pulse'), 2000);
+    }
+    return;
+  }
 
   const data = {
     apelido,
@@ -7124,7 +7155,7 @@ async function saveImovel() {
       btn.textContent = 'Salvar';
       invalidateImoveisCache();
       await openImovelModal(docRef.id);
-      showAlert('imovel-alert', 'Imóvel criado. Agora você pode anexar documentos.', 'success');
+      showInlineStatus('imovel-acoes-status', '✅ Imóvel criado. Agora você pode anexar documentos e fotos.', 'success', 5000);
       loadImoveis();
       return;
     }
@@ -7133,7 +7164,7 @@ async function saveImovel() {
     loadImoveis();
   } catch (err) {
     console.error('Erro ao salvar:', err);
-    showAlert('imovel-alert', 'Erro: ' + err.message);
+    showInlineStatus('imovel-acoes-status', `❌ Erro ao salvar: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Salvar';
