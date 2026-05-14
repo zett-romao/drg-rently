@@ -118,6 +118,20 @@ function renderImovel(im, tenant, fotos) {
     if (fav) fav.href = tenant.logoUrl;
   }
 
+  // WhatsApp FAB flutuante
+  try {
+    const fab = document.getElementById('whatsapp-fab');
+    if (fab) {
+      const numero = String(tenant.telefone || tenant.whatsapp || '').replace(/\D/g, '');
+      if (numero.length >= 10) {
+        const numeroComDDI = numero.startsWith('55') ? numero : `55${numero}`;
+        const msg = encodeURIComponent(`Olá, ${tenant.nome || 'imobiliária'}! Tenho interesse no imóvel "${im.apelido || ''}".`);
+        fab.href = `https://wa.me/${numeroComDDI}?text=${msg}`;
+        fab.style.display = 'flex';
+      }
+    }
+  } catch (_) {}
+
   // Hero
   const finalidadeLabel = finalidade === 'venda' ? 'Venda' :
                           finalidade === 'ambos' ? 'Locação e venda' : 'Locação';

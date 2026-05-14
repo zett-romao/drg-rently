@@ -68,6 +68,183 @@ body.public-page {
   background: linear-gradient(135deg, #B45309 0%, #92400E 100%);
 }
 
+/* Botão "Anuncie seu imóvel" no header da vitrine */
+.btn-anunciar-imovel {
+  margin-left: auto;
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: white;
+  border: none;
+  padding: 12px 22px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-anunciar-imovel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.5);
+}
+@media (max-width: 600px) {
+  .btn-anunciar-imovel {
+    padding: 10px 16px;
+    font-size: 12px;
+  }
+}
+
+/* WhatsApp FAB (flutuante) */
+.whatsapp-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #25D366;
+  color: white;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45), 0 2px 6px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  transition: all 0.2s ease;
+  animation: whatsapp-pulse 2.4s ease-in-out infinite;
+}
+.whatsapp-fab:hover {
+  background: #1DA851;
+  transform: scale(1.1);
+  box-shadow: 0 8px 28px rgba(37, 211, 102, 0.6);
+}
+@keyframes whatsapp-pulse {
+  0%, 100% {
+    box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45), 0 0 0 0 rgba(37, 211, 102, 0.7);
+  }
+  50% {
+    box-shadow: 0 6px 20px rgba(37, 211, 102, 0.45), 0 0 0 12px rgba(37, 211, 102, 0);
+  }
+}
+@media (max-width: 600px) {
+  .whatsapp-fab {
+    width: 54px;
+    height: 54px;
+    bottom: 16px;
+    right: 16px;
+  }
+}
+
+/* Modal público (Anunciar seu imóvel) */
+.modal-overlay-public {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(3px);
+}
+.modal-public {
+  background: white;
+  border-radius: 14px;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.modal-public-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #E2E8F0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #FEF3C7, #FDE68A);
+}
+.modal-public-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #78350F;
+}
+.modal-public-header .modal-close {
+  background: transparent;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: #78350F;
+  line-height: 1;
+}
+.modal-public-body {
+  padding: 22px 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-public-body .form-group { margin-bottom: 14px; }
+.modal-public-body label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: #334155;
+}
+.modal-public-body input,
+.modal-public-body select,
+.modal-public-body textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.modal-public-body input:focus,
+.modal-public-body select:focus,
+.modal-public-body textarea:focus {
+  outline: none;
+  border-color: #F59E0B;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+.modal-public-body .form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 500px) {
+  .modal-public-body .form-row { grid-template-columns: 1fr; }
+}
+.modal-public-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #E2E8F0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #F8FAFC;
+}
+.modal-public-footer .btn {
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.modal-public-footer .btn-secondary {
+  background: white;
+  border-color: #CBD5E1;
+  color: #475569;
+}
+.modal-public-footer .btn-secondary:hover { background: #F1F5F9; }
+.modal-public-footer .btn-primary {
+  background: linear-gradient(135deg, #F59E0B, #D97706);
+  color: white;
+}
+.modal-public-footer .btn-primary:hover { box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }
+
 /* Tabs Aluguel | Venda (vitrine) */
 .vitrine-tabs-wrapper {
   background: white;

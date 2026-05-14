@@ -81,6 +81,11 @@ let _allImoveis = []; // cache pra filtros
       if (fav) fav.href = tenant.logoUrl;
     }
 
+    // Configura WhatsApp FAB e armazena tenant pra usar no envio de leads
+    window._publicTenantId = tenantId;
+    window._publicTenantNome = tenant.nome || 'DRG-Rently';
+    configurarWhatsAppFab(tenant);
+
     // SEO
     document.title = `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`;
     $$('meta-desc').setAttribute('content', `Imóveis disponíveis para locação na ${tenant.nome || 'imobiliária'}`);
@@ -256,3 +261,109 @@ function renderLista(imoveis) {
     `;
   }).join('');
 }
+
+// =============================================================
+// WhatsApp FAB + Modal "Anuncie seu imóvel" (captação de leads)
+// =============================================================
+
+function normalizaTelefoneWhats(numero) {
+  if (!numero) return null;
+  const digitos = String(numero).replace(/\D/g, '');
+  if (digitos.length < 10) return null;
+  // Adiciona DDI 55 (Brasil) se ainda não tiver
+  return digitos.startsWith('55') ? digitos : `55${digitos}`;
+}
+
+function configurarWhatsAppFab(tenant) {
+  const fab = document.getElementById('whatsapp-fab');
+  if (!fab) return;
+  const numero = normalizaTelefoneWhats(tenant.telefone || tenant.whatsapp || '');
+  if (!numero) return; // sem número configurado, não mostra
+  const msg = encodeURIComponent(`Olá, ${tenant.nome || 'imobiliária'}! Vim pela vitrine de imóveis e gostaria de conversar.`);
+  fab.href = `https://wa.me/${numero}?text=${msg}`;
+  fab.style.display = 'flex';
+}
+
+function abrirAnunciarImovel() {
+  document.getElementById('modal-anunciar').style.display = 'flex';
+  document.getElementById('anun-nome').focus();
+}
+
+function fecharAnunciarImovel() {
+  document.getElementById('modal-anunciar').style.display = 'none';
+  const al = document.getElementById('anunciar-alert');
+  if (al) al.style.display = 'none';
+}
+
+function showAnunAlert(msg, kind = 'error') {
+  const el = document.getElementById('anunciar-alert');
+  if (!el) return;
+  el.style.background = kind === 'success' ? '#DCFCE7' : '#FEE2E2';
+  el.style.color = kind === 'success' ? '#166534' : '#991B1B';
+  el.style.padding = '10px 14px';
+  el.style.borderRadius = '8px';
+  el.style.fontSize = '13px';
+  el.style.border = `1px solid ${kind === 'success' ? '#86EFAC' : '#FCA5A5'}`;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+}
+
+async function enviarAnuncio() {
+  const nome = document.getElementById('anun-nome').value.trim();
+  const telefone = document.getElementById('anun-telefone').value.trim();
+  const email = document.getElementById('anun-email').value.trim();
+  const finalidade = document.getElementById('anun-finalidade').value;
+  const tipo = document.getElementById('anun-tipo').value;
+  const cidade = document.getElementById('anun-cidade').value.trim();
+  const descricao = document.getElementById('anun-descricao').value.trim();
+
+  if (!nome) return showAnunAlert('⚠️ Preencha seu nome.');
+  if (!telefone) return showAnunAlert('⚠️ Preencha o WhatsApp.');
+  if (!finalidade) return showAnunAlert('⚠️ Selecione se deseja alugar ou vender.');
+
+  const tenantId = window._publicTenantId;
+  if (!tenantId) return showAnunAlert('Erro: tenant não identificado.');
+
+  const btn = document.getElementById('btn-anunciar-enviar');
+  btn.disabled = true;
+  btn.textContent = 'Enviando…';
+
+  try {
+    const db = firebase.firestore();
+    await db.collection('tenants').doc(tenantId).collection('leadsImoveis').add({
+      origem: 'vitrine_publica',
+      nome,
+      telefone: telefone.replace(/\D/g, ''),
+      email: email || null,
+      finalidade, // locacao | venda | ambos
+      tipo: tipo || null,
+      cidadeBairro: cidade || null,
+      descricao: descricao || null,
+      status: 'novo',
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      userAgent: navigator.userAgent.slice(0, 200),
+      url: window.location.href,
+    });
+
+    showAnunAlert(`✅ <strong>Anúncio enviado!</strong><br>${window._publicTenantNome || 'A equipe'} vai entrar em contato pelo WhatsApp <strong>${telefone}</strong> em até 1 dia útil.`, 'success');
+
+    // Limpa campos
+    ['anun-nome', 'anun-telefone', 'anun-email', 'anun-cidade', 'anun-descricao'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    document.getElementById('anun-finalidade').value = '';
+    document.getElementById('anun-tipo').value = '';
+
+    setTimeout(() => fecharAnunciarImovel(), 4500);
+  } catch (err) {
+    console.error('Erro ao enviar anúncio:', err);
+    showAnunAlert('❌ Erro ao enviar: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📤 Enviar';
+  }
+}
+
+window.abrirAnunciarImovel = abrirAnunciarImovel;
+window.fecharAnunciarImovel = fecharAnunciarImovel;
+window.enviarAnuncio = enviarAnuncio;

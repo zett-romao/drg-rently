@@ -321,7 +321,26 @@ async function loadProfileAndShow(user) {
       } catch (_) {}
     }
 
-    if (State.userDoc.tenantId) {
+    // Super Admin: localStorage tem PRIORIDADE MÁXIMA (mesmo se userDoc.tenantId existir)
+    // Isso permite ao Super Admin escolher qual tenant operar sem editar o userDoc.
+    let tenantSuperAdmin = null;
+    if (State.isSuperAdmin) {
+      try {
+        const ultimoId = localStorage.getItem(`drg-tenant-ativo-${user.uid}`);
+        if (ultimoId) {
+          const snap = await db.collection('tenants').doc(ultimoId).get();
+          if (snap.exists && !snap.data().arquivado) {
+            tenantSuperAdmin = { id: snap.id, ...snap.data() };
+          } else {
+            localStorage.removeItem(`drg-tenant-ativo-${user.uid}`);
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (tenantSuperAdmin) {
+      State.tenant = tenantSuperAdmin;
+    } else if (State.userDoc.tenantId) {
       const tenantSnap = await db.collection('tenants').doc(State.userDoc.tenantId).get();
       if (!tenantSnap.exists) {
         await auth.signOut();
@@ -347,36 +366,18 @@ async function loadProfileAndShow(user) {
         } catch (_) {}
       }
     } else if (State.isSuperAdmin) {
-      // Super-admin sem tenantId: define qual tenant ele "opera". Prioridade:
-      //   1. localStorage: última escolha persistida (por uid)
-      //   2. Tenant marcado como donoSuperAdmin === true (tenant próprio da DRG Global)
-      //   3. Primeiro tenant ativo NÃO arquivado (fallback antigo)
+      // Super-admin sem tenantId nem escolha salva: fallback automático.
+      //   1. Tenant marcado como donoSuperAdmin === true (tenant próprio da DRG)
+      //   2. Primeiro tenant ativo NÃO arquivado
       let tenantEscolhido = null;
       try {
-        const ultimoId = localStorage.getItem(`drg-tenant-ativo-${user.uid}`);
-        if (ultimoId) {
-          const snap = await db.collection('tenants').doc(ultimoId).get();
-          if (snap.exists && !snap.data().arquivado) {
-            tenantEscolhido = { id: snap.id, ...snap.data() };
-          } else {
-            // ID salvo não existe mais ou foi arquivado → limpa
-            localStorage.removeItem(`drg-tenant-ativo-${user.uid}`);
-          }
+        const donoSnap = await db.collection('tenants').where('donoSuperAdmin', '==', true).limit(1).get();
+        if (!donoSnap.empty) {
+          const t = donoSnap.docs[0];
+          tenantEscolhido = { id: t.id, ...t.data() };
         }
       } catch (_) {}
 
-      // 2. Tenta o tenant marcado como dono (donoSuperAdmin: true)
-      if (!tenantEscolhido) {
-        try {
-          const donoSnap = await db.collection('tenants').where('donoSuperAdmin', '==', true).limit(1).get();
-          if (!donoSnap.empty) {
-            const t = donoSnap.docs[0];
-            tenantEscolhido = { id: t.id, ...t.data() };
-          }
-        } catch (_) {}
-      }
-
-      // 3. Fallback: primeiro tenant ativo NÃO arquivado
       if (!tenantEscolhido) {
         const tenantsSnap = await db.collection('tenants').where('ativo', '==', true).limit(10).get();
         const candidatos = tenantsSnap.docs.filter(d => !d.data().arquivado);

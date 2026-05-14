@@ -12,8 +12,8 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="icon" type="image/png" href="logo.png?v=20260513a">
-  <link rel="stylesheet" href="styles.css?v=20260514u">
-  <link rel="stylesheet" href="public.css?v=20260514u">
+  <link rel="stylesheet" href="styles.css?v=20260514y">
+  <link rel="stylesheet" href="public.css?v=20260514y">
 
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -41,6 +41,9 @@
           <h2 id="header-empresa">—</h2>
           <p>Imóveis residenciais e comerciais para locação</p>
         </div>
+        <button class="btn-anunciar-imovel" onclick="abrirAnunciarImovel()" title="Tem um imóvel pra alugar ou vender? Anuncie aqui!">
+          📤 Anuncie seu imóvel
+        </button>
       </div>
     </header>
 
@@ -108,6 +111,91 @@
 
   </main>
 
-  <script src="public-imoveis.js?v=20260514u"></script>
+  <!-- Modal: Anuncie seu imóvel (captação de leads) -->
+  <div id="modal-anunciar" class="modal-overlay-public" style="display:none;" onclick="if(event.target===this)fecharAnunciarImovel()">
+    <div class="modal-public">
+      <div class="modal-public-header">
+        <h3>📤 Anuncie seu imóvel</h3>
+        <button class="modal-close" onclick="fecharAnunciarImovel()">×</button>
+      </div>
+      <div class="modal-public-body">
+        <p class="muted" style="margin-bottom:14px;">
+          Preencha os dados abaixo e nossa equipe vai entrar em contato em até <strong>1 dia útil</strong>.
+        </p>
+
+        <div id="anunciar-alert" class="alert" style="display:none; margin-bottom:14px;"></div>
+
+        <div class="form-group">
+          <label>Seu nome <span style="color:#dc2626;">*</span></label>
+          <input type="text" id="anun-nome" placeholder="Nome completo" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>WhatsApp <span style="color:#dc2626;">*</span></label>
+            <input type="text" id="anun-telefone" placeholder="(00) 00000-0000" required>
+          </div>
+          <div class="form-group">
+            <label>E-mail</label>
+            <input type="email" id="anun-email" placeholder="seu@email.com">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Quero <span style="color:#dc2626;">*</span></label>
+          <select id="anun-finalidade" required>
+            <option value="">— Selecione —</option>
+            <option value="locacao">🏠 Alugar meu imóvel</option>
+            <option value="venda">💼 Vender meu imóvel</option>
+            <option value="ambos">🏘 Tanto faz (alugar ou vender)</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo do imóvel</label>
+            <select id="anun-tipo">
+              <option value="">— Não especificar —</option>
+              <option value="apartamento">Apartamento</option>
+              <option value="casa">Casa</option>
+              <option value="sobrado">Sobrado</option>
+              <option value="kitnet">Kitnet</option>
+              <option value="sala">Sala comercial</option>
+              <option value="loja">Loja</option>
+              <option value="galpao">Galpão</option>
+              <option value="terreno">Terreno</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cidade / Bairro</label>
+            <input type="text" id="anun-cidade" placeholder="Ex: São Paulo / Pinheiros">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Descrição (opcional)</label>
+          <textarea id="anun-descricao" rows="3" placeholder="Ex: Apto de 2 quartos com vaga, próximo ao metrô, 70m²..."></textarea>
+        </div>
+
+        <p class="muted" style="font-size:11px;">
+          🔒 Seus dados serão usados apenas pra entrar em contato sobre o anúncio. LGPD compliant.
+        </p>
+      </div>
+      <div class="modal-public-footer">
+        <button class="btn btn-secondary" onclick="fecharAnunciarImovel()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-anunciar-enviar" onclick="enviarAnuncio()">📤 Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WhatsApp FAB (botão flutuante) -->
+  <a id="whatsapp-fab" class="whatsapp-fab" href="#" target="_blank" rel="noopener" style="display:none;" title="Fale conosco no WhatsApp">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+    </svg>
+  </a>
+
+  <script src="public-imoveis.js?v=20260514y"></script>
 </body>
 </html>
