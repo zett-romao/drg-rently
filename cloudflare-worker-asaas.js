@@ -48,15 +48,25 @@ function asaasBase(env) {
 
 // Helper que faz fetch pro Asaas com headers obrigatórios
 // (Asaas exige User-Agent em todas as requisições)
-async function asaasFetch(url, env, method = 'GET', body = null) {
+// apiKey: opcional — se fornecida, usa essa chave (tenant). Senão usa env.ASAAS_API_KEY (DRG Global).
+async function asaasFetch(url, env, method = 'GET', body = null, apiKey = null) {
+  const token = apiKey || env.ASAAS_API_KEY;
   const headers = {
     'Content-Type': 'application/json',
     'User-Agent': 'DRG-Rently/1.0 (Cloudflare-Worker)',
-    'access_token': env.ASAAS_API_KEY,
+    'access_token': token,
   };
   const opts = { method, headers };
   if (body) opts.body = JSON.stringify(body);
   return fetch(url, opts);
+}
+
+// Determina qual API key usar:
+// - Se header X-Tenant-Asaas-Token presente → tenant usa SUA própria chave
+//   (cobra seus locatários, paga seus locadores; D.R. Global não participa)
+// - Senão → usa env.ASAAS_API_KEY (cobrança de mensalidade do SaaS pela DRG)
+function resolveApiKey(request) {
+  return request.headers.get('X-Tenant-Asaas-Token') || null;
 }
 
 function corsHeaders(origin) {
@@ -98,10 +108,23 @@ export default {
       });
     }
 
-    // Demais endpoints exigem auth do admin DRG
+    // Demais endpoints exigem auth — duas formas:
+    //  (a) X-DRG-Admin-Token (cobrança de mensalidade pela DRG Global), OU
+    //  (b) X-Tenant-Asaas-Token (tenant usa sua própria chave Asaas)
     const adminToken = request.headers.get('X-DRG-Admin-Token');
-    if (!adminToken || adminToken !== env.WEBHOOK_TOKEN) {
-      return jsonResponse({ error: 'Token administrativo inválido' }, 401, origin);
+    const tenantAsaasKey = request.headers.get('X-Tenant-Asaas-Token');
+    const isAdmin = adminToken && adminToken === env.WEBHOOK_TOKEN;
+    const isTenant = !!tenantAsaasKey;
+
+    // Endpoints /tenant/* exigem token do tenant; demais exigem admin (compat com cobrança DRG)
+    if (path.startsWith('/tenant/')) {
+      if (!isTenant) {
+        return jsonResponse({ error: 'Header X-Tenant-Asaas-Token obrigatório.' }, 401, origin);
+      }
+    } else {
+      if (!isAdmin) {
+        return jsonResponse({ error: 'Token administrativo inválido' }, 401, origin);
+      }
     }
     if (origin && !ALLOWED_ORIGINS.includes(origin)) {
       return jsonResponse({ error: 'Origin not allowed' }, 403, origin);
@@ -141,6 +164,37 @@ export default {
       // ----------- PAYMENTS — cobrança avulsa -----------
       if (path === '/payments' && request.method === 'POST') {
         return await criarPagamentoAvulso(request, env, origin);
+      }
+
+      // =============================================================
+      // ROTAS TENANT (imobiliária usa SUA própria chave Asaas)
+      // =============================================================
+      const apiKey = resolveApiKey(request);
+
+      // POST /tenant/customers — cria cliente no Asaas do tenant
+      if (path === '/tenant/customers' && request.method === 'POST') {
+        return await tenantCriarCustomer(request, env, origin, apiKey);
+      }
+      // POST /tenant/payments — cria cobrança (boleto/PIX/cartão) pro locatário
+      if (path === '/tenant/payments' && request.method === 'POST') {
+        return await tenantCriarCobranca(request, env, origin, apiKey);
+      }
+      // GET /tenant/payments/:id — busca status da cobrança
+      const matchTenantPayment = path.match(/^\/tenant\/payments\/([^\/]+)$/);
+      if (matchTenantPayment && request.method === 'GET') {
+        return await tenantBuscarCobranca(matchTenantPayment[1], env, origin, apiKey);
+      }
+      // POST /tenant/transfers — transfere PIX/TED pro locador (repasse do líquido)
+      if (path === '/tenant/transfers' && request.method === 'POST') {
+        return await tenantCriarTransferencia(request, env, origin, apiKey);
+      }
+      // GET /tenant/balance — saldo disponível no Asaas do tenant
+      if (path === '/tenant/balance' && request.method === 'GET') {
+        return await tenantConsultarSaldo(env, origin, apiKey);
+      }
+      // GET /tenant/health — teste de chave válida (ping)
+      if (path === '/tenant/health' && request.method === 'GET') {
+        return await tenantHealth(env, origin, apiKey);
       }
 
       return jsonResponse({ error: 'Endpoint não encontrado: ' + path }, 404, origin);
@@ -424,7 +478,121 @@ code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:0.9em;}
   <li><code>DELETE /subscriptions/:id</code> — cancela</li>
   <li><code>GET /subscriptions/:id/payments</code> — lista pagamentos</li>
   <li><code>POST /webhook</code> — recebe notificações do Asaas (auth: asaas-access-token)</li>
+  <li><strong>Rotas TENANT</strong> (auth: header X-Tenant-Asaas-Token com chave Asaas da imobiliária):</li>
+  <li><code>POST /tenant/customers</code> — cria cliente no Asaas do tenant</li>
+  <li><code>POST /tenant/payments</code> — cria cobrança (boleto/PIX) pro locatário</li>
+  <li><code>GET /tenant/payments/:id</code> — status da cobrança</li>
+  <li><code>POST /tenant/transfers</code> — transfere PIX pro locador (repasse do líquido)</li>
+  <li><code>GET /tenant/balance</code> — saldo disponível</li>
+  <li><code>GET /tenant/health</code> — teste de chave Asaas válida</li>
 </ul>
 <p style="margin-top:40px;font-size:12px;color:#64748b;">DRG-Rently · D.R. Global Multi Services</p>
 </body></html>`;
+}
+
+// =============================================================
+// ROTAS TENANT (imobiliária usa SUA própria chave Asaas)
+// =============================================================
+
+async function tenantCriarCustomer(request, env, origin, apiKey) {
+  const payload = await request.json();
+  if (!payload.name || !payload.cpfCnpj) {
+    return jsonResponse({ error: 'Campos obrigatórios: name, cpfCnpj' }, 400, origin);
+  }
+  const body = {
+    name: payload.name,
+    email: payload.email,
+    cpfCnpj: payload.cpfCnpj.replace(/\D/g, ''),
+    phone: (payload.phone || '').replace(/\D/g, '') || undefined,
+    mobilePhone: (payload.mobilePhone || payload.phone || '').replace(/\D/g, '') || undefined,
+    externalReference: payload.externalReference || payload.locatarioId,
+    notificationDisabled: false,
+  };
+  Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+  const res = await asaasFetch(`${asaasBase(env)}/customers`, env, 'POST', body, apiKey);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, customer: data }, 200, origin);
+}
+
+async function tenantCriarCobranca(request, env, origin, apiKey) {
+  const payload = await request.json();
+  // payload: { customer, value, dueDate, description, billingType, externalReference }
+  if (!payload.customer || !payload.value || !payload.dueDate) {
+    return jsonResponse({ error: 'Campos obrigatórios: customer, value, dueDate' }, 400, origin);
+  }
+  const body = {
+    customer: payload.customer,
+    billingType: payload.billingType || 'PIX', // PIX, BOLETO, CREDIT_CARD, UNDEFINED
+    value: Number(payload.value),
+    dueDate: payload.dueDate,
+    description: payload.description || 'Cobrança DRG-Rently',
+    externalReference: payload.externalReference || undefined,
+    postalService: false,
+  };
+  Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
+
+  const res = await asaasFetch(`${asaasBase(env)}/payments`, env, 'POST', body, apiKey);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, payment: data }, 200, origin);
+}
+
+async function tenantBuscarCobranca(paymentId, env, origin, apiKey) {
+  const res = await asaasFetch(`${asaasBase(env)}/payments/${paymentId}`, env, 'GET', null, apiKey);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, payment: data }, 200, origin);
+}
+
+async function tenantCriarTransferencia(request, env, origin, apiKey) {
+  const payload = await request.json();
+  // 2 formas: PIX (pixAddressKey + pixAddressKeyType) ou TED (bankAccount)
+  if (!payload.value) {
+    return jsonResponse({ error: 'Campo "value" obrigatório.' }, 400, origin);
+  }
+  const body = { value: Number(payload.value) };
+  if (payload.pixAddressKey) {
+    // Transferência PIX
+    body.pixAddressKey = payload.pixAddressKey;
+    body.pixAddressKeyType = payload.pixAddressKeyType || 'CPF'; // CPF, CNPJ, EMAIL, PHONE, EVP
+    body.description = payload.description || 'Repasse DRG-Rently';
+  } else if (payload.bankAccount) {
+    // Transferência TED — bankAccount = { bank: {code}, accountName, ownerName, cpfCnpj, agency, account, accountDigit, bankAccountType }
+    body.bankAccount = payload.bankAccount;
+  } else {
+    return jsonResponse({ error: 'Forneça pixAddressKey ou bankAccount.' }, 400, origin);
+  }
+
+  const res = await asaasFetch(`${asaasBase(env)}/transfers`, env, 'POST', body, apiKey);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, transfer: data }, 200, origin);
+}
+
+async function tenantConsultarSaldo(env, origin, apiKey) {
+  const res = await asaasFetch(`${asaasBase(env)}/finance/balance`, env, 'GET', null, apiKey);
+  const data = await res.json();
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || 'Erro Asaas', details: data }, res.status, origin);
+  return jsonResponse({ success: true, balance: data }, 200, origin);
+}
+
+async function tenantHealth(env, origin, apiKey) {
+  // Faz uma chamada simples ao /myAccount pra validar a chave
+  const res = await asaasFetch(`${asaasBase(env)}/myAccount`, env, 'GET', null, apiKey);
+  if (!res.ok) {
+    return jsonResponse({ ok: false, error: 'Chave Asaas inválida ou sem permissão.', status: res.status }, 200, origin);
+  }
+  const data = await res.json();
+  return jsonResponse({
+    ok: true,
+    ambiente: env.ASAAS_ENV || 'production',
+    account: {
+      name: data.name,
+      email: data.email,
+      cpfCnpj: data.cpfCnpj,
+      walletId: data.walletId,
+    },
+  }, 200, origin);
 }

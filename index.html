@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514q">
+  <link rel="stylesheet" href="styles.css?v=20260514r">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1542,6 +1542,40 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               <span class="muted" style="font-size:11px;">Endpoint que expõe seus imóveis publicados em XML para ZAP/Viva/OLX/etc. Veja instruções em <code>cloudflare-worker-feed.js</code> no repo.</span>
             </div>
 
+            <h4 class="form-section-title">💳 Cobrança e Pagamento (Asaas)</h4>
+            <div style="background:linear-gradient(135deg, #fef3c7, #fef9c3); border:1px solid #facc15; border-radius:8px; padding:12px; margin-bottom:14px;">
+              <p style="margin:0 0 8px; color:#854d0e; font-size:13px;">
+                <strong>🏦 Integração com sua conta Asaas:</strong>
+              </p>
+              <ol style="margin:0; padding-left:18px; color:var(--text); line-height:1.6; font-size:12.5px;">
+                <li>Crie conta em <a href="https://www.asaas.com" target="_blank" rel="noopener">asaas.com</a> com o CNPJ da sua imobiliária</li>
+                <li>Após validar, vá em <strong>Integrações → Gerar Token API</strong></li>
+                <li>Cole abaixo. Com isso, no <strong>modal de Balancete</strong> você terá os botões:
+                  <ul style="margin:4px 0 0;">
+                    <li><strong>💳 Cobrar locatário</strong> (gera boleto/PIX automaticamente)</li>
+                    <li><strong>💸 Pagar locador</strong> (transferência PIX do valor líquido)</li>
+                  </ul>
+                </li>
+              </ol>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>URL do Worker (Asaas proxy)</label>
+                <input type="url" id="cfg-worker-asaas-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-asaas.SEU-USUARIO.workers.dev">
+                <span class="muted" style="font-size:11px;">Mesmo Worker usado pela D.R. Global. Você cadastrou no <code>SETUP_PASSKEY.md</code>.</span>
+              </div>
+              <div class="form-group">
+                <label>Sua chave API Asaas</label>
+                <input type="password" id="cfg-asaas-tenant-token" oninput="saveConfigImobiliaria()" placeholder="Token da sua conta Asaas (vai como senha)" style="font-family:'Courier New',monospace; font-size:12px;">
+                <span class="muted" style="font-size:11px;">Tipo password. Cada imobiliária usa sua própria chave — D.R. Global NÃO vê seus pagamentos.</span>
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+              <button class="btn btn-secondary btn-sm" onclick="testarAsaasTenant()">🧪 Testar conexão</button>
+              <button class="btn btn-secondary btn-sm" onclick="verSaldoAsaas()">💰 Ver saldo Asaas</button>
+              <span id="asaas-tenant-status" class="muted" style="font-size:12px; align-self:center;"></span>
+            </div>
+
             <h4 class="form-section-title">✍️ Assinatura Eletrônica (ZapSign)</h4>
 
             <div class="form-row">
@@ -2221,6 +2255,23 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
           <div class="resumo-pix-aviso" id="resumo-pix-aviso" style="display:none;">
             ⚠ Locador sem chave Pix cadastrada. Cadastre em <strong>🏠 Locadores</strong> para habilitar este atalho.
+          </div>
+
+          <!-- G4: Asaas — cobrar locatário + pagar locador -->
+          <div class="asaas-balancete-box">
+            <strong style="color:var(--text); font-size:13px;">💳 Asaas — automatizar cobrança e repasse</strong>
+            <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
+              Configure suas credenciais Asaas em <strong>Configurações</strong> antes de usar.
+              A cobrança vai com PIX automático; o repasse usa a chave PIX do locador.
+            </p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="cobrarLocatarioAsaas()" title="Cria boleto/PIX no Asaas com o total das entradas">
+                💳 Cobrar locatário via Asaas
+              </button>
+              <button class="btn btn-primary btn-sm" type="button" onclick="pagarLocadorAsaas()" title="Transfere o líquido via PIX para o locador">
+                💸 Pagar locador (PIX)
+              </button>
+            </div>
           </div>
         </div>
 
@@ -4299,6 +4350,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514q"></script>
+  <script src="app.js?v=20260514r"></script>
 </body>
 </html>

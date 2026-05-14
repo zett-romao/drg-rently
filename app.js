@@ -2297,6 +2297,204 @@ async function processarDocumentoPessoa(file, alvo) {
 
 window.processarDocumentoPessoa = processarDocumentoPessoa;
 
+// =============================================================
+// G4 — Asaas: cobrar locatário + pagar locador (no balancete)
+// =============================================================
+
+async function getCfgAsaas() {
+  const snap = await tenantPath().collection('config').doc('site').get();
+  const cfg = snap.exists ? snap.data() : {};
+  return {
+    url: (cfg.workerAsaasUrl || '').replace(/\/+$/, ''),
+    token: cfg.asaasTenantToken || '',
+  };
+}
+
+function asaasHeaders(token) {
+  return {
+    'Content-Type': 'application/json',
+    'X-Tenant-Asaas-Token': token,
+  };
+}
+
+async function testarAsaasTenant() {
+  const statusEl = $('asaas-tenant-status');
+  statusEl.textContent = '🔄 Testando…';
+  statusEl.style.color = 'var(--text-muted)';
+  try {
+    const { url, token } = await getCfgAsaas();
+    if (!url) throw new Error('URL do Worker Asaas não configurada.');
+    if (!token) throw new Error('Chave Asaas não configurada.');
+    const res = await fetch(`${url}/tenant/health`, { headers: asaasHeaders(token) });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Chave inválida');
+    statusEl.textContent = `✅ ${data.account.name} (${data.ambiente}) — chave válida.`;
+    statusEl.style.color = 'var(--success)';
+  } catch (err) {
+    statusEl.textContent = `❌ ${err.message}`;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+async function verSaldoAsaas() {
+  const statusEl = $('asaas-tenant-status');
+  statusEl.textContent = '🔄 Consultando saldo…';
+  statusEl.style.color = 'var(--text-muted)';
+  try {
+    const { url, token } = await getCfgAsaas();
+    if (!url || !token) throw new Error('Configure URL e chave Asaas primeiro.');
+    const res = await fetch(`${url}/tenant/balance`, { headers: asaasHeaders(token) });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Erro ao consultar saldo');
+    const saldo = data.balance.balance || 0;
+    statusEl.innerHTML = `💰 Saldo disponível: <strong>${fmtBRL(saldo)}</strong>`;
+    statusEl.style.color = 'var(--success)';
+  } catch (err) {
+    statusEl.textContent = `❌ ${err.message}`;
+    statusEl.style.color = 'var(--danger)';
+  }
+}
+
+// Cria customer Asaas se não existir e salva o customerId no locatário
+async function garantirCustomerAsaas(locatarioId) {
+  const docRef = tenantPath().collection('locatarios').doc(locatarioId);
+  const snap = await docRef.get();
+  if (!snap.exists) throw new Error('Locatário não encontrado.');
+  const l = snap.data();
+  if (l.asaasCustomerId) return l.asaasCustomerId;
+
+  const { url, token } = await getCfgAsaas();
+  if (!url || !token) throw new Error('Configure Asaas em Configurações primeiro.');
+  if (!l.documento) throw new Error('Locatário sem CPF/CNPJ — não dá pra criar cliente Asaas.');
+
+  const res = await fetch(`${url}/tenant/customers`, {
+    method: 'POST',
+    headers: asaasHeaders(token),
+    body: JSON.stringify({
+      name: l.nome,
+      email: l.email || undefined,
+      cpfCnpj: l.documento,
+      phone: l.telefone || undefined,
+      mobilePhone: l.telefone || undefined,
+      externalReference: locatarioId,
+    }),
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || 'Erro ao criar cliente Asaas');
+  await docRef.update({ asaasCustomerId: data.customer.id });
+  return data.customer.id;
+}
+
+async function cobrarLocatarioAsaas() {
+  if (!_balanceteLocadorInfo) {
+    showAlert('balancete-alert', 'Selecione um contrato primeiro.');
+    return;
+  }
+  const contratoId = $('balancete-contrato').value;
+  if (!contratoId) { showAlert('balancete-alert', 'Selecione um contrato.'); return; }
+
+  // Soma entradas pra cobrança
+  const totalEntradas = _balanceteLancamentos
+    .filter(l => l.bloco === 'entrada' || l.bloco === 'despesa_locatario')
+    .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
+  if (totalEntradas <= 0) {
+    showAlert('balancete-alert', 'Adicione lançamentos de entrada antes de cobrar.');
+    return;
+  }
+
+  try {
+    const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
+    const c = cSnap.data();
+    const locatarioId = c.locatarioId;
+    if (!locatarioId) throw new Error('Contrato sem locatário.');
+
+    showAlert('balancete-alert', '🔄 Criando cliente no Asaas (se necessário)…', 'success');
+    const customerId = await garantirCustomerAsaas(locatarioId);
+
+    // Vencimento: data 10 dias adiante (configurável depois)
+    const venc = new Date();
+    venc.setDate(venc.getDate() + 10);
+    const dueDate = venc.toISOString().slice(0, 10);
+
+    const mes = parseInt($('balancete-mes').value, 10);
+    const ano = parseInt($('balancete-ano').value, 10);
+
+    const { url, token } = await getCfgAsaas();
+    const res = await fetch(`${url}/tenant/payments`, {
+      method: 'POST',
+      headers: asaasHeaders(token),
+      body: JSON.stringify({
+        customer: customerId,
+        billingType: 'PIX',
+        value: totalEntradas.toFixed(2),
+        dueDate,
+        description: `Aluguel + encargos — ${fmtMesAno(mes, ano)}`,
+        externalReference: `balancete:${$('balancete-id').value || `${ano}-${mes}-${contratoId}`}`,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Erro Asaas');
+    const link = data.payment.invoiceUrl || data.payment.bankSlipUrl || '';
+    showAlert('balancete-alert', `✅ Cobrança criada: ${fmtBRL(totalEntradas)}. <a href="${link}" target="_blank" rel="noopener" style="color:var(--success); text-decoration:underline; font-weight:600;">📄 Ver fatura</a>`, 'success');
+  } catch (err) {
+    console.error('Erro ao cobrar locatário:', err);
+    showAlert('balancete-alert', `❌ ${err.message}`);
+  }
+}
+
+async function pagarLocadorAsaas() {
+  if (!_balanceteLocadorInfo) {
+    showAlert('balancete-alert', 'Selecione um contrato primeiro.');
+    return;
+  }
+  const liquidoStr = ($('resumo-liquido').textContent || '').replace(/[^\d,.-]/g, '').replace('.', '').replace(',', '.');
+  const liquido = parseFloat(liquidoStr) || 0;
+  if (liquido <= 0) {
+    showAlert('balancete-alert', 'Líquido a repassar é zero ou negativo.');
+    return;
+  }
+  const locador = _balanceteLocadorInfo;
+  if (!locador.pix) {
+    showAlert('balancete-alert', 'Locador sem chave PIX cadastrada. Cadastre antes de pagar.');
+    return;
+  }
+  if (!confirm(`Transferir ${fmtBRL(liquido)} via PIX para ${locador.nome}?\n\nChave PIX: ${locador.pix}\n\nEssa operação é IRREVERSÍVEL.`)) return;
+
+  // Detecta tipo da chave PIX
+  let tipo = 'EVP';
+  const pix = locador.pix.trim();
+  if (/^\d{11}$/.test(pix.replace(/\D/g, ''))) tipo = 'CPF';
+  else if (/^\d{14}$/.test(pix.replace(/\D/g, ''))) tipo = 'CNPJ';
+  else if (pix.includes('@')) tipo = 'EMAIL';
+  else if (/^\+?\d{10,13}$/.test(pix.replace(/\D/g, ''))) tipo = 'PHONE';
+
+  try {
+    const { url, token } = await getCfgAsaas();
+    if (!url || !token) throw new Error('Configure Asaas primeiro.');
+    const res = await fetch(`${url}/tenant/transfers`, {
+      method: 'POST',
+      headers: asaasHeaders(token),
+      body: JSON.stringify({
+        value: liquido.toFixed(2),
+        pixAddressKey: pix,
+        pixAddressKeyType: tipo,
+        description: `Repasse aluguel — ${locador.nome}`,
+      }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Erro Asaas');
+    showAlert('balancete-alert', `✅ Transferência criada: ${fmtBRL(liquido)} via PIX ${tipo} → ${locador.nome}.`, 'success');
+  } catch (err) {
+    console.error('Erro ao pagar locador:', err);
+    showAlert('balancete-alert', `❌ ${err.message}`);
+  }
+}
+
+window.testarAsaasTenant = testarAsaasTenant;
+window.verSaldoAsaas = verSaldoAsaas;
+window.cobrarLocatarioAsaas = cobrarLocatarioAsaas;
+window.pagarLocadorAsaas = pagarLocadorAsaas;
+
 async function deleteLocador() {
   const id = $('locador-id').value;
   if (!id) return;
@@ -6940,6 +7138,10 @@ async function loadConfigImobiliaria() {
     if (zsUrl) zsUrl.value = cfg.workerZapsignUrl || '';
     const zsTok = $('cfg-zapsign-token');
     if (zsTok) zsTok.value = cfg.zapsignToken || '';
+    const asUrl = $('cfg-worker-asaas-url');
+    if (asUrl) asUrl.value = cfg.workerAsaasUrl || '';
+    const asTok = $('cfg-asaas-tenant-token');
+    if (asTok) asTok.value = cfg.asaasTenantToken || '';
     const lgUrl = $('cfg-worker-legis-url');
     if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
     const lgTok = $('cfg-legis-admin-token');
@@ -7016,6 +7218,8 @@ async function saveConfigImobiliaria() {
         workerLegisUrl: $('cfg-worker-legis-url')?.value.trim() || '',
         legisAdminToken: $('cfg-legis-admin-token')?.value.trim() || '',
         zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
+        workerAsaasUrl: $('cfg-worker-asaas-url')?.value.trim() || '',
+        asaasTenantToken: $('cfg-asaas-tenant-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),

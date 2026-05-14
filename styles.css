@@ -742,6 +742,15 @@ label.required::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+/* Caixa Asaas no rodapé do balancete */
+.asaas-balancete-box {
+  background: linear-gradient(135deg, #ECFEFF, #CFFAFE);
+  border: 1px solid #67E8F9;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+
 /* =========================================================
    IA Dropzone — upload de documento pra autopreencher cadastros
    ========================================================= */
