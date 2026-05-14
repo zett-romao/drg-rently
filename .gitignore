@@ -19,3 +19,11 @@ _pendrive/
 # Local env
 .env
 .env.local
+
+# 🔐 Manuais com chaves/credenciais sensíveis (NUNCA commitar)
+MANUAL_URLS_E_CHAVES.md
+*-PRIVADO.md
+*-SECRET.md
+secrets-*.json
+**/service-account-*.json
+firebase-admin-*.json
