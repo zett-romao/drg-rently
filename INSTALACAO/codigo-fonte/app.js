@@ -12168,8 +12168,11 @@ async function elabRenderWizard() {
   const visiveis = perguntas.filter(elabAvaliarCondicao);
   const respondidas = visiveis.filter(p => _elabContrato.respostas[p.id] !== undefined && _elabContrato.respostas[p.id] !== '').length;
   const total = visiveis.length;
+  const percent = total ? Math.round((respondidas / total) * 100) : 0;
   $('elab-wizard-progresso').textContent = `${respondidas} de ${total} respondidas`;
-  $('elab-wizard-barra').style.width = total ? `${(respondidas / total) * 100}%` : '0%';
+  $('elab-wizard-barra').style.width = `${percent}%`;
+  const elPercent = $('elab-wizard-percent');
+  if (elPercent) elPercent.innerHTML = `${percent}<small>%</small>`;
 
   // Pre-carrega caches de entidades usadas
   await ensureLocadoresCache();
@@ -12185,13 +12188,17 @@ async function elabRenderWizard() {
 function elabHtmlPergunta(p) {
   const valor = _elabContrato.respostas[p.id] ?? '';
   const requiredMark = p.obrigatorio ? '<span style="color:var(--danger);"> *</span>' : '';
+  const isEmpty = valor === '' || valor === null || valor === undefined;
+  const isFilled = !isEmpty;
   let inputHtml = '';
+  let fullWidth = false;
   switch (p.tipo) {
     case 'text':
       inputHtml = `<input type="text" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
       break;
     case 'textarea':
       inputHtml = `<textarea rows="3" oninput="elabResposta('${p.id}', this.value)">${escapeHtml(valor)}</textarea>`;
+      fullWidth = true;
       break;
     case 'number':
       inputHtml = `<input type="number" step="any" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
@@ -12225,7 +12232,11 @@ function elabHtmlPergunta(p) {
     default:
       inputHtml = `<input type="text" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
   }
-  return `<div class="form-group" style="margin-bottom:12px;">
+  const classes = ['elab-pergunta'];
+  if (fullWidth) classes.push('full-width');
+  if (p.obrigatorio && isEmpty) classes.push('is-empty-required');
+  if (isFilled) classes.push('is-filled');
+  return `<div class="${classes.join(' ')}">
     <label>${escapeHtml(p.label)}${requiredMark}</label>
     ${inputHtml}
   </div>`;

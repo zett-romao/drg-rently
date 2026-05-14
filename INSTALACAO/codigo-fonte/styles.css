@@ -707,6 +707,206 @@ label.required::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+/* =========================================================
+   ELABORAR CONTRATO — Wizard redesenhado
+   ========================================================= */
+
+/* Etapa 1: escolha de modalidade — cards grandes */
+.elab-modalidade-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+  margin: 30px 0 14px;
+}
+.elab-modalidade-card {
+  background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 26px 22px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.elab-modalidade-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--primary);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.elab-modalidade-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-4px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+}
+.elab-modalidade-card:hover::before {
+  opacity: 1;
+}
+.elab-modalidade-card .emoji {
+  font-size: 42px;
+  line-height: 1;
+}
+.elab-modalidade-card .titulo {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin-top: 4px;
+}
+.elab-modalidade-card .descricao {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* Hero card de progresso */
+.elab-hero {
+  background: linear-gradient(135deg, var(--primary-light) 0%, #F1F5F9 100%);
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.elab-hero-info {
+  flex: 1;
+  min-width: 200px;
+}
+.elab-hero-titulo {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 4px;
+}
+.elab-hero-progresso {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.elab-hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.elab-hero-percent {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  line-height: 1;
+  min-width: 70px;
+  text-align: right;
+}
+.elab-hero-percent small {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.elab-hero-barra {
+  width: 100%;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 10px;
+  border: 1px solid rgba(71, 85, 105, 0.1);
+}
+.elab-hero-barra-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary) 0%, var(--accent) 100%);
+  border-radius: 5px;
+  transition: width 0.3s ease-out;
+  box-shadow: 0 0 8px rgba(71, 85, 105, 0.3);
+}
+
+/* Grid de perguntas */
+.elab-perguntas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.elab-perguntas-grid .elab-pergunta {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  transition: all 0.15s;
+  margin: 0;
+}
+.elab-perguntas-grid .elab-pergunta:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+}
+.elab-perguntas-grid .elab-pergunta.is-empty-required {
+  border-color: #FCA5A5;
+  background: #FEF2F2;
+}
+.elab-perguntas-grid .elab-pergunta.is-filled {
+  border-color: #86EFAC;
+  background: #F0FDF4;
+}
+.elab-perguntas-grid .elab-pergunta.full-width {
+  grid-column: 1 / -1;
+}
+.elab-perguntas-grid .elab-pergunta label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.elab-perguntas-grid .elab-pergunta input,
+.elab-perguntas-grid .elab-pergunta select,
+.elab-perguntas-grid .elab-pergunta textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+.elab-perguntas-grid .elab-pergunta input:focus,
+.elab-perguntas-grid .elab-pergunta select:focus,
+.elab-perguntas-grid .elab-pergunta textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.15);
+}
+
+/* Footer de ações do wizard */
+.elab-wizard-footer {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+  .elab-perguntas-grid {
+    grid-template-columns: 1fr;
+  }
+  .elab-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .elab-hero-stats {
+    justify-content: space-between;
+  }
+}
+
 /* <details> com visual claro de abre/fecha */
 details.card > summary {
   list-style: none;
