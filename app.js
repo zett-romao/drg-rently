@@ -2918,6 +2918,27 @@ window.verSaldoAsaas = verSaldoAsaas;
 window.cobrarLocatarioAsaas = cobrarLocatarioAsaas;
 window.pagarLocadorAsaas = pagarLocadorAsaas;
 
+// Auto-preencher a URL do Worker Asaas (padrão do projeto)
+function autoPreencherWorkerAsaas() {
+  // Tenta deduzir o subdomínio do usuário Cloudflare a partir de outras URLs já configuradas
+  const inputAsaas = $('cfg-worker-asaas-url');
+  if (!inputAsaas) return;
+  let subdomain = 'zett-romao'; // default conhecido
+  // Tenta extrair de URLs já salvas (workerUrl, workerGeminiUrl, workerZapsignUrl, workerLegisUrl)
+  const refs = ['cfg-worker-url', 'cfg-worker-gemini-url', 'cfg-worker-zapsign-url', 'cfg-worker-legis-url'];
+  for (const id of refs) {
+    const v = ($(id)?.value || '').trim();
+    const m = v.match(/^https?:\/\/[^.]+\.([^.]+)\.workers\.dev/i);
+    if (m && m[1]) { subdomain = m[1]; break; }
+  }
+  const url = `https://drg-rently-asaas.${subdomain}.workers.dev`;
+  inputAsaas.value = url;
+  // Salva imediatamente
+  saveConfigImobiliaria();
+  showInlineStatus('asaas-tenant-status', `✅ URL preenchida: <code>${url}</code>. Agora cole sua chave Asaas ao lado.`, 'success', 6000);
+}
+window.autoPreencherWorkerAsaas = autoPreencherWorkerAsaas;
+
 async function deleteLocador() {
   const id = $('locador-id').value;
   if (!id) return;
