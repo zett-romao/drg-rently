@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514f">
+  <link rel="stylesheet" href="styles.css?v=20260514g">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -70,7 +70,26 @@
 
       <div class="form-group">
         <label for="login-senha">Senha</label>
-        <input type="password" id="login-senha" autocomplete="current-password">
+        <div class="password-wrapper">
+          <input type="password" id="login-senha" autocomplete="current-password">
+          <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('login-senha', this)" title="Mostrar/esconder senha" aria-label="Mostrar/esconder senha">👁</button>
+        </div>
+      </div>
+
+      <a class="forgot-password-link" onclick="abrirEsqueciSenha()">Esqueci minha senha</a>
+
+      <!-- Box inline de reset (oculto até clicar no link) -->
+      <div class="forgot-password-box" id="forgot-password-box" style="display:none;">
+        <label for="forgot-email">E-mail cadastrado</label>
+        <input type="email" id="forgot-email" placeholder="voce@empresa.com" autocomplete="email">
+        <p class="muted" style="font-size:11px; margin-top:6px;">
+          Enviaremos um link pra você redefinir sua senha.
+        </p>
+        <div id="forgot-alert" class="alert" style="display:none; margin-top:10px;"></div>
+        <div class="forgot-actions">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="fecharEsqueciSenha()">Cancelar</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-enviar-reset" onclick="enviarResetSenha()">📧 Enviar link</button>
+        </div>
       </div>
 
       <button id="btn-login" class="btn btn-primary">Entrar</button>
@@ -145,11 +164,17 @@
       <div class="form-row">
         <div class="form-group">
           <label for="signup-senha">Senha</label>
-          <input type="password" id="signup-senha" autocomplete="new-password">
+          <div class="password-wrapper">
+            <input type="password" id="signup-senha" autocomplete="new-password">
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('signup-senha', this)" title="Mostrar/esconder senha" aria-label="Mostrar/esconder senha">👁</button>
+          </div>
         </div>
         <div class="form-group">
           <label for="signup-senha2">Confirmar senha</label>
-          <input type="password" id="signup-senha2" autocomplete="new-password">
+          <div class="password-wrapper">
+            <input type="password" id="signup-senha2" autocomplete="new-password">
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('signup-senha2', this)" title="Mostrar/esconder senha" aria-label="Mostrar/esconder senha">👁</button>
+          </div>
         </div>
       </div>
 
@@ -229,8 +254,11 @@
       </div>
 
       <header class="topbar">
-        <button id="btn-menu-mobile" class="btn-menu-mobile" onclick="toggleSidebarMobile()" aria-label="Menu" title="Menu">☰</button>
-        <div class="topbar-title" id="topbar-title">Dashboard</div>
+        <div class="topbar-left">
+          <button id="btn-menu-mobile" class="btn-menu-mobile" onclick="toggleSidebarMobile()" aria-label="Menu" title="Menu">☰</button>
+          <button id="btn-voltar-section" class="btn-voltar-topbar" onclick="voltarSection()" title="Voltar à tela anterior" style="display:none;">← Voltar</button>
+          <div class="topbar-title" id="topbar-title">Dashboard</div>
+        </div>
         <div class="topbar-user">
           <span id="user-name" class="topbar-user-name">—</span>
           <button id="btn-logout" class="btn btn-secondary btn-sm">Sair</button>
@@ -4139,6 +4167,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514f"></script>
+  <script src="app.js?v=20260514g"></script>
 </body>
 </html>

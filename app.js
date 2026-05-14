@@ -17,6 +17,7 @@ const State = {
   signingUp: false,    // bloqueia onAuthStateChanged durante criação do tenant
   userModulos: null,   // array de módulos permitidos (se perfil customizado)
   tenantOriginal: null, // backup do tenant quando super-admin atua como outro
+  navHistory: [],      // pilha de seções visitadas (pra botão Voltar)
 };
 
 // Lista de módulos disponíveis pra perfis customizados
@@ -265,16 +266,23 @@ function bindMask(inputId, maskFn) {
 
 function translateAuthError(code) {
   const map = {
-    'auth/invalid-email': 'E-mail inválido.',
-    'auth/user-not-found': 'Usuário não encontrado.',
-    'auth/wrong-password': 'Senha incorreta.',
-    'auth/invalid-credential': 'E-mail ou senha incorretos.',
-    'auth/email-already-in-use': 'Este e-mail já está cadastrado.',
+    'auth/invalid-email': 'E-mail inválido. Verifique o formato.',
+    'auth/user-not-found': 'Não encontramos uma conta com esse e-mail.',
+    'auth/wrong-password': 'Senha incorreta. Tente novamente ou clique em "Esqueci minha senha".',
+    'auth/invalid-credential': 'E-mail ou senha incorretos. Confira os dados ou use "Esqueci minha senha".',
+    'auth/invalid-login-credentials': 'E-mail ou senha incorretos.',
+    'auth/missing-password': 'Digite sua senha.',
+    'auth/missing-email': 'Digite seu e-mail.',
+    'auth/user-disabled': 'Esta conta foi desativada. Contate o administrador.',
+    'auth/email-already-in-use': 'Este e-mail já está cadastrado. Faça login ou recupere a senha.',
     'auth/weak-password': 'Senha muito fraca (mínimo 6 caracteres).',
-    'auth/too-many-requests': 'Muitas tentativas. Tente novamente em alguns minutos.',
+    'auth/too-many-requests': 'Muitas tentativas seguidas. Aguarde alguns minutos e tente novamente.',
     'auth/network-request-failed': 'Falha de conexão. Verifique sua internet.',
+    'auth/operation-not-allowed': 'Operação não permitida. Contate o suporte.',
+    'auth/internal-error': 'Erro interno do servidor. Tente novamente.',
+    'auth/popup-closed-by-user': 'Janela fechada antes de concluir.',
   };
-  return map[code] || `Erro: ${code}`;
+  return map[code] || `Erro de autenticação (${code || 'desconhecido'}).`;
 }
 
 // =============================================================
@@ -623,6 +631,9 @@ window.confirmarMultiComprovantes = function() { return confirmarMultiComprovant
 // Logout
 // =============================================================
 async function doLogout() {
+  // Limpa histórico de navegação pra próximo login começar limpo
+  State.navHistory = [];
+  atualizarBotaoVoltar();
   await auth.signOut();
 }
 
@@ -735,8 +746,16 @@ function fecharSidebarMobile() {
 window.toggleSidebarMobile = toggleSidebarMobile;
 window.fecharSidebarMobile = fecharSidebarMobile;
 
-function showSection(name) {
+function showSection(name, _opts = {}) {
+  // _opts.skipHistory: true quando vier de voltarSection (evita re-push)
+  const anterior = State.currentSection;
+  if (anterior && anterior !== name && !_opts.skipHistory) {
+    State.navHistory.push(anterior);
+    // Limita histórico a 20 (suficiente, evita memory leak)
+    if (State.navHistory.length > 20) State.navHistory.shift();
+  }
   State.currentSection = name;
+  atualizarBotaoVoltar();
   // Fecha sidebar mobile ao trocar de seção
   fecharSidebarMobile();
 
@@ -819,6 +838,112 @@ function showSection(name) {
   if (name === 'portais' && State.tenant) {
     renderPortais();
     loadPortaisStatus();
+  }
+}
+
+// =============================================================
+// Voltar à seção anterior (botão global no topbar)
+// =============================================================
+function voltarSection() {
+  if (State.navHistory.length === 0) return;
+  const anterior = State.navHistory.pop();
+  if (!anterior) return;
+  showSection(anterior, { skipHistory: true });
+}
+
+function atualizarBotaoVoltar() {
+  const btn = document.getElementById('btn-voltar-section');
+  if (!btn) return;
+  btn.style.display = State.navHistory.length > 0 ? 'inline-flex' : 'none';
+}
+
+// =============================================================
+// Toggle visibilidade de senha (olho)
+// =============================================================
+function togglePasswordVisibility(inputId, btn) {
+  const inp = document.getElementById(inputId);
+  if (!inp) return;
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    if (btn) {
+      btn.textContent = '🙈';
+      btn.title = 'Esconder senha';
+    }
+  } else {
+    inp.type = 'password';
+    if (btn) {
+      btn.textContent = '👁';
+      btn.title = 'Mostrar senha';
+    }
+  }
+}
+
+// =============================================================
+// Reset de senha (Esqueci minha senha) — inline na tela de login
+// =============================================================
+function abrirEsqueciSenha() {
+  const box = document.getElementById('forgot-password-box');
+  if (!box) return;
+  box.style.display = 'block';
+  // Pré-preenche com o e-mail que está no campo de login
+  const emailLogin = document.getElementById('login-email')?.value.trim();
+  const inp = document.getElementById('forgot-email');
+  if (inp) {
+    if (emailLogin) inp.value = emailLogin;
+    inp.focus();
+  }
+  clearAlert('forgot-alert');
+}
+
+function fecharEsqueciSenha() {
+  const box = document.getElementById('forgot-password-box');
+  if (box) box.style.display = 'none';
+  clearAlert('forgot-alert');
+}
+
+async function enviarResetSenha() {
+  const email = document.getElementById('forgot-email')?.value.trim();
+  if (!email) {
+    showAlert('forgot-alert', 'Digite seu e-mail.');
+    return;
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    showAlert('forgot-alert', 'E-mail inválido. Verifique o formato.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-enviar-reset');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+  }
+
+  try {
+    await auth.sendPasswordResetEmail(email);
+    showAlert(
+      'forgot-alert',
+      `✅ Enviamos um link de redefinição para ${email}. Confira sua caixa de entrada (e a pasta de spam).`,
+      'success'
+    );
+    // Esconde o formulário após 6s
+    setTimeout(() => {
+      fecharEsqueciSenha();
+    }, 6000);
+  } catch (err) {
+    console.error('Erro ao enviar reset:', err);
+    // Por segurança, o Firebase pode retornar success mesmo pra emails inexistentes
+    // dependendo das configs. Aqui mostramos a mensagem real.
+    let msg = translateAuthError(err.code);
+    // Códigos específicos de reset
+    if (err.code === 'auth/user-not-found') {
+      msg = 'Não encontramos conta com este e-mail. Confirme o endereço ou crie uma nova conta.';
+    }
+    showAlert('forgot-alert', msg);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '📧 Enviar link';
+    }
   }
 }
 

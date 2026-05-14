@@ -381,6 +381,108 @@ label.required::after {
   color: var(--text);
 }
 
+/* Botão Voltar global no topbar */
+.btn-voltar-topbar {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+  margin-right: 12px;
+}
+.btn-voltar-topbar:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+.btn-voltar-topbar:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Container do title agrupa botão Voltar + texto */
+.topbar-left {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Toggle de visibilidade da senha (olho) */
+.password-wrapper {
+  position: relative;
+}
+.password-wrapper input[type="password"],
+.password-wrapper input[type="text"] {
+  padding-right: 42px;
+}
+.password-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.password-toggle-btn:hover {
+  background: var(--primary-light);
+  color: var(--primary-dark);
+}
+
+/* Link "Esqueci minha senha" */
+.forgot-password-link {
+  display: block;
+  text-align: right;
+  margin-top: -8px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+.forgot-password-link:hover {
+  text-decoration: underline;
+}
+
+/* Formulário inline de reset de senha */
+.forgot-password-box {
+  background: var(--primary-light);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.forgot-password-box label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin-bottom: 6px;
+}
+.forgot-password-box .forgot-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.forgot-password-box .forgot-actions button {
+  flex: 1;
+}
+
 .topbar-user {
   display: flex;
   align-items: center;
