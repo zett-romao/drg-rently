@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514u">
+  <link rel="stylesheet" href="styles.css?v=20260514v">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -367,9 +367,17 @@
             </div>
           </div>
 
-          <div class="card">
-            <h3>Bem-vindo ao DRG-Rently</h3>
-            <p style="color:var(--text-muted);">Sistema em construção. Fase 1 (cadastros) — concluída. Próxima fase: balancetes mensais.</p>
+          <div class="card" id="dashboard-alertas-card">
+            <div class="section-header" style="margin-bottom: 14px;">
+              <div>
+                <h3>🔔 Painel de alertas</h3>
+                <p class="muted" style="font-size:12px;">Resumo das pendências importantes da imobiliária.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="showSection('alertas')">Ver todos →</button>
+            </div>
+            <div id="dashboard-alertas-painel">
+              <p class="muted" style="text-align:center; padding:14px;">Carregando alertas…</p>
+            </div>
           </div>
         </section>
 
@@ -4373,6 +4381,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514u"></script>
+  <script src="app.js?v=20260514v"></script>
 </body>
 </html>

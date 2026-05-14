@@ -779,6 +779,121 @@ label.required::after {
   font-weight: 600;
 }
 
+/* =========================================================
+   PAINEL DE ALERTAS RESUMO no Dashboard
+   ========================================================= */
+.alertas-contadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.alerta-contador {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.alerta-contador:hover { transform: translateY(-2px); }
+.alerta-contador.nivel-critico {
+  background: #FEE2E2;
+  border-color: #FCA5A5;
+}
+.alerta-contador.nivel-critico:hover { box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25); }
+.alerta-contador.nivel-atencao {
+  background: #FEF3C7;
+  border-color: #FCD34D;
+}
+.alerta-contador.nivel-atencao:hover { box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25); }
+.alerta-contador.nivel-info {
+  background: #DBEAFE;
+  border-color: #93C5FD;
+}
+.alerta-contador.nivel-info:hover { box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25); }
+
+.alerta-contador-num {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+.alerta-contador.nivel-critico .alerta-contador-num { color: #991B1B; }
+.alerta-contador.nivel-atencao .alerta-contador-num { color: #92400E; }
+.alerta-contador.nivel-info .alerta-contador-num { color: #1E40AF; }
+
+.alerta-contador-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-align: right;
+}
+.alerta-contador.nivel-critico .alerta-contador-label { color: #991B1B; }
+.alerta-contador.nivel-atencao .alerta-contador-label { color: #92400E; }
+.alerta-contador.nivel-info .alerta-contador-label { color: #1E40AF; }
+
+/* Lista de mini cards de alertas */
+.alertas-mini-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.alerta-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.alerta-mini:hover {
+  border-color: var(--primary);
+  transform: translateX(3px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+.alerta-mini.nivel-critico { border-left: 4px solid #DC2626; }
+.alerta-mini.nivel-atencao { border-left: 4px solid #F59E0B; }
+.alerta-mini.nivel-info    { border-left: 4px solid #3B82F6; }
+
+.alerta-mini-icone {
+  font-size: 22px;
+  width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.alerta-mini-body { flex: 1; min-width: 0; }
+.alerta-mini-titulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alerta-mini-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alerta-mini-arrow {
+  font-size: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.alerta-mini:hover .alerta-mini-arrow {
+  color: var(--primary);
+  transform: translateX(3px);
+}
+
 /* Caixa Asaas no rodapé do balancete */
 .asaas-balancete-box {
   background: linear-gradient(135deg, #ECFEFF, #CFFAFE);

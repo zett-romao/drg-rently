@@ -1745,6 +1745,176 @@ async function loadDashboard() {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
   }
+
+  // Painel de alertas resumo (não bloqueia o resto do dashboard)
+  loadAlertasResumoDashboard().catch(e => console.warn('Alertas resumo falhou:', e));
+}
+
+// =============================================================
+// Painel de alertas resumo no Dashboard (versão compacta)
+// =============================================================
+async function loadAlertasResumoDashboard() {
+  const container = document.getElementById('dashboard-alertas-painel');
+  if (!container || !State.tenant) return;
+
+  try {
+    const hoje = new Date();
+    const mesAtual = hoje.getMonth() + 1;
+    const anoAtual = hoje.getFullYear();
+
+    const [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, garantiasSnap] = await Promise.all([
+      tenantPath().collection('contratos').get(),
+      tenantPath().collection('locatarios').get(),
+      tenantPath().collection('imoveis').get(),
+      tenantPath().collection('negociacoes').get(),
+      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
+      tenantPath().collection('garantias').get(),
+    ]);
+
+    const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido]));
+
+    let qtdCriticos = 0;
+    let qtdAtencao = 0;
+    let qtdInfo = 0;
+    const topAlertas = []; // top 5 (priorizando críticos > atenção > info)
+
+    // CRÍTICOS — contratos vencidos / vencendo em <=30 dias
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.fim) return;
+      const fimDt = new Date(c.fim + 'T00:00:00');
+      const dias = diasEntre(hoje, fimDt);
+      if (dias < 0) {
+        qtdCriticos++;
+        topAlertas.push({ nivel: 'critico', icone: '🚨', titulo: `Contrato VENCIDO há ${Math.abs(dias)} dia(s)`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos' });
+      } else if (dias <= 30) {
+        qtdCriticos++;
+        topAlertas.push({ nivel: 'critico', icone: '⏰', titulo: `Contrato vence em ${dias} dia(s)`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos' });
+      } else if (dias <= 90) {
+        qtdAtencao++;
+        topAlertas.push({ nivel: 'atencao', icone: '📅', titulo: `Contrato vence em ${dias} dias`, sub: imovelMap[c.imovelId] || '—', secao: 'contratos' });
+      }
+    });
+
+    // ATENÇÃO — locatários pendentes há >5 dias
+    locatariosSnap.docs.forEach(d => {
+      const l = d.data();
+      if (l.status !== 'pendente_analise') return;
+      const criado = l.criadoEm?.toDate ? l.criadoEm.toDate() : null;
+      const dias = criado ? diasEntre(criado, hoje) : 0;
+      if (dias >= 5) {
+        qtdAtencao++;
+        topAlertas.push({ nivel: 'atencao', icone: '⏳', titulo: `Locatário pendente há ${dias} dias`, sub: l.nome || '—', secao: 'locatarios' });
+      }
+    });
+
+    // ATENÇÃO — negociações abertas há >15 dias
+    negociacoesSnap.docs.forEach(d => {
+      const n = d.data();
+      if (n.status !== 'em_negociacao' && n.status !== 'aceita') return;
+      const criado = n.criadoEm?.toDate ? n.criadoEm.toDate() : null;
+      const dias = criado ? diasEntre(criado, hoje) : 0;
+      if (dias >= 15) {
+        qtdAtencao++;
+        topAlertas.push({ nivel: 'atencao', icone: '🤝', titulo: `Negociação aberta há ${dias} dias`, sub: imovelMap[n.imovelId] || '—', secao: 'negociacoes' });
+      }
+    });
+
+    // INFO — contratos vigentes sem balancete do mês
+    const balancetesPorContrato = new Set(balancetesMesSnap.docs.map(d => d.data().contratoId));
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente') return;
+      if (!balancetesPorContrato.has(d.id)) {
+        qtdInfo++;
+        topAlertas.push({ nivel: 'info', icone: '💰', titulo: 'Sem balancete deste mês', sub: imovelMap[c.imovelId] || '—', secao: 'balancetes' });
+      }
+    });
+
+    // INFO — imóveis rascunho (criados via H2 mas não finalizados)
+    imoveisSnap.docs.forEach(d => {
+      const im = d.data();
+      if (im.rascunho === true) {
+        qtdInfo++;
+        topAlertas.push({ nivel: 'info', icone: '📝', titulo: 'Imóvel em rascunho — complete o cadastro', sub: im.apelido || d.id, secao: 'imoveis' });
+      }
+    });
+
+    // INFO — garantias vencendo nos próximos 60 dias
+    garantiasSnap.docs.forEach(d => {
+      const g = d.data();
+      const fim = g.validadeAte || g.fim || g.vencimento;
+      if (!fim) return;
+      try {
+        const fimDt = new Date(fim + 'T00:00:00');
+        const dias = diasEntre(hoje, fimDt);
+        if (dias >= 0 && dias <= 60) {
+          qtdAtencao++;
+          topAlertas.push({ nivel: 'atencao', icone: '🛡', titulo: `Garantia vence em ${dias} dia(s)`, sub: g.identificacao || g.tipo || '—', secao: 'garantias' });
+        }
+      } catch (_) {}
+    });
+
+    // Ordena: críticos primeiro, depois atenção, depois info
+    const ordem = { critico: 0, atencao: 1, info: 2 };
+    topAlertas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
+
+    const total = qtdCriticos + qtdAtencao + qtdInfo;
+    if (total === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:24px 14px;">
+          <div style="font-size:42px; margin-bottom:6px;">✅</div>
+          <div style="font-weight:600; color:var(--success); margin-bottom:4px;">Tudo em dia!</div>
+          <div class="muted" style="font-size:12px;">Nenhuma pendência detectada no momento.</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Contadores
+    const contadoresHtml = `
+      <div class="alertas-contadores">
+        <div class="alerta-contador nivel-critico" onclick="showSection('alertas')" title="Itens críticos exigem ação imediata">
+          <div class="alerta-contador-num">${qtdCriticos}</div>
+          <div class="alerta-contador-label">🚨 Crítico</div>
+        </div>
+        <div class="alerta-contador nivel-atencao" onclick="showSection('alertas')" title="Itens de atenção">
+          <div class="alerta-contador-num">${qtdAtencao}</div>
+          <div class="alerta-contador-label">⚠️ Atenção</div>
+        </div>
+        <div class="alerta-contador nivel-info" onclick="showSection('alertas')" title="Avisos informativos">
+          <div class="alerta-contador-num">${qtdInfo}</div>
+          <div class="alerta-contador-label">ℹ️ Info</div>
+        </div>
+      </div>
+    `;
+
+    // Top 5 alertas em cards mini
+    const top = topAlertas.slice(0, 5);
+    const cardsHtml = `
+      <div class="alertas-mini-grid">
+        ${top.map(a => `
+          <div class="alerta-mini nivel-${a.nivel}" onclick="showSection('${a.secao}')">
+            <div class="alerta-mini-icone">${a.icone}</div>
+            <div class="alerta-mini-body">
+              <div class="alerta-mini-titulo">${escapeHtml(a.titulo)}</div>
+              <div class="alerta-mini-sub">${escapeHtml(a.sub || '')}</div>
+            </div>
+            <div class="alerta-mini-arrow">→</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    const restanteHtml = topAlertas.length > 5
+      ? `<p class="muted" style="text-align:center; font-size:12px; margin-top:10px;">+${topAlertas.length - 5} alertas. <a onclick="showSection('alertas')" style="cursor:pointer; text-decoration:underline; color:var(--primary);">Ver todos →</a></p>`
+      : '';
+
+    container.innerHTML = contadoresHtml + cardsHtml + restanteHtml;
+  } catch (err) {
+    console.error('Erro ao carregar alertas resumo:', err);
+    container.innerHTML = '<p class="muted" style="color:var(--danger); text-align:center; padding:14px;">Erro ao carregar alertas: ' + err.message + '</p>';
+  }
 }
 
 // Conta uso de IA no mês corrente (contratos+negociações criados via IA
