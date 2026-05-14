@@ -32,6 +32,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'imoveis',       label: 'Imóveis',       grupo: 'Cadastros' },
   { id: 'contratos',     label: 'Contratos',     grupo: 'Operação' },
   { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
+  { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação' },
   { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação' },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
@@ -818,6 +819,7 @@ function showSection(name, _opts = {}) {
     'elab-contrato': 'Elaborar contrato',
     contratos: 'Contratos',
     negociacoes: 'Negociações',
+    leads: 'Leads (anúncios captados)',
     balancetes: 'Balancetes Mensais',
     portais: 'Portais Imobiliários',
     importacao: 'Importação em massa (CSV)',
@@ -858,6 +860,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'negociacoes' && State.tenant) {
     loadNegociacoes();
+  }
+  if (name === 'leads' && State.tenant) {
+    loadLeads();
   }
   if (name === 'garantias' && State.tenant) {
     loadGarantias();
@@ -1218,7 +1223,14 @@ function renderTenantsTable() {
 // Arquivar / Restaurar / Excluir tenants (Super Admin)
 // =============================================================
 async function arquivarTenant(tenantId, nome) {
-  if (!confirm(`Arquivar o cliente "${nome}"?\n\n✅ Os dados ficam preservados.\n✅ Você pode RESTAURAR depois.\n⚠️ O tenant some das listagens padrão (mostre o filtro "Mostrar arquivados" pra ver).\n\nConfirmar?`)) return;
+  const ok = await confirmar({
+    titulo: 'Arquivar cliente?',
+    mensagem: `Mover <strong>${escapeHtml(nome)}</strong> para o arquivo.`,
+    detalhe: '✅ Os dados ficam preservados<br>✅ Você pode RESTAURAR depois<br>⚠️ O tenant some das listagens padrão (use o filtro "Mostrar arquivados" pra ver)',
+    confirmar: '🗄 Arquivar',
+    aviso: true,
+  });
+  if (!ok) return;
   try {
     await db.collection('tenants').doc(tenantId).update({
       arquivado: true,
@@ -1254,24 +1266,25 @@ async function restaurarTenant(tenantId) {
 }
 
 async function excluirTenantDefinitivo(tenantId, nome) {
-  // Confirmação dupla — operação irreversível
-  const confirma1 = confirm(
-    `⚠️ EXCLUSÃO DEFINITIVA\n\n` +
-    `Cliente: ${nome}\n\n` +
-    `Esta ação:\n` +
-    `• Marca o tenant como EXCLUÍDO (não aparece em lugar nenhum)\n` +
-    `• Apaga o documento principal do Firestore\n` +
-    `• Os dados das SUBCOLEÇÕES (locadores, contratos, imóveis, fotos, etc) ficam\n` +
-    `  órfãos no Firestore. Pra remoção total (compliance LGPD pesado), use o\n` +
-    `  script de limpeza recursiva no painel administrativo do Firebase.\n\n` +
-    `Esta operação é IRREVERSÍVEL. Continuar?`
-  );
+  // Confirmação 1 — aviso detalhado
+  const confirma1 = await confirmar({
+    titulo: '⚠️ Exclusão definitiva',
+    mensagem: `Você está prestes a EXCLUIR PERMANENTEMENTE o cliente <strong>${escapeHtml(nome)}</strong>.`,
+    detalhe: `Esta ação:<br>• Marca o tenant como EXCLUÍDO<br>• Apaga o documento principal do Firestore<br>• Subcoleções (locadores, contratos, imóveis, fotos) ficam órfãs — pra limpeza profunda use o Firebase Console<br><br><strong>OPERAÇÃO IRREVERSÍVEL</strong>`,
+    confirmar: 'Continuar',
+    perigo: true,
+  });
   if (!confirma1) return;
 
-  // Pede confirmação digitando o nome
+  // Confirmação 2 — digitar nome (prompt nativo ainda, sem refatorar agora)
   const digite = prompt(`Pra confirmar a EXCLUSÃO, digite EXATAMENTE o nome do cliente abaixo:\n\n"${nome}"`);
   if (!digite || digite.trim() !== nome.trim()) {
-    alert('Nome digitado não confere. Operação CANCELADA.');
+    await confirmar({
+      titulo: 'Operação cancelada',
+      mensagem: 'O nome digitado não confere. Nada foi excluído.',
+      confirmar: 'Entendi',
+      cancelar: 'Fechar',
+    });
     return;
   }
 
@@ -2057,6 +2070,22 @@ async function loadAlertasResumoDashboard() {
       } catch (_) {}
     });
 
+    // ATENÇÃO — leads novos sem contato (vitrine pública)
+    try {
+      const leadsSnap = await tenantPath().collection('leadsImoveis').where('status', '==', 'novo').limit(50).get();
+      const leadsNovos = leadsSnap.size;
+      if (leadsNovos > 0) {
+        qtdAtencao++;
+        topAlertas.push({
+          nivel: 'atencao',
+          icone: '📥',
+          titulo: `${leadsNovos} lead(s) novo(s) aguardando contato`,
+          sub: 'Quanto antes você responder, maior a conversão',
+          secao: 'leads',
+        });
+      }
+    } catch (_) {}
+
     // Ordena: críticos primeiro, depois atenção, depois info
     const ordem = { critico: 0, atencao: 1, info: 2 };
     topAlertas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
@@ -2668,6 +2697,97 @@ async function processarDocumentoPessoa(file, alvo) {
 }
 
 window.processarDocumentoPessoa = processarDocumentoPessoa;
+
+// =============================================================
+// Helper genérico — modal de confirmação customizado (substitui confirm() nativo)
+// Retorna Promise<boolean>. Uso:
+//   const ok = await confirmar('Tem certeza?');
+//   const ok = await confirmar({ titulo:'Excluir?', mensagem:'...', perigo:true });
+// =============================================================
+function confirmar(opcoes) {
+  // Aceita string simples ou objeto de opções
+  if (typeof opcoes === 'string') {
+    opcoes = { mensagem: opcoes };
+  }
+  const {
+    titulo = 'Confirmar?',
+    mensagem = 'Tem certeza que deseja continuar?',
+    confirmar: textoOk = 'Confirmar',
+    cancelar: textoCancelar = 'Cancelar',
+    icone = null,
+    perigo = false,
+    aviso = false,
+    detalhe = null,
+  } = opcoes;
+
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('modal-confirmar');
+    const card = overlay?.querySelector('.modal-confirm-card');
+    const elTitulo = document.getElementById('modal-confirm-titulo');
+    const elMsg = document.getElementById('modal-confirm-mensagem');
+    const elIcone = document.getElementById('modal-confirm-icone');
+    const elExtra = document.getElementById('modal-confirm-extra');
+    const btnOk = document.getElementById('btn-modal-confirm-ok');
+    const btnCancelar = document.getElementById('btn-modal-confirm-cancelar');
+
+    if (!overlay || !btnOk || !btnCancelar) {
+      // Fallback: navegador antigo ou modal não carregado → usa confirm() nativo
+      const ok = window.confirm(mensagem);
+      resolve(!!ok);
+      return;
+    }
+
+    // Define ícone automaticamente conforme variante
+    const iconePadrao = perigo ? '⚠️' : (aviso ? '⚠️' : '❓');
+    if (elIcone) elIcone.textContent = icone || iconePadrao;
+    if (elTitulo) elTitulo.textContent = titulo;
+    if (elMsg) elMsg.innerHTML = mensagem; // permite HTML simples
+    btnOk.textContent = textoOk;
+    btnCancelar.textContent = textoCancelar;
+
+    // Detalhe extra (caixa cinza opcional)
+    if (elExtra) {
+      if (detalhe) {
+        elExtra.innerHTML = detalhe;
+        elExtra.style.display = 'block';
+      } else {
+        elExtra.style.display = 'none';
+      }
+    }
+
+    // Variantes visuais
+    card.classList.remove('is-danger', 'is-warning');
+    if (perigo) card.classList.add('is-danger');
+    else if (aviso) card.classList.add('is-warning');
+
+    // Cleanup helper
+    function fechar(resultado) {
+      overlay.style.display = 'none';
+      btnOk.removeEventListener('click', onOk);
+      btnCancelar.removeEventListener('click', onCancelar);
+      overlay.removeEventListener('click', onClickFora);
+      document.removeEventListener('keydown', onKeyDown);
+      resolve(resultado);
+    }
+    function onOk() { fechar(true); }
+    function onCancelar() { fechar(false); }
+    function onClickFora(e) { if (e.target === overlay) fechar(false); }
+    function onKeyDown(e) {
+      if (e.key === 'Escape') fechar(false);
+      else if (e.key === 'Enter') fechar(true);
+    }
+
+    btnOk.addEventListener('click', onOk);
+    btnCancelar.addEventListener('click', onCancelar);
+    overlay.addEventListener('click', onClickFora);
+    document.addEventListener('keydown', onKeyDown);
+
+    overlay.style.display = 'flex';
+    // Foca no botão Cancelar (mais seguro como default)
+    setTimeout(() => btnCancelar.focus(), 50);
+  });
+}
+window.confirmar = confirmar;
 
 // =============================================================
 // Helper genérico — status contextual inline
@@ -4429,26 +4549,19 @@ function addLancamento(bloco) {
   recalcBalancete();
 }
 
-function removeLanc(id) {
-  console.log('[removeLanc] chamado com id:', id, '— total atual:', _balanceteLancamentos.length);
-  // Tenta confirm; alguns navegadores bloqueiam dialogs em contextos específicos
-  let okRemover = true;
-  try {
-    okRemover = confirm('Remover este lançamento?');
-  } catch (e) {
-    console.warn('[removeLanc] confirm() bloqueado ou indisponível — removendo sem confirmação:', e);
-    okRemover = true;
-  }
-  if (!okRemover) {
-    console.log('[removeLanc] usuário cancelou no confirm');
-    return;
-  }
-  const antes = _balanceteLancamentos.length;
+async function removeLanc(id) {
+  const lanc = _balanceteLancamentos.find(l => l.id === id);
+  const descricao = lanc?.descricao || lanc?.categoria || 'este lançamento';
+  const valor = lanc?.valor != null ? ` (${fmtBRL(parseFloat(lanc.valor) || 0)})` : '';
+  const ok = await confirmar({
+    titulo: 'Remover lançamento?',
+    mensagem: `Você está prestes a remover <strong>${escapeHtml(descricao)}</strong>${valor}.`,
+    detalhe: 'A linha some imediatamente e o total recalcula. A alteração só fica permanente quando você clicar em <strong>Salvar</strong> no balancete.',
+    confirmar: 'Remover',
+    perigo: true,
+  });
+  if (!ok) return;
   _balanceteLancamentos = _balanceteLancamentos.filter(l => l.id !== id);
-  console.log('[removeLanc] após filter:', antes, '→', _balanceteLancamentos.length);
-  if (antes === _balanceteLancamentos.length) {
-    console.warn('[removeLanc] ⚠️ FILTRO NÃO REMOVEU NADA — id pode estar errado. IDs atuais:', _balanceteLancamentos.map(l => l.id));
-  }
   renderLancamentos();
   recalcBalancete();
 }
@@ -6453,6 +6566,168 @@ const NEGOCIACAO_STATUS_LABEL = {
   fechada: 'Fechada',
   recusada: 'Recusada',
 };
+
+// =============================================================
+// 📥 LEADS — anúncios captados pela vitrine pública
+// =============================================================
+let _leadsCarregados = [];
+let _filtroLeadStatus = 'todos';
+
+const LEAD_STATUS_LABEL = {
+  novo: '✨ Novo',
+  contatado: '📞 Contatado',
+  convertido: '✅ Convertido',
+  descartado: '🗑 Descartado',
+};
+
+const LEAD_FINALIDADE_LABEL = {
+  locacao: '🏠 Alugar',
+  venda: '💼 Vender',
+  ambos: '🏘 Tanto faz',
+};
+
+function setFiltroLeadStatus(st) {
+  _filtroLeadStatus = st || 'todos';
+  document.querySelectorAll('#leads-filtros .papel-filtro-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.st === _filtroLeadStatus);
+  });
+  renderLeadsTable();
+}
+
+function renderLeadsTable() {
+  const tbody = $('tbody-leads');
+  if (!tbody) return;
+
+  let lista = _leadsCarregados;
+  if (_filtroLeadStatus !== 'todos') {
+    lista = lista.filter(l => (l.status || 'novo') === _filtroLeadStatus);
+  }
+
+  // Stats no banner amarelo (sempre conta total e novos)
+  const totalGeral = _leadsCarregados.length;
+  const novos = _leadsCarregados.filter(l => (l.status || 'novo') === 'novo').length;
+  const convertidos = _leadsCarregados.filter(l => l.status === 'convertido').length;
+  const statsEl = $('leads-stats');
+  if (statsEl) {
+    if (totalGeral > 0) {
+      statsEl.style.display = 'block';
+      statsEl.innerHTML = `📊 <strong>${totalGeral}</strong> lead(s) capturado(s) — <strong style="color:#92400e;">${novos}</strong> novos aguardando contato · <strong style="color:#166534;">${convertidos}</strong> convertidos em cliente`;
+    } else {
+      statsEl.style.display = 'none';
+    }
+  }
+
+  if (lista.length === 0) {
+    const msg = totalGeral === 0
+      ? `Nenhum lead capturado ainda. Quando alguém clicar em "📤 Anuncie seu imóvel" na sua <a onclick="openVitrinePublica()" style="cursor:pointer; color:var(--primary); text-decoration:underline;">vitrine pública</a>, aparece aqui.`
+      : 'Nenhum lead corresponde ao filtro selecionado.';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">${msg}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = lista.map(l => {
+    const status = l.status || 'novo';
+    const finalidade = l.finalidade || 'ambos';
+    const data = l.criadoEm?.toDate ? l.criadoEm.toDate() : null;
+    const dataTxt = data ? data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const diasAtras = data ? Math.floor((Date.now() - data.getTime()) / 86400000) : null;
+    const diasBadge = diasAtras !== null
+      ? (diasAtras === 0 ? ' <span class="papel-chip" style="background:#DCFCE7; color:#166534;">hoje</span>'
+        : diasAtras === 1 ? ' <span class="papel-chip" style="background:#FEF3C7; color:#92400E;">ontem</span>'
+        : diasAtras < 7 ? ` <span class="papel-chip" style="background:#FEF3C7; color:#92400E;">há ${diasAtras}d</span>`
+        : ` <span class="papel-chip" style="background:#FEE2E2; color:#991B1B;">há ${diasAtras}d ⚠️</span>`)
+      : '';
+
+    const telLink = l.telefone
+      ? `<a href="https://wa.me/55${l.telefone.replace(/\D/g, '')}?text=Olá ${encodeURIComponent(l.nome || '')}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel..." target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>`
+      : '—';
+    const emailLink = l.email ? `<br><a href="mailto:${l.email}" style="color:var(--primary); font-size:11px;">${escapeHtml(l.email)}</a>` : '';
+
+    const tipoImovel = l.tipo ? (l.tipo.charAt(0).toUpperCase() + l.tipo.slice(1)) : '—';
+    const localizacao = l.cidadeBairro || '';
+    const imovelDesc = `${tipoImovel}${localizacao ? ` · ${escapeHtml(localizacao)}` : ''}`;
+    const descTooltip = l.descricao ? `title="${escapeHtml(l.descricao).replace(/"/g, '&quot;')}"` : '';
+
+    const statusBadgeCor = {
+      novo: 'background:#DBEAFE; color:#1E40AF;',
+      contatado: 'background:#FEF3C7; color:#92400E;',
+      convertido: 'background:#DCFCE7; color:#166534;',
+      descartado: 'background:#E5E7EB; color:#374151;',
+    }[status] || '';
+
+    return `
+      <tr ${status === 'descartado' ? 'style="opacity:0.55;"' : ''}>
+        <td style="font-size:12px;"><strong>${dataTxt}</strong>${diasBadge}</td>
+        <td><strong>${escapeHtml(l.nome || '—')}</strong><br>${telLink}${emailLink}</td>
+        <td><span class="papel-chip" style="background:#F1F5F9;">${LEAD_FINALIDADE_LABEL[finalidade] || finalidade}</span></td>
+        <td ${descTooltip}>${imovelDesc}${l.descricao ? ' <span style="color:var(--text-muted); font-size:11px;">💬</span>' : ''}</td>
+        <td><span class="papel-chip" style="${statusBadgeCor}">${LEAD_STATUS_LABEL[status] || status}</span></td>
+        <td>
+          <div class="action-btns" style="flex-wrap:wrap; gap:4px;">
+            ${status === 'novo' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'contatado')" title="Marcar como contatado" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Contatei</button>` : ''}
+            ${status !== 'convertido' && status !== 'descartado' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'convertido')" title="Virou cliente" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;">✅ Converti</button>` : ''}
+            ${status !== 'descartado' ? `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'descartado')" title="Descartar">🗑 Descartar</button>` : `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'novo')" title="Reabrir">↻ Reabrir</button>`}
+            <button class="btn btn-sm" onclick="deleteLead('${l._id}', '${escapeHtml((l.nome || '').replace(/'/g, '&#39;'))}')" title="Excluir permanentemente" style="background:transparent; border-color:#FCA5A5; color:#B91C1C;">×</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadLeads() {
+  const tbody = $('tbody-leads');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+  try {
+    const snap = await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get();
+    _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    renderLeadsTable();
+  } catch (err) {
+    console.error('Erro ao carregar leads:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+async function updateLeadStatus(leadId, novoStatus) {
+  try {
+    await tenantPath().collection('leadsImoveis').doc(leadId).update({
+      status: novoStatus,
+      statusAtualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      statusAtualizadoPor: State.user?.uid || null,
+    });
+    // Atualiza local
+    const idx = _leadsCarregados.findIndex(l => l._id === leadId);
+    if (idx !== -1) _leadsCarregados[idx].status = novoStatus;
+    renderLeadsTable();
+  } catch (err) {
+    console.error('Erro ao atualizar status do lead:', err);
+    await confirmar({ titulo: 'Erro', mensagem: `Não foi possível atualizar: ${escapeHtml(err.message)}`, confirmar: 'OK' });
+  }
+}
+
+async function deleteLead(leadId, nome) {
+  const ok = await confirmar({
+    titulo: 'Excluir lead?',
+    mensagem: `Apagar permanentemente o lead de <strong>${escapeHtml(nome || 'sem nome')}</strong>.`,
+    detalhe: 'Esta ação é IRREVERSÍVEL. Se quiser só ocultar, use "🗑 Descartar" — mantém o histórico.',
+    confirmar: '🗑 Excluir',
+    perigo: true,
+  });
+  if (!ok) return;
+  try {
+    await tenantPath().collection('leadsImoveis').doc(leadId).delete();
+    _leadsCarregados = _leadsCarregados.filter(l => l._id !== leadId);
+    renderLeadsTable();
+  } catch (err) {
+    console.error('Erro ao deletar lead:', err);
+    await confirmar({ titulo: 'Erro', mensagem: `Não foi possível excluir: ${escapeHtml(err.message)}`, confirmar: 'OK' });
+  }
+}
+
+window.setFiltroLeadStatus = setFiltroLeadStatus;
+window.updateLeadStatus = updateLeadStatus;
+window.deleteLead = deleteLead;
 
 async function loadNegociacoes() {
   const tbody = $('tbody-negociacoes');
@@ -12294,7 +12569,14 @@ async function carregarPasskeysList() {
 }
 
 async function passkeyRemover(credId) {
-  if (!confirm('Remover esta passkey? Você não poderá mais logar com biometria deste dispositivo.')) return;
+  const ok = await confirmar({
+    titulo: 'Remover passkey?',
+    mensagem: 'Você não poderá mais logar com biometria deste dispositivo.',
+    detalhe: 'Você ainda poderá entrar com e-mail e senha normalmente. Pra recadastrar a passkey, basta clicar em "🔐 Cadastrar biometria" depois.',
+    confirmar: '🗑 Remover',
+    perigo: true,
+  });
+  if (!ok) return;
   const url = getPasskeyWorkerUrl();
   const SID = 'passkey-status';
   showInlineStatus(SID, '🔄 Removendo…', 'loading');

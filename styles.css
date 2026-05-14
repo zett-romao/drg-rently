@@ -920,6 +920,93 @@ label.required::after {
 }
 
 /* =========================================================
+   MODAL DE CONFIRMAÇÃO (substitui confirm() nativo)
+   ========================================================= */
+.modal-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+  padding: 20px;
+  animation: fade-in 0.15s ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal-confirm-card {
+  background: white;
+  border-radius: 14px;
+  max-width: 440px;
+  width: 100%;
+  padding: 28px 26px 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  animation: slide-up 0.2s ease-out;
+}
+@keyframes slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.modal-confirm-icone {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+.modal-confirm-card h3 {
+  font-size: 18px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.modal-confirm-card p {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+.modal-confirm-extra {
+  background: #F1F5F9;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: left;
+}
+.modal-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.modal-confirm-actions .btn {
+  flex: 1;
+  max-width: 180px;
+  padding: 11px 18px;
+}
+/* Variante "perigo" — pra ações destrutivas */
+.modal-confirm-card.is-danger .modal-confirm-icone { color: var(--danger); }
+.modal-confirm-card.is-danger #btn-modal-confirm-ok {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.modal-confirm-card.is-danger #btn-modal-confirm-ok:hover {
+  background: #B91C1C;
+  border-color: #B91C1C;
+}
+.modal-confirm-card.is-warning #btn-modal-confirm-ok {
+  background: #F59E0B;
+  border-color: #F59E0B;
+}
+.modal-confirm-card.is-warning #btn-modal-confirm-ok:hover {
+  background: #D97706;
+}
+
+/* =========================================================
    IMPORTAÇÃO CSV — passos guiados (4 etapas)
    ========================================================= */
 .import-passo {

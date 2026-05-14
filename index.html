@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514ag">
+  <link rel="stylesheet" href="styles.css?v=20260514ai">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -49,6 +49,22 @@
     <div class="pwa-banner-actions">
       <button class="btn btn-primary btn-sm" onclick="acionarInstalacaoPWA()">Instalar</button>
       <button class="btn btn-secondary btn-sm" onclick="fecharBannerInstalar()" title="Fechar">×</button>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- Modal genérico de confirmação (substitui confirm() nativo) -->
+  <!-- ============================================ -->
+  <div id="modal-confirmar" class="modal-confirm-overlay" style="display:none;">
+    <div class="modal-confirm-card" role="dialog" aria-modal="true" aria-labelledby="modal-confirm-titulo">
+      <div class="modal-confirm-icone" id="modal-confirm-icone">⚠️</div>
+      <h3 id="modal-confirm-titulo">Confirmar?</h3>
+      <p id="modal-confirm-mensagem">Tem certeza?</p>
+      <div class="modal-confirm-extra" id="modal-confirm-extra" style="display:none;"></div>
+      <div class="modal-confirm-actions">
+        <button type="button" class="btn btn-secondary" id="btn-modal-confirm-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-modal-confirm-ok">Confirmar</button>
+      </div>
     </div>
   </div>
 
@@ -233,6 +249,7 @@
           <a class="nav-link" data-section="elab-contrato"><span class="nav-ico">✍️</span><span>Elaborar contrato</span></a>
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
           <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
+          <a class="nav-link" data-section="leads"><span class="nav-ico">📥</span><span>Leads (anúncios)</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
           <a class="nav-link" onclick="openVitrinePublica()" title="Abrir a vitrine pública dos seus imóveis em nova aba"><span class="nav-ico">📣</span><span>Anúncios</span></a>
           <a class="nav-link" id="nav-portais" data-section="portais"><span class="nav-ico">📡</span><span>Portais</span></a>
@@ -738,6 +755,48 @@
                   </tr>
                 </thead>
                 <tbody id="tbody-negociacoes">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 📥 Leads (anúncios captados via vitrine pública) -->
+        <section class="section" id="section-leads" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📥 Leads — Anúncios captados</h3>
+                <p class="muted">Pessoas que clicaram em "📤 Anuncie seu imóvel" na sua vitrine pública e deixaram contato. Entre em contato em até 1 dia útil pra maior conversão.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadLeads()">↻ Recarregar</button>
+            </div>
+
+            <div class="papel-filtros" id="leads-filtros">
+              <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Status:</span>
+              <button type="button" class="papel-filtro-btn active" data-st="todos" onclick="setFiltroLeadStatus('todos')">Todos</button>
+              <button type="button" class="papel-filtro-btn" data-st="novo" onclick="setFiltroLeadStatus('novo')">✨ Novos</button>
+              <button type="button" class="papel-filtro-btn" data-st="contatado" onclick="setFiltroLeadStatus('contatado')">📞 Contatados</button>
+              <button type="button" class="papel-filtro-btn" data-st="convertido" onclick="setFiltroLeadStatus('convertido')">✅ Convertidos</button>
+              <button type="button" class="papel-filtro-btn" data-st="descartado" onclick="setFiltroLeadStatus('descartado')">🗑 Descartados</button>
+            </div>
+
+            <div id="leads-stats" style="display:none; margin-bottom:14px; padding:12px 16px; background:linear-gradient(135deg, #FEF3C7, #FDE68A); border-radius:8px; font-size:13px;"></div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Quando</th>
+                    <th>Nome / Contato</th>
+                    <th>Quer</th>
+                    <th>Imóvel</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-leads">
                   <tr><td colspan="6" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
@@ -4450,6 +4509,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514ag"></script>
+  <script src="app.js?v=20260514ai"></script>
 </body>
 </html>
