@@ -12728,8 +12728,8 @@ document.addEventListener('DOMContentLoaded', () => {
   atualizarStatusConexao();
 
   // Detecta arquivos compartilhados via share_target do PWA
-  const urlParams = new URLSearchParams(window.location.search);
-  const sharedCount = parseInt(urlParams.get('shared'), 10);
+  const shareParams = new URLSearchParams(window.location.search);
+  const sharedCount = parseInt(shareParams.get('shared'), 10);
   if (sharedCount > 0) {
     // Lê arquivos do cache temporário do SW
     setTimeout(async () => {
