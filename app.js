@@ -2166,6 +2166,137 @@ async function saveLocador() {
   }
 }
 
+// =============================================================
+// G3 — IA preenche cadastro automaticamente a partir de documento
+//      (RG, CNH, CPF, contrato social, cartão CNPJ, comprovante)
+// =============================================================
+
+// Mapeamento alvo → prefixo de campos no modal
+const PESSOA_PREFIX = {
+  locador: 'locador',
+  locatario: 'locatario',
+  comprador: 'comprador',
+};
+
+async function processarDocumentoPessoa(file, alvo) {
+  if (!file) return;
+  const prefix = PESSOA_PREFIX[alvo];
+  if (!prefix) return;
+  const statusEl = $(`${alvo}-ia-status`);
+  const inputEl = $(`${alvo}-ia-input`);
+
+  const setStatus = (msg, cls = '') => {
+    if (!statusEl) return;
+    statusEl.className = 'ia-dropzone-status ' + cls;
+    statusEl.textContent = msg;
+  };
+
+  // Validações
+  const maxBytes = 10 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    setStatus('❌ Arquivo excede 10 MB.', 'is-error');
+    return;
+  }
+
+  try {
+    setStatus('🤖 Lendo o documento…', 'is-loading');
+
+    const cfgSnap = await tenantPath().collection('config').doc('site').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    if (!cfg.workerGeminiUrl) {
+      setStatus('❌ Worker Gemini não configurado (Configurações).', 'is-error');
+      return;
+    }
+
+    const fileBase64 = await fileToBase64(file);
+    const mimeType = file.type || 'application/pdf';
+
+    const res = await fetch(cfg.workerGeminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileBase64, mimeType, modo: 'documento_pessoa' }),
+    });
+
+    if (!res.ok) {
+      let msg = `Erro ${res.status}`;
+      try { const j = await res.json(); if (j.error) msg = j.error; } catch (_) {}
+      throw new Error(msg);
+    }
+    const result = await res.json();
+    if (!result.success || !result.data) throw new Error('Resposta inválida do Worker.');
+
+    const dados = result.data;
+    const conf = dados.campos_confianca || {};
+
+    // Preenche os campos do modal
+    const preenchidos = [];
+    const setField = (suffix, valor, mascara) => {
+      if (valor === null || valor === undefined || valor === '') return;
+      const el = $(`${prefix}-${suffix}`);
+      if (!el) return;
+      el.value = mascara ? mascara(valor) : valor;
+      preenchidos.push(suffix);
+    };
+
+    // Tipo de pessoa
+    if (dados.tipo_pessoa === 'PJ' || dados.tipo_pessoa === 'PF') {
+      const tipoEl = $(`${prefix}-tipo`);
+      if (tipoEl) {
+        tipoEl.value = dados.tipo_pessoa;
+        // Dispara o onChange do tipo (PJ esconde campos PF e vice-versa)
+        if (alvo === 'locador' && typeof onLocadorTipoChange === 'function') onLocadorTipoChange();
+        else if (alvo === 'locatario' && typeof onLocatarioTipoChange === 'function') onLocatarioTipoChange();
+        else if (alvo === 'comprador' && typeof onCompradorTipoChange === 'function') onCompradorTipoChange();
+        preenchidos.push('tipo');
+      }
+    }
+
+    setField('nome', dados.nome);
+    if (dados.documento) {
+      const docFmt = dados.tipo_pessoa === 'PJ' ? maskCNPJ(dados.documento) : maskCPF(dados.documento);
+      setField('documento', docFmt);
+    }
+    setField('rg', dados.rg);
+    setField('nascimento', dados.nascimento);
+    setField('estado-civil', dados.estado_civil);
+    setField('profissao', dados.profissao);
+    setField('nacionalidade', dados.nacionalidade);
+    setField('email', dados.email);
+    if (dados.telefone) setField('telefone', maskTelefone(dados.telefone));
+
+    const end = dados.endereco || {};
+    if (end.cep) setField('cep', maskCEP(end.cep));
+    setField('logradouro', end.logradouro);
+    setField('numero', end.numero);
+    setField('complemento', end.complemento);
+    setField('bairro', end.bairro);
+    setField('cidade', end.cidade);
+    setField('uf', end.uf);
+
+    // Mensagem de sucesso com resumo
+    const tipoDoc = dados.tipo_documento_detectado || 'documento';
+    const confResumo = [
+      conf.nome && `nome: ${conf.nome}`,
+      conf.documento && `doc: ${conf.documento}`,
+      conf.endereco && `endereço: ${conf.endereco}`,
+    ].filter(Boolean).join(' · ');
+
+    let msgFinal = `✅ ${tipoDoc} lido. ${preenchidos.length} campo(s) preenchido(s).`;
+    if (confResumo) msgFinal += ` (Confiança: ${confResumo})`;
+    if (dados.observacoes) msgFinal += ` ⚠️ ${dados.observacoes}`;
+    setStatus(msgFinal, 'is-success');
+
+    // Limpa o input pra permitir re-upload do mesmo arquivo
+    if (inputEl) inputEl.value = '';
+  } catch (err) {
+    console.error('Erro ao processar documento:', err);
+    setStatus(`❌ Erro: ${err.message}`, 'is-error');
+    if (inputEl) inputEl.value = '';
+  }
+}
+
+window.processarDocumentoPessoa = processarDocumentoPessoa;
+
 async function deleteLocador() {
   const id = $('locador-id').value;
   if (!id) return;

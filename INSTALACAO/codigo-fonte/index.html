@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514p">
+  <link rel="stylesheet" href="styles.css?v=20260514q">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1626,6 +1626,19 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <!-- IA: upload de documento pessoal pra preencher cadastro automaticamente -->
+        <div class="ia-dropzone-card">
+          <div class="ia-dropzone-header">
+            <strong>🤖 Preencher automaticamente com IA</strong>
+            <small>Envie RG, CNH, CPF, contrato social, cartão CNPJ ou comprovante de residência (PDF / JPG / PNG). A IA lê e preenche os campos abaixo.</small>
+          </div>
+          <input type="file" id="locador-ia-input" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" onchange="processarDocumentoPessoa(this.files[0], 'locador')">
+          <div class="ia-dropzone-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('locador-ia-input').click()">📎 Anexar documento</button>
+            <span class="ia-dropzone-status" id="locador-ia-status"></span>
+          </div>
+        </div>
+
         <h4 class="form-section-title">Dados pessoais</h4>
 
         <div class="form-row">
@@ -1791,6 +1804,19 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="locatario-alert" class="alert alert-error" style="display:none;"></div>
 
         <input type="hidden" id="locatario-id">
+
+        <!-- IA: upload de documento pessoal pra preencher cadastro automaticamente -->
+        <div class="ia-dropzone-card">
+          <div class="ia-dropzone-header">
+            <strong>🤖 Preencher automaticamente com IA</strong>
+            <small>Envie RG, CNH, CPF, contrato social, cartão CNPJ ou comprovante de residência (PDF / JPG / PNG). A IA lê e preenche os campos abaixo.</small>
+          </div>
+          <input type="file" id="locatario-ia-input" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" onchange="processarDocumentoPessoa(this.files[0], 'locatario')">
+          <div class="ia-dropzone-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('locatario-ia-input').click()">📎 Anexar documento</button>
+            <span class="ia-dropzone-status" id="locatario-ia-status"></span>
+          </div>
+        </div>
 
         <div class="form-row">
           <div class="form-group">
@@ -2728,6 +2754,19 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="comprador-alert" class="alert alert-error" style="display:none;"></div>
 
         <input type="hidden" id="comprador-id">
+
+        <!-- IA: upload de documento pessoal pra preencher cadastro automaticamente -->
+        <div class="ia-dropzone-card">
+          <div class="ia-dropzone-header">
+            <strong>🤖 Preencher automaticamente com IA</strong>
+            <small>Envie RG, CNH, CPF, contrato social, cartão CNPJ ou comprovante de residência (PDF / JPG / PNG). A IA lê e preenche os campos abaixo.</small>
+          </div>
+          <input type="file" id="comprador-ia-input" accept=".pdf,.jpg,.jpeg,.png,.webp" style="display:none;" onchange="processarDocumentoPessoa(this.files[0], 'comprador')">
+          <div class="ia-dropzone-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('comprador-ia-input').click()">📎 Anexar documento</button>
+            <span class="ia-dropzone-status" id="comprador-ia-status"></span>
+          </div>
+        </div>
 
         <div class="form-row">
           <div class="form-group">
@@ -4260,6 +4299,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514p"></script>
+  <script src="app.js?v=20260514q"></script>
 </body>
 </html>

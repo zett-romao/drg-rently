@@ -113,6 +113,64 @@ Se NENHUM documento financeiro for identificado, retorne {"comprovantes": [], "o
 
 NÃO inclua explicações fora do JSON.`;
 
+// Prompt DOCUMENTO_PESSOA (v1 — usado quando body.modo === 'documento_pessoa'):
+// Extrai dados pessoais de RG, CPF, CNH, Carteira de Trabalho ou comprovante
+// de residência para preencher um cadastro de pessoa (Locador, Locatário,
+// Comprador). Pode ser PF ou PJ (CNPJ, Contrato Social, Cartão CNPJ).
+const PROMPT_DOCUMENTO_PESSOA = `Você é um assistente especialista em extrair dados de documentos pessoais brasileiros para preencher cadastros.
+
+Analise a imagem/PDF enviado. Pode ser um destes tipos:
+- RG (Registro Geral) frente e/ou verso
+- CNH (Carteira Nacional de Habilitação)
+- CPF (cartão do CPF ou comprovante)
+- Carteira de Trabalho (CTPS)
+- Comprovante de residência (conta de luz, água, telefone, contrato)
+- Cartão CNPJ ou Contrato Social (pra Pessoa Jurídica)
+- Selfie com documento (foto da pessoa segurando o RG/CNH)
+
+Extraia o MÁXIMO de dados possível e devolva APENAS um JSON puro (sem markdown, sem texto extra) neste formato:
+
+{
+  "tipo_pessoa": "PF" ou "PJ" ou null,
+  "tipo_documento_detectado": "RG" | "CNH" | "CPF" | "CTPS" | "comprovante_residencia" | "cartao_cnpj" | "contrato_social" | "outro" ou null,
+  "nome": <nome completo da pessoa (PF) ou razão social (PJ) ou null>,
+  "documento": <CPF apenas dígitos (PF) ou CNPJ apenas dígitos (PJ) ou null>,
+  "rg": <número do RG com órgão expedidor se houver, ex: "12.345.678-9 SSP/SP" ou null>,
+  "nascimento": <data no formato "YYYY-MM-DD" ou null>,
+  "estado_civil": <"solteiro" | "casado" | "divorciado" | "viuvo" | "uniao_estavel" ou null>,
+  "profissao": <profissão / ocupação se mencionada ou null>,
+  "nacionalidade": <ex: "Brasileira" ou null>,
+  "email": <e-mail ou null>,
+  "telefone": <telefone apenas dígitos com DDD ou null>,
+  "endereco": {
+    "cep": <CEP apenas dígitos ou null>,
+    "logradouro": <rua/avenida/travessa + nome completo ou null>,
+    "numero": <número ou null>,
+    "complemento": <apto, bloco, etc. ou null>,
+    "bairro": <bairro ou null>,
+    "cidade": <cidade ou null>,
+    "uf": <sigla estado em maiúsculas, ex: "SP" ou null>
+  },
+  "campos_confianca": {
+    "nome": <"alta" | "media" | "baixa">,
+    "documento": <"alta" | "media" | "baixa">,
+    "rg": <"alta" | "media" | "baixa">,
+    "endereco": <"alta" | "media" | "baixa">
+  },
+  "observacoes": <string com avisos importantes pro operador, ou null. Ex: "RG ilegível, confirme manualmente" ou "Foto de tela, qualidade baixa">
+}
+
+REGRAS CRÍTICAS:
+- NUNCA invente dados. Se não conseguir ler claramente, retorne null pro campo.
+- CPF e CNPJ: retornar APENAS os dígitos (sem pontos, traços ou barras).
+- Telefone: apenas dígitos com DDD (ex: "11987654321").
+- Nascimento: SEMPRE no formato "YYYY-MM-DD" (ex: "1985-03-14").
+- Se o documento for um comprovante de residência, foque em extrair o ENDEREÇO e o NOME do titular.
+- Se for cartão CNPJ ou contrato social, tipo_pessoa = "PJ" e nome = razão social.
+- Confidence "alta" = li claramente, "media" = li mas com dúvida, "baixa" = chutei pelo contexto.
+
+NÃO inclua nenhuma explicação fora do JSON. Apenas o objeto JSON.`;
+
 // Prompt CONTRATO (v1 — usado quando body.modo === 'contrato'):
 // Extrai dados de contratos imobiliários (locação ou venda) para preencher o app.
 // Detecta múltiplos locadores/locatários/fiadores (coautoria).
@@ -358,6 +416,8 @@ export default {
       }
     } else if (modo === 'multi') {
       promptFinal = PROMPT_MULTI;
+    } else if (modo === 'documento_pessoa') {
+      promptFinal = PROMPT_DOCUMENTO_PESSOA;
     } else {
       promptFinal = PROMPT_BOLETO;
     }
