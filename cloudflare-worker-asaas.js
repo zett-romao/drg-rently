@@ -74,7 +74,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-DRG-Admin-Token, asaas-access-token',
+    'Access-Control-Allow-Headers': 'Content-Type, X-DRG-Admin-Token, X-Tenant-Asaas-Token, asaas-access-token',
     'Access-Control-Max-Age': '86400',
   };
 }
