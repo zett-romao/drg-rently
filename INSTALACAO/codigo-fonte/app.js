@@ -11928,7 +11928,7 @@ const ELAB_TEMPLATES = {
 
 let _elabContrato = null;
 
-function elabIniciar(modalidade) {
+async function elabIniciar(modalidade) {
   if (!State.tenant) {
     showAlert('elab-alert', 'Selecione um tenant antes de elaborar contratos.');
     return;
