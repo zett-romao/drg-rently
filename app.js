@@ -999,12 +999,14 @@ async function loadTenantsTable() {
 function renderSuperAdminKpis(tenants) {
   const kpis = $('superadmin-kpis');
   if (!kpis) return;
-  const total = tenants.length;
-  const ativos = tenants.filter(t => tenantSituacao(t) === 'ativo' || tenantSituacao(t) === 'trial' || tenantSituacao(t) === 'vencendo').length;
-  const trials = tenants.filter(t => t.plano === 'trial' && t.ativo !== false).length;
-  const inadimplentes = tenants.filter(t => tenantSituacao(t) === 'inadimplente').length;
-  const suspensos = tenants.filter(t => t.ativo === false).length;
-  const mrr = tenants
+  // KPIs ignoram tenants arquivados — eles estão fora da operação
+  const ativosLista = tenants.filter(t => !t.arquivado);
+  const total = ativosLista.length;
+  const ativos = ativosLista.filter(t => tenantSituacao(t) === 'ativo' || tenantSituacao(t) === 'trial' || tenantSituacao(t) === 'vencendo').length;
+  const trials = ativosLista.filter(t => t.plano === 'trial' && t.ativo !== false).length;
+  const inadimplentes = ativosLista.filter(t => tenantSituacao(t) === 'inadimplente').length;
+  const suspensos = ativosLista.filter(t => t.ativo === false).length;
+  const mrr = ativosLista
     .filter(t => t.ativo !== false && t.plano !== 'trial')
     .reduce((acc, t) => acc + (t.valorMensalidade || 0), 0);
 
@@ -1085,8 +1087,17 @@ function renderTenantsTable() {
   const filtroPlano = $('filtro-tenant-plano').value;
   const filtroTipo = $('filtro-tenant-tipo')?.value || '';
   const filtroBusca = $('filtro-tenant-busca').value.trim().toLowerCase();
+  const filtroArq = $('filtro-tenant-arquivado')?.value || 'ativos';
 
   let lista = _tenantsCarregados;
+
+  // Arquivados: por padrão oculta. "todos" mostra ambos. "so_arquivados" filtra
+  if (filtroArq === 'ativos') {
+    lista = lista.filter(t => !t.arquivado);
+  } else if (filtroArq === 'so_arquivados') {
+    lista = lista.filter(t => !!t.arquivado);
+  }
+
   if (filtroPlano) lista = lista.filter(t => t.plano === filtroPlano);
   if (filtroStatus) lista = lista.filter(t => tenantSituacao(t) === filtroStatus);
   if (filtroTipo) {
@@ -1107,13 +1118,15 @@ function renderTenantsTable() {
 
   tbody.innerHTML = lista.map(t => {
     const sit = tenantSituacao(t);
-    const sitBadge = {
-      ativo: '<span class="badge-status ativo">Ativo</span>',
-      suspenso: '<span class="badge-status suspenso">Suspenso</span>',
-      trial: '<span class="badge-status pendente_analise">Trial</span>',
-      vencendo: '<span class="badge-status em_reforma">Trial vencendo</span>',
-      inadimplente: '<span class="badge-status reprovado">Inadimplente</span>',
-    }[sit] || sit;
+    const sitBadge = t.arquivado
+      ? '<span class="badge-status" style="background:#E5E7EB;color:#374151;">🗄 Arquivado</span>'
+      : ({
+        ativo: '<span class="badge-status ativo">Ativo</span>',
+        suspenso: '<span class="badge-status suspenso">Suspenso</span>',
+        trial: '<span class="badge-status pendente_analise">Trial</span>',
+        vencendo: '<span class="badge-status em_reforma">Trial vencendo</span>',
+        inadimplente: '<span class="badge-status reprovado">Inadimplente</span>',
+      }[sit] || sit);
     const vencDias = diasAteData(t.proximoVencimento);
     const vencTxt = t.proximoVencimento
       ? `${fmtDataBR(t.proximoVencimento)}${vencDias < 0 ? ` <span style="color:var(--danger);font-size:11px;">(${Math.abs(vencDias)}d atraso)</span>` : (vencDias <= 7 && vencDias >= 0 ? ` <span style="color:var(--warning);font-size:11px;">(em ${vencDias}d)</span>` : '')}`
@@ -1123,23 +1136,121 @@ function renderTenantsTable() {
       ? '<span class="badge-status" style="background:#dbeafe;color:#1e40af;">👤 Corretor</span>'
       : '<span class="badge-status" style="background:#fef3c7;color:#92400e;">🏢 Imobiliária</span>';
     const documento = tipoPessoa === 'PF' ? (t.cpf || '—') : (t.cnpj || '—');
+
+    // Botões de ação: Gerenciar + Arquivar/Restaurar + Excluir
+    const acoes = t.arquivado
+      ? `
+        <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')" title="Ver detalhes (somente leitura)">⚙ Ver</button>
+        <button class="btn btn-sm btn-secondary" onclick="restaurarTenant('${t.id}')" title="Reativar este tenant">↻ Restaurar</button>
+        <button class="btn btn-sm" onclick="excluirTenantDefinitivo('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Excluir definitivamente" style="background:var(--danger); color:white; border-color:var(--danger);">🗑 Excluir</button>
+      `
+      : `
+        <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
+        <button class="btn btn-sm btn-secondary" onclick="arquivarTenant('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Mover pra arquivo (pode restaurar depois)">🗄 Arquivar</button>
+      `;
+
     return `
-      <tr>
-        <td><strong>${t.nome || '—'}</strong><br><span class="muted" style="font-size:11px;">${documento}</span></td>
+      <tr ${t.arquivado ? 'style="opacity:0.6;"' : ''}>
+        <td><strong>${escapeHtml(t.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${documento}</span></td>
         <td>${tipoBadge}</td>
         <td>${PLANO_LABEL[t.plano] || t.plano || '—'}</td>
         <td>${fmtBRL(t.valorMensalidade)}</td>
         <td>${vencTxt}</td>
         <td>${sitBadge}</td>
         <td>
-          <div class="action-btns">
-            <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
-          </div>
+          <div class="action-btns" style="flex-wrap:wrap; gap:4px;">${acoes}</div>
         </td>
       </tr>
     `;
   }).join('');
 }
+
+// =============================================================
+// Arquivar / Restaurar / Excluir tenants (Super Admin)
+// =============================================================
+async function arquivarTenant(tenantId, nome) {
+  if (!confirm(`Arquivar o cliente "${nome}"?\n\n✅ Os dados ficam preservados.\n✅ Você pode RESTAURAR depois.\n⚠️ O tenant some das listagens padrão (mostre o filtro "Mostrar arquivados" pra ver).\n\nConfirmar?`)) return;
+  try {
+    await db.collection('tenants').doc(tenantId).update({
+      arquivado: true,
+      arquivadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      arquivadoPor: State.user?.uid || null,
+    });
+    if (typeof logAuditoria === 'function') {
+      logAuditoria('arquivar', 'tenant', tenantId, { nome });
+    }
+    await loadTenantsTable();
+  } catch (err) {
+    console.error('Erro ao arquivar tenant:', err);
+    alert('Erro ao arquivar: ' + err.message);
+  }
+}
+
+async function restaurarTenant(tenantId) {
+  try {
+    await db.collection('tenants').doc(tenantId).update({
+      arquivado: false,
+      arquivadoEm: null,
+      restauradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      restauradoPor: State.user?.uid || null,
+    });
+    if (typeof logAuditoria === 'function') {
+      logAuditoria('restaurar', 'tenant', tenantId, {});
+    }
+    await loadTenantsTable();
+  } catch (err) {
+    console.error('Erro ao restaurar tenant:', err);
+    alert('Erro ao restaurar: ' + err.message);
+  }
+}
+
+async function excluirTenantDefinitivo(tenantId, nome) {
+  // Confirmação dupla — operação irreversível
+  const confirma1 = confirm(
+    `⚠️ EXCLUSÃO DEFINITIVA\n\n` +
+    `Cliente: ${nome}\n\n` +
+    `Esta ação:\n` +
+    `• Marca o tenant como EXCLUÍDO (não aparece em lugar nenhum)\n` +
+    `• Apaga o documento principal do Firestore\n` +
+    `• Os dados das SUBCOLEÇÕES (locadores, contratos, imóveis, fotos, etc) ficam\n` +
+    `  órfãos no Firestore. Pra remoção total (compliance LGPD pesado), use o\n` +
+    `  script de limpeza recursiva no painel administrativo do Firebase.\n\n` +
+    `Esta operação é IRREVERSÍVEL. Continuar?`
+  );
+  if (!confirma1) return;
+
+  // Pede confirmação digitando o nome
+  const digite = prompt(`Pra confirmar a EXCLUSÃO, digite EXATAMENTE o nome do cliente abaixo:\n\n"${nome}"`);
+  if (!digite || digite.trim() !== nome.trim()) {
+    alert('Nome digitado não confere. Operação CANCELADA.');
+    return;
+  }
+
+  try {
+    // Log antes de deletar
+    if (typeof logAuditoria === 'function') {
+      logAuditoria('excluir_definitivo', 'tenant', tenantId, { nome });
+    }
+    // Marca como excluído ANTES de deletar (audit trail)
+    await db.collection('tenants').doc(tenantId).update({
+      excluido: true,
+      excluidoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      excluidoPor: State.user?.uid || null,
+      nome: `[EXCLUÍDO ${new Date().toISOString().slice(0, 10)}] ${nome}`,
+    }).catch(() => {});
+    // Deleta o doc principal
+    await db.collection('tenants').doc(tenantId).delete();
+    alert(`✅ Tenant "${nome}" excluído.\n\nObservação: subcoleções (imóveis, contratos, etc) podem ter ficado órfãs. Use o painel do Firebase pra limpeza profunda se necessário.`);
+    await loadTenantsTable();
+  } catch (err) {
+    console.error('Erro ao excluir tenant:', err);
+    alert('Erro ao excluir: ' + err.message);
+  }
+}
+
+window.arquivarTenant = arquivarTenant;
+window.restaurarTenant = restaurarTenant;
+window.excluirTenantDefinitivo = excluirTenantDefinitivo;
 
 async function openTenantModal(tenantId) {
   clearAlert('tenant-alert');
