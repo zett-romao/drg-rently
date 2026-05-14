@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📘 Manual DRG-Rently — para Impressão / PDF</title>
+  <meta name="description" content="Manual completo do DRG-Rently — versão imprimível e exportável em PDF">
+
+  <link rel="icon" type="image/png" href="logo.png?v=20260514al">
+
+  <!-- marked.js — converter markdown → html (lib leve, CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@13/marked.min.js"></script>
+
+  <style>
+    /* =========================================================
+       MANUAL — PRINT-FRIENDLY (otimizado pra "Salvar como PDF")
+       ========================================================= */
+    :root {
+      --primary: #475569;
+      --primary-dark: #334155;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --bg-soft: #f8fafc;
+      --accent-blue: #1e40af;
+      --accent-green: #166534;
+      --accent-amber: #92400e;
+      --accent-red: #991b1b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      font-size: 12pt;
+      line-height: 1.6;
+      color: var(--text);
+      background: #fff;
+      max-width: 210mm;  /* A4 width */
+      margin: 0 auto;
+      padding: 20mm 20mm 25mm;
+    }
+
+    /* Header com logo */
+    .manual-header {
+      text-align: center;
+      padding-bottom: 20px;
+      margin-bottom: 30px;
+      border-bottom: 3px solid var(--primary);
+      page-break-after: avoid;
+    }
+    .manual-header img {
+      max-width: 120px;
+      margin-bottom: 12px;
+    }
+    .manual-header h1 {
+      font-size: 24pt;
+      font-weight: 700;
+      color: var(--primary-dark);
+      margin-bottom: 4px;
+    }
+    .manual-header .subtitulo {
+      font-size: 11pt;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Markdown content */
+    .manual-content h1 {
+      font-size: 22pt;
+      color: var(--primary-dark);
+      margin-top: 40px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--primary);
+      page-break-before: auto;
+      page-break-after: avoid;
+    }
+    .manual-content h1:first-child {
+      margin-top: 0;
+      page-break-before: avoid;
+    }
+    .manual-content h2 {
+      font-size: 18pt;
+      color: var(--primary-dark);
+      margin-top: 32px;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      page-break-after: avoid;
+    }
+    .manual-content h3 {
+      font-size: 14pt;
+      color: var(--primary);
+      margin-top: 24px;
+      margin-bottom: 10px;
+      page-break-after: avoid;
+    }
+    .manual-content h4 {
+      font-size: 12pt;
+      color: var(--primary);
+      margin-top: 18px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+    }
+    .manual-content p {
+      margin-bottom: 10px;
+      text-align: justify;
+    }
+    .manual-content ul,
+    .manual-content ol {
+      margin-left: 20px;
+      margin-bottom: 12px;
+    }
+    .manual-content li {
+      margin-bottom: 4px;
+      page-break-inside: avoid;
+    }
+    .manual-content strong {
+      color: var(--primary-dark);
+      font-weight: 700;
+    }
+    .manual-content code {
+      background: var(--bg-soft);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 10pt;
+      color: #be185d;
+    }
+    .manual-content pre {
+      background: var(--bg-soft);
+      padding: 12px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 9.5pt;
+      overflow-x: auto;
+      margin-bottom: 14px;
+      page-break-inside: avoid;
+    }
+    .manual-content pre code {
+      background: transparent;
+      padding: 0;
+      color: var(--text);
+    }
+    .manual-content blockquote {
+      background: var(--bg-soft);
+      border-left: 4px solid var(--primary);
+      padding: 10px 16px;
+      margin: 10px 0;
+      font-style: italic;
+      color: var(--text-muted);
+      page-break-inside: avoid;
+    }
+    .manual-content blockquote p:last-child { margin-bottom: 0; }
+    .manual-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 10.5pt;
+      page-break-inside: avoid;
+    }
+    .manual-content th,
+    .manual-content td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .manual-content th {
+      background: var(--primary);
+      color: white;
+      font-weight: 600;
+    }
+    .manual-content tr:nth-child(even) td {
+      background: var(--bg-soft);
+    }
+    .manual-content hr {
+      border: none;
+      border-top: 2px solid var(--border);
+      margin: 24px 0;
+      page-break-after: avoid;
+    }
+    .manual-content a {
+      color: var(--accent-blue);
+      text-decoration: underline;
+    }
+    .manual-content img {
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Sumário (TOC) — espera class="sumario-box" se quiser destacar */
+    .manual-content h2:contains("Sumário") + ol,
+    .manual-content h2:contains("Sumário") + ul {
+      background: var(--bg-soft);
+      padding: 16px 22px 16px 40px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    /* Botões de ação (não aparecem na impressão) */
+    .action-bar {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      gap: 8px;
+      z-index: 1000;
+      flex-wrap: wrap;
+      max-width: 300px;
+      justify-content: flex-end;
+    }
+    .action-bar button {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      transition: all 0.15s;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .action-bar button:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .action-bar .btn-imprimir {
+      background: linear-gradient(135deg, #DC2626, #B91C1C);
+    }
+    .action-bar .btn-imprimir:hover {
+      background: linear-gradient(135deg, #B91C1C, #991B1B);
+    }
+
+    /* Loading state */
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 14pt;
+    }
+
+    /* Footer */
+    .manual-footer {
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 2px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 10pt;
+      font-style: italic;
+    }
+
+    /* ===== ESTILOS ESPECÍFICOS PARA IMPRESSÃO ===== */
+    @media print {
+      @page {
+        size: A4;
+        margin: 18mm 20mm 22mm;
+      }
+      body {
+        padding: 0;
+        max-width: 100%;
+        font-size: 11pt;
+      }
+      .action-bar {
+        display: none !important;  /* Esconde botões na impressão */
+      }
+      .manual-header {
+        page-break-after: avoid;
+      }
+      .manual-content h1 {
+        page-break-before: always;
+      }
+      .manual-content h1:first-child {
+        page-break-before: avoid;
+      }
+      .manual-content h2,
+      .manual-content h3,
+      .manual-content h4 {
+        page-break-after: avoid;
+        page-break-inside: avoid;
+      }
+      .manual-content table,
+      .manual-content pre,
+      .manual-content blockquote,
+      .manual-content ul,
+      .manual-content ol {
+        page-break-inside: avoid;
+      }
+      a {
+        color: var(--text) !important;
+        text-decoration: none !important;
+      }
+      a[href^="http"]:after {
+        content: " (" attr(href) ")";
+        font-size: 9pt;
+        color: var(--text-muted);
+      }
+      /* Numeração automática de página */
+      .pagina-numero::after {
+        content: counter(page);
+      }
+    }
+
+    /* Mobile (não imprime mas pode ler online) */
+    @media screen and (max-width: 768px) {
+      body {
+        padding: 16px;
+        font-size: 11pt;
+      }
+      .action-bar {
+        position: sticky;
+        top: 0;
+        right: 0;
+        background: white;
+        padding: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        margin: -16px -16px 16px;
+        max-width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Barra de ações flutuante (não aparece na impressão) -->
+  <div class="action-bar">
+    <button class="btn-imprimir" onclick="window.print()" title="Abre diálogo de impressão — escolha 'Salvar como PDF' como destino">
+      🖨 Imprimir / Salvar PDF
+    </button>
+    <button onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Voltar ao topo">
+      ⬆ Topo
+    </button>
+  </div>
+
+  <!-- Header -->
+  <div class="manual-header">
+    <img src="logo.png?v=20260514al" alt="D.R. Global" onerror="this.style.display='none'">
+    <h1>📘 Manual DRG-Rently</h1>
+    <div class="subtitulo">Versão imprimível — para uso operacional</div>
+  </div>
+
+  <!-- Conteúdo do manual (gerado via JS) -->
+  <div id="manual-content" class="manual-content">
+    <div class="loading">Carregando manual…</div>
+  </div>
+
+  <!-- Footer -->
+  <div class="manual-footer">
+    D.R. Global Multi Services · DRG-Rently<br>
+    Gerado em <span id="data-gerado"></span><br>
+    <strong>drglobal.com.br</strong>
+  </div>
+
+  <script>
+    // Data de geração
+    document.getElementById('data-gerado').textContent = new Date().toLocaleDateString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    // Carrega e renderiza o manual
+    (async function carregarManual() {
+      const container = document.getElementById('manual-content');
+      try {
+        // Detecta qual manual carregar via query param ?doc=...
+        const params = new URLSearchParams(window.location.search);
+        const docNome = params.get('doc') || 'MANUAL_IMOBILIARIA.md';
+
+        const resp = await fetch(docNome + '?t=' + Date.now());  // cache-buster
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const md = await resp.text();
+
+        // Configura marked
+        marked.setOptions({
+          gfm: true,
+          breaks: false,
+          headerIds: true,
+          mangle: false,
+        });
+
+        const html = marked.parse(md);
+        container.innerHTML = html;
+
+        // Atualiza title da aba com o título do manual
+        const h1 = container.querySelector('h1');
+        if (h1) {
+          document.title = h1.textContent + ' — DRG-Rently';
+        }
+
+        // Auto-scroll suave (não força nada)
+      } catch (err) {
+        console.error('Erro ao carregar manual:', err);
+        container.innerHTML = `
+          <div style="background:#fef2f2; border:1px solid #fca5a5; padding:20px; border-radius:8px; color:#991b1b;">
+            <h2 style="color:#991b1b; border:none; margin-top:0;">❌ Erro ao carregar manual</h2>
+            <p><strong>Mensagem:</strong> ${err.message}</p>
+            <p>Verifique se o arquivo <code>MANUAL_IMOBILIARIA.md</code> existe no mesmo diretório.</p>
+            <p>Tente acessar:</p>
+            <ul>
+              <li><a href="?doc=MANUAL_IMOBILIARIA.md">📘 Manual da Imobiliária</a></li>
+              <li><a href="?doc=MANUAL_DRG_SYSTEMS.md">📕 Manual DRG-Systems (interno)</a></li>
+              <li><a href="?doc=SETUP_PASSKEY.md">🔐 Setup Passkey</a></li>
+            </ul>
+          </div>
+        `;
+      }
+    })();
+
+    // Atalho Ctrl+P abre impressão direto
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        window.print();
+      }
+    });
+  </script>
+</body>
+</html>
