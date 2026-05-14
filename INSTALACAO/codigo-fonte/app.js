@@ -347,13 +347,47 @@ async function loadProfileAndShow(user) {
         } catch (_) {}
       }
     } else if (State.isSuperAdmin) {
-      // Super-admin sem tenantId atua no primeiro tenant ativo (fallback simples).
-      // TODO: adicionar seletor "Atuar como" no painel super-admin pra trocar.
-      // Sem orderBy pra evitar índice composto; com volume real, super-admin escolherá pelo painel.
-      const tenantsSnap = await db.collection('tenants').where('ativo', '==', true).limit(1).get();
-      if (!tenantsSnap.empty) {
-        const t = tenantsSnap.docs[0];
-        State.tenant = { id: t.id, ...t.data() };
+      // Super-admin sem tenantId: define qual tenant ele "opera". Prioridade:
+      //   1. localStorage: última escolha persistida (por uid)
+      //   2. Tenant marcado como donoSuperAdmin === true (tenant próprio da DRG Global)
+      //   3. Primeiro tenant ativo NÃO arquivado (fallback antigo)
+      let tenantEscolhido = null;
+      try {
+        const ultimoId = localStorage.getItem(`drg-tenant-ativo-${user.uid}`);
+        if (ultimoId) {
+          const snap = await db.collection('tenants').doc(ultimoId).get();
+          if (snap.exists && !snap.data().arquivado) {
+            tenantEscolhido = { id: snap.id, ...snap.data() };
+          } else {
+            // ID salvo não existe mais ou foi arquivado → limpa
+            localStorage.removeItem(`drg-tenant-ativo-${user.uid}`);
+          }
+        }
+      } catch (_) {}
+
+      // 2. Tenta o tenant marcado como dono (donoSuperAdmin: true)
+      if (!tenantEscolhido) {
+        try {
+          const donoSnap = await db.collection('tenants').where('donoSuperAdmin', '==', true).limit(1).get();
+          if (!donoSnap.empty) {
+            const t = donoSnap.docs[0];
+            tenantEscolhido = { id: t.id, ...t.data() };
+          }
+        } catch (_) {}
+      }
+
+      // 3. Fallback: primeiro tenant ativo NÃO arquivado
+      if (!tenantEscolhido) {
+        const tenantsSnap = await db.collection('tenants').where('ativo', '==', true).limit(10).get();
+        const candidatos = tenantsSnap.docs.filter(d => !d.data().arquivado);
+        if (candidatos.length > 0) {
+          const t = candidatos[0];
+          tenantEscolhido = { id: t.id, ...t.data() };
+        }
+      }
+
+      if (tenantEscolhido) {
+        State.tenant = tenantEscolhido;
       }
     }
 
@@ -1137,7 +1171,13 @@ function renderTenantsTable() {
       : '<span class="badge-status" style="background:#fef3c7;color:#92400e;">🏢 Imobiliária</span>';
     const documento = tipoPessoa === 'PF' ? (t.cpf || '—') : (t.cnpj || '—');
 
-    // Botões de ação: Gerenciar + Arquivar/Restaurar + Excluir
+    // Indicador se é o tenant ativo atual OU o tenant dono do Super Admin
+    const isAtivo = State.tenant?.id === t.id;
+    const isDono = !!t.donoSuperAdmin;
+    const indicadorDono = isDono ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;">🏠 meu tenant</span>' : '';
+    const indicadorAtivo = isAtivo ? ' <span class="papel-chip" style="background:#DCFCE7;color:#166534;">🎯 ativo agora</span>' : '';
+
+    // Botões de ação: Gerenciar + Atuar como + Marcar como meu + Arquivar/Restaurar + Excluir
     const acoes = t.arquivado
       ? `
         <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')" title="Ver detalhes (somente leitura)">⚙ Ver</button>
@@ -1146,12 +1186,14 @@ function renderTenantsTable() {
       `
       : `
         <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
+        ${!isAtivo ? `<button class="btn btn-sm" onclick="definirTenantAtivoSuperAdmin('${t.id}')" title="Operar neste tenant nesta sessão (persistido pra próximos logins)" style="background:var(--primary); color:white; border-color:var(--primary);">🎯 Operar aqui</button>` : ''}
+        ${!isDono ? `<button class="btn btn-sm btn-secondary" onclick="marcarComoTenantDono('${t.id}')" title="Marcar como tenant padrão da DRG Global (fallback)">🏠 Marcar como meu</button>` : ''}
         <button class="btn btn-sm btn-secondary" onclick="arquivarTenant('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Mover pra arquivo (pode restaurar depois)">🗄 Arquivar</button>
       `;
 
     return `
-      <tr ${t.arquivado ? 'style="opacity:0.6;"' : ''}>
-        <td><strong>${escapeHtml(t.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${documento}</span></td>
+      <tr ${t.arquivado ? 'style="opacity:0.6;"' : (isAtivo ? 'style="background:rgba(220, 252, 231, 0.4);"' : '')}>
+        <td><strong>${escapeHtml(t.nome || '—')}</strong>${indicadorAtivo}${indicadorDono}<br><span class="muted" style="font-size:11px;">${documento}</span></td>
         <td>${tipoBadge}</td>
         <td>${PLANO_LABEL[t.plano] || t.plano || '—'}</td>
         <td>${fmtBRL(t.valorMensalidade)}</td>
@@ -1507,6 +1549,62 @@ async function atuarComoTenant() {
     alert('Erro: ' + err.message);
   }
 }
+
+// Super Admin define qual tenant é o "principal" dele (persistido por uid).
+// Usado pra acabar com o bug "logo do tenant errado no header" quando o
+// fallback automático escolhia o primeiro tenant em ordem aleatória.
+async function definirTenantAtivoSuperAdmin(tenantId) {
+  if (!State.isSuperAdmin || !State.user) return;
+  if (!tenantId) {
+    if (!confirm('Limpar a escolha de tenant ativo? Você ficará SEM tenant até escolher de novo.')) return;
+    localStorage.removeItem(`drg-tenant-ativo-${State.user.uid}`);
+    State.tenant = null;
+    State.tenantOriginal = null;
+    invalidateLocadoresCache(); invalidateLocatariosCache(); invalidateImoveisCache();
+    invalidateGarantiasCache(); invalidateCompradoresCache();
+    await renderApp();
+    return;
+  }
+  try {
+    const snap = await db.collection('tenants').doc(tenantId).get();
+    if (!snap.exists) { alert('Tenant não encontrado.'); return; }
+    State.tenant = { id: snap.id, ...snap.data() };
+    State.tenantOriginal = null;
+    localStorage.setItem(`drg-tenant-ativo-${State.user.uid}`, tenantId);
+    invalidateLocadoresCache(); invalidateLocatariosCache(); invalidateImoveisCache();
+    invalidateGarantiasCache(); invalidateCompradoresCache();
+    const banner = $('banner-atuando-como');
+    if (banner) banner.style.display = 'none';
+    await renderApp();
+    showSection('dashboard');
+  } catch (err) {
+    alert('Erro ao trocar tenant: ' + err.message);
+  }
+}
+
+// Marca um tenant como "dono Super Admin" (fallback futuro).
+// Apenas 1 tenant pode ser o dono — se já existir, desmarca os outros.
+async function marcarComoTenantDono(tenantId) {
+  if (!State.isSuperAdmin) return;
+  if (!confirm('Marcar este tenant como o "dono" da DRG Global?\n\nEm futuros logins do Super Admin (sem escolha salva), este será o tenant padrão.\n\nApenas 1 tenant pode ser dono — qualquer outro será automaticamente desmarcado.')) return;
+  try {
+    // Desmarca todos os outros (batch leve — limit 50 é mais que suficiente)
+    const outrosSnap = await db.collection('tenants').where('donoSuperAdmin', '==', true).limit(50).get();
+    const batch = db.batch();
+    outrosSnap.docs.forEach(d => {
+      if (d.id !== tenantId) batch.update(d.ref, { donoSuperAdmin: false });
+    });
+    batch.update(db.collection('tenants').doc(tenantId), { donoSuperAdmin: true });
+    await batch.commit();
+    alert('✅ Tenant marcado como dono. Próximos logins vão usar ele por padrão.');
+    await loadTenantsTable();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+window.definirTenantAtivoSuperAdmin = definirTenantAtivoSuperAdmin;
+window.marcarComoTenantDono = marcarComoTenantDono;
 
 function voltarParaSuperAdmin() {
   if (!State.tenantOriginal) return;
