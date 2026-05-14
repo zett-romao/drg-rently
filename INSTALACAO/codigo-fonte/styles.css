@@ -1642,6 +1642,66 @@ details.card > summary:hover {
 .foto-item:hover .foto-del { opacity: 1; }
 .foto-item .foto-del:hover { background: var(--danger); }
 
+/* Drag & drop pra reordenar fotos */
+.foto-item[draggable="true"] {
+  cursor: grab;
+}
+.foto-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+.foto-item.arrastando {
+  opacity: 0.4;
+  transform: scale(0.95);
+}
+.foto-item.drop-target {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.3), var(--shadow-md);
+  transform: scale(1.03);
+}
+
+/* Badge "Capa" na primeira foto (vira capa do anúncio público) */
+.foto-item.is-capa {
+  border: 2px solid #FBBF24;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.4);
+}
+.foto-capa-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: linear-gradient(135deg, #FBBF24, #F59E0B);
+  color: #78350F;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  pointer-events: none;
+}
+
+/* Estado "arrastando arquivos do desktop" no container */
+#imovel-fotos-section.dropping-files {
+  position: relative;
+}
+#imovel-fotos-section.dropping-files::after {
+  content: '📷 Solte aqui pra fazer upload';
+  position: absolute;
+  inset: 0;
+  background: rgba(71, 85, 105, 0.15);
+  border: 3px dashed var(--primary);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* ----- Preview do contrato (modal) ----- */
 .contrato-preview {
   background: white;

@@ -6632,6 +6632,7 @@ async function openImovelModal(id) {
     $('imovel-publicacao-section').style.display = 'block';
     loadImovelDocs(id);
     loadImovelFotos(id);
+    habilitarDropUploadFotos();
 
     // Estado do toggle de publicação
     try {
@@ -6651,9 +6652,17 @@ async function openImovelModal(id) {
     }
   } else {
     await populateLocadorSelect($('imovel-locador'), null);
+    // Em modo CRIAÇÃO mantemos a seção de fotos VISÍVEL (cria rascunho on-demand
+    // quando user faz primeiro upload). Docs e publicação ficam ocultos porque
+    // não fazem sentido antes do save completo.
     $('imovel-docs-section').style.display = 'none';
-    $('imovel-fotos-section').style.display = 'none';
+    $('imovel-fotos-section').style.display = 'block';
     $('imovel-publicacao-section').style.display = 'none';
+    const grid = $('imovel-fotos-grid');
+    if (grid) {
+      grid.innerHTML = `<p class="empty">📷 Anexe fotos aqui — o imóvel será salvo automaticamente como rascunho no primeiro upload.<br><span class="muted" style="font-size:12px;">💡 Você pode arrastar arquivos direto pra esta área.</span></p>`;
+    }
+    habilitarDropUploadFotos();
   }
 
   $('modal-imovel').style.display = 'flex';
@@ -6874,24 +6883,138 @@ async function loadImovelFotos(imovelId) {
       .collection('fotos').orderBy('ordem').get();
 
     if (snap.empty) {
-      grid.innerHTML = `<p class="empty">Nenhuma foto adicionada. Sem fotos, o imóvel publicado fica menos atrativo.</p>`;
+      grid.innerHTML = `<p class="empty">Nenhuma foto adicionada. Sem fotos, o imóvel publicado fica menos atrativo. <br><span class="muted" style="font-size:12px;">💡 Você pode <strong>arrastar arquivos diretamente</strong> aqui dentro.</span></p>`;
       return;
     }
 
-    grid.innerHTML = snap.docs.map(doc => {
+    grid.innerHTML = snap.docs.map((doc, idx) => {
       const f = doc.data();
+      const isCapa = idx === 0;
       return `
-        <div class="foto-item" onclick="window.open('${f.url}', '_blank')">
-          <img src="${f.url}" alt="${f.nome || ''}" loading="lazy">
-          <button class="foto-del" title="Excluir" onclick="event.stopPropagation(); deleteImovelFoto('${imovelId}','${doc.id}','${f.path || ''}');">×</button>
+        <div class="foto-item ${isCapa ? 'is-capa' : ''}" draggable="true" data-foto-id="${doc.id}" data-ordem="${f.ordem || 0}">
+          ${isCapa ? '<div class="foto-capa-badge" title="Primeira foto = capa do anúncio">👑 Capa</div>' : ''}
+          <img src="${f.url}" alt="${f.nome || ''}" loading="lazy" onclick="window.open('${f.url}', '_blank')">
+          <div class="foto-actions">
+            <button class="foto-del" title="Excluir" onclick="event.stopPropagation(); deleteImovelFoto('${imovelId}','${doc.id}','${f.path || ''}');">×</button>
+          </div>
         </div>
       `;
     }).join('');
+
+    // Habilita drag & drop pra reordenar (a primeira foto vira capa)
+    habilitarReordenacaoFotos(imovelId);
   } catch (err) {
     console.error('Erro ao listar fotos:', err);
     grid.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${err.message}</p>`;
   }
 }
+
+// Drag & drop pra reordenar fotos do imóvel
+function habilitarReordenacaoFotos(imovelId) {
+  const grid = $('imovel-fotos-grid');
+  if (!grid) return;
+  let arrastando = null;
+
+  grid.querySelectorAll('.foto-item[draggable="true"]').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      arrastando = item;
+      item.classList.add('arrastando');
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', item.dataset.fotoId); } catch (_) {}
+    });
+
+    item.addEventListener('dragend', () => {
+      if (arrastando) arrastando.classList.remove('arrastando');
+      grid.querySelectorAll('.foto-item').forEach(el => el.classList.remove('drop-target'));
+      arrastando = null;
+    });
+
+    item.addEventListener('dragover', (e) => {
+      if (!arrastando || arrastando === item) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      item.classList.add('drop-target');
+    });
+
+    item.addEventListener('dragleave', () => {
+      item.classList.remove('drop-target');
+    });
+
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      item.classList.remove('drop-target');
+      if (!arrastando || arrastando === item) return;
+
+      // Insere antes ou depois conforme posição do cursor
+      const rect = item.getBoundingClientRect();
+      const insertBefore = (e.clientY < rect.top + rect.height / 2);
+      if (insertBefore) grid.insertBefore(arrastando, item);
+      else grid.insertBefore(arrastando, item.nextSibling);
+
+      await salvarNovaOrdemFotos(imovelId);
+    });
+  });
+}
+
+async function salvarNovaOrdemFotos(imovelId) {
+  const grid = $('imovel-fotos-grid');
+  const items = Array.from(grid.querySelectorAll('.foto-item[data-foto-id]'));
+  if (items.length === 0) return;
+  const fotosColl = tenantPath().collection('imoveis').doc(imovelId).collection('fotos');
+  // Atualiza ordem de TODAS (batch)
+  const batch = db.batch();
+  items.forEach((el, idx) => {
+    batch.update(fotosColl.doc(el.dataset.fotoId), { ordem: idx });
+  });
+  try {
+    await batch.commit();
+    // Re-renderiza pra atualizar badge "Capa"
+    loadImovelFotos(imovelId);
+  } catch (err) {
+    console.error('Erro ao salvar ordem das fotos:', err);
+    showAlert('imovel-alert', 'Erro ao salvar nova ordem: ' + err.message);
+  }
+}
+
+// Drag & drop pra fazer UPLOAD direto (arrastar arquivos do desktop)
+function habilitarDropUploadFotos() {
+  const grid = $('imovel-fotos-grid');
+  const dropZone = grid?.closest('#imovel-fotos-section');
+  if (!dropZone || dropZone._dropHandlersInstalled) return;
+  dropZone._dropHandlersInstalled = true;
+
+  ['dragenter', 'dragover'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      // Só ativa se o que está sendo arrastado é arquivo (não outra foto interna)
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.classList.add('dropping-files');
+    });
+  });
+  ['dragleave', 'drop'].forEach(ev => {
+    dropZone.addEventListener(ev, (e) => {
+      if (e.target !== dropZone && dropZone.contains(e.target) && ev === 'dragleave') return;
+      dropZone.classList.remove('dropping-files');
+    });
+  });
+  dropZone.addEventListener('drop', async (e) => {
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const files = Array.from(e.dataTransfer.files || []).filter(f => /^image\//.test(f.type));
+    if (files.length === 0) return;
+    // Coloca os arquivos no input pra reusar a lógica existente
+    const input = $('imovel-foto-input');
+    // FileList é read-only, usamos DataTransfer
+    const dt = new DataTransfer();
+    files.forEach(f => dt.items.add(f));
+    input.files = dt.files;
+    await uploadImovelFotos();
+  });
+}
+
+window.salvarNovaOrdemFotos = salvarNovaOrdemFotos;
 
 // Aplica logo como marca d'água no canto inferior direito da imagem
 async function applyWatermark(file, logoImg) {
@@ -6946,10 +7069,42 @@ function getLogoImage() {
 }
 
 async function uploadImovelFotos() {
-  const imovelId = $('imovel-id').value;
+  let imovelId = $('imovel-id').value;
+
+  // Se ainda não tem id (modo criação), cria um rascunho automaticamente
+  // assim o user pode anexar fotos sem ter preenchido tudo ainda.
   if (!imovelId) {
-    showAlert('imovel-alert', 'Salve o imóvel antes de anexar fotos.');
-    return;
+    const apelido = $('imovel-apelido').value.trim();
+    if (!apelido) {
+      showAlert('imovel-alert', 'Antes de subir fotos, preencha pelo menos o "Apelido" do imóvel.');
+      return;
+    }
+    try {
+      const rascunho = {
+        apelido,
+        rascunho: true,
+        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user?.uid || null,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      };
+      const docRef = await tenantPath().collection('imoveis').add(rascunho);
+      imovelId = docRef.id;
+      $('imovel-id').value = imovelId;
+      logAuditoria('create', 'imovel-rascunho', imovelId, { apelido });
+      invalidateImoveisCache();
+      // Aciona estado de "modo edição" pra liberar docs/publicação após save completo
+      $('imovel-docs-section').style.display = 'block';
+      $('imovel-publicacao-section').style.display = 'block';
+      // Avisa o operador
+      showAlert(
+        'imovel-alert',
+        '📋 Imóvel salvo como <strong>rascunho</strong>. Complete os campos e clique "Salvar" pra publicar.',
+        'info',
+      );
+    } catch (err) {
+      showAlert('imovel-alert', 'Erro ao criar rascunho: ' + err.message);
+      return;
+    }
   }
 
   const input = $('imovel-foto-input');
@@ -7082,9 +7237,13 @@ function openImovelLink() {
 
 // ---------- Configurações da imobiliária ----------
 
-function vitrineUrl(tenantIdOrSlug) {
+function vitrineUrl(tenantIdOrSlug, finalidade) {
   const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
-  return `${base}imoveis.html?t=${tenantIdOrSlug}`;
+  let url = `${base}imoveis.html?t=${tenantIdOrSlug}`;
+  if (finalidade === 'locacao' || finalidade === 'venda') {
+    url += `&finalidade=${finalidade}`;
+  }
+  return url;
 }
 
 function isSlugValid(slug) {
@@ -7149,7 +7308,12 @@ async function loadConfigImobiliaria() {
   $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
   $('cfg-email-contato').value = State.tenant.emailContato || '';
   $('cfg-slug').value = State.tenant.slug || '';
-  $('cfg-vitrine-url').value = vitrineUrl(State.tenant.slug || State.tenant.id);
+  const slugAtivo = State.tenant.slug || State.tenant.id;
+  $('cfg-vitrine-url').value = vitrineUrl(slugAtivo);
+  const inputAluguel = $('cfg-vitrine-url-aluguel');
+  if (inputAluguel) inputAluguel.value = vitrineUrl(slugAtivo, 'locacao');
+  const inputVenda = $('cfg-vitrine-url-venda');
+  if (inputVenda) inputVenda.value = vitrineUrl(slugAtivo, 'venda');
   $('cfg-slug-status').style.display = 'none';
 
   // Logo
@@ -7236,7 +7400,12 @@ async function saveConfigImobiliaria() {
       State.tenant.telefone = telefoneDigits;
       State.tenant.emailContato = emailContato;
       State.tenant.slug = slug;
-      $('cfg-vitrine-url').value = vitrineUrl(slug || State.tenant.id);
+      const slugAtivoSave = slug || State.tenant.id;
+      $('cfg-vitrine-url').value = vitrineUrl(slugAtivoSave);
+      const inputAluguelS = $('cfg-vitrine-url-aluguel');
+      if (inputAluguelS) inputAluguelS.value = vitrineUrl(slugAtivoSave, 'locacao');
+      const inputVendaS = $('cfg-vitrine-url-venda');
+      if (inputVendaS) inputVendaS.value = vitrineUrl(slugAtivoSave, 'venda');
 
       // Subdoc config/site — watermark default e templates de cláusulas
       await tenantPath().collection('config').doc('site').set({
@@ -7269,20 +7438,27 @@ async function saveConfigImobiliaria() {
   }, 600);
 }
 
-function copyVitrineUrl() {
-  const input = $('cfg-vitrine-url');
+function copyVitrineUrl(finalidade) {
+  const inputId = finalidade === 'locacao' ? 'cfg-vitrine-url-aluguel'
+    : finalidade === 'venda' ? 'cfg-vitrine-url-venda'
+    : 'cfg-vitrine-url';
+  const input = $(inputId);
+  if (!input) return;
   input.select();
+  const label = finalidade === 'locacao' ? 'Link de Aluguel'
+    : finalidade === 'venda' ? 'Link de Venda'
+    : 'Link da vitrine';
   navigator.clipboard.writeText(input.value).then(() => {
-    showAlert('cfg-alert', 'Link da vitrine copiado!', 'success');
+    showAlert('cfg-alert', `${label} copiado!`, 'success');
   }).catch(() => {
     document.execCommand('copy');
-    showAlert('cfg-alert', 'Link da vitrine copiado!', 'success');
+    showAlert('cfg-alert', `${label} copiado!`, 'success');
   });
 }
 
-function openVitrinePublica() {
+function openVitrinePublica(finalidade) {
   if (!State.tenant) return;
-  window.open(vitrineUrl(State.tenant.slug || State.tenant.id), '_blank');
+  window.open(vitrineUrl(State.tenant.slug || State.tenant.id, finalidade), '_blank');
 }
 
 // =============================================================

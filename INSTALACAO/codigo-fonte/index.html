@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514t">
+  <link rel="stylesheet" href="styles.css?v=20260514u">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1274,7 +1274,27 @@
                 <button class="btn btn-secondary btn-sm" onclick="copyVitrineUrl()">📋 Copiar</button>
                 <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica()">↗ Abrir</button>
               </div>
-              <p class="muted" style="font-size:11px;">Compartilhe esse link em WhatsApp, redes sociais ou portais para divulgar todos os imóveis publicados.</p>
+              <p class="muted" style="font-size:11px;">Vitrine geral — mostra todos os imóveis (com tabs Aluguel/Venda).</p>
+            </div>
+
+            <div class="form-group">
+              <label>🏠 Link só para imóveis de <strong>Aluguel</strong></label>
+              <div class="link-display">
+                <input type="text" id="cfg-vitrine-url-aluguel" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyVitrineUrl('locacao')">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica('locacao')">↗ Abrir</button>
+              </div>
+              <p class="muted" style="font-size:11px;">Compartilhe esse link para campanhas focadas em aluguel — abre a vitrine já filtrada e com visual teal.</p>
+            </div>
+
+            <div class="form-group">
+              <label>💼 Link só para imóveis de <strong>Venda</strong></label>
+              <div class="link-display">
+                <input type="text" id="cfg-vitrine-url-venda" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyVitrineUrl('venda')">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openVitrinePublica('venda')">↗ Abrir</button>
+              </div>
+              <p class="muted" style="font-size:11px;">Link direto para campanhas de venda — abre filtrado e com visual âmbar.</p>
             </div>
 
             <h4 class="form-section-title">🔐 Login com biometria (Passkeys)</h4>
@@ -4353,6 +4373,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514t"></script>
+  <script src="app.js?v=20260514u"></script>
 </body>
 </html>

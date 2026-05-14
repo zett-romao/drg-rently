@@ -12,8 +12,8 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="icon" type="image/png" href="logo.png?v=20260513a">
-  <link rel="stylesheet" href="styles.css?v=20260512e">
-  <link rel="stylesheet" href="public.css?v=20260512e">
+  <link rel="stylesheet" href="styles.css?v=20260514u">
+  <link rel="stylesheet" href="public.css?v=20260514u">
 
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -44,26 +44,38 @@
       </div>
     </header>
 
-    <section class="public-hero">
+    <section class="public-hero" id="public-hero">
       <div class="public-container">
-        <div class="public-breadcrumb">Vitrine</div>
-        <h1>Imóveis disponíveis</h1>
-        <p style="color: rgba(255,255,255,0.85); margin-top:6px;">
+        <div class="public-breadcrumb" id="hero-breadcrumb">Vitrine</div>
+        <h1 id="hero-titulo">Imóveis disponíveis</h1>
+        <p style="color: rgba(255,255,255,0.85); margin-top:6px;" id="hero-subtitulo">
           <span id="vitrine-count">—</span> imóveis publicados
         </p>
       </div>
     </section>
 
-    <!-- Filtros simples -->
+    <!-- Tabs Aluguel | Venda -->
+    <section class="vitrine-tabs-wrapper">
+      <div class="public-container">
+        <div class="vitrine-tabs" role="tablist" aria-label="Filtrar por modalidade">
+          <button type="button" class="vitrine-tab active" data-tab-finalidade="" role="tab" aria-selected="true">
+            🏘️ Todos os imóveis
+          </button>
+          <button type="button" class="vitrine-tab tab-aluguel" data-tab-finalidade="locacao" role="tab" aria-selected="false">
+            🏠 Para Alugar
+          </button>
+          <button type="button" class="vitrine-tab tab-venda" data-tab-finalidade="venda" role="tab" aria-selected="false">
+            💼 Para Comprar
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filtros simples (sem o select de finalidade que virou tab) -->
     <section class="vitrine-filtros">
       <div class="public-container">
         <div class="filtros-row">
           <input type="text" id="filtro-busca" placeholder="🔍 Buscar por apelido, bairro, cidade…">
-          <select id="filtro-finalidade">
-            <option value="">Locação e venda</option>
-            <option value="locacao">Só locação</option>
-            <option value="venda">Só venda</option>
-          </select>
           <select id="filtro-tipo">
             <option value="">Todos os tipos</option>
             <option value="residencial">Residencial</option>
@@ -96,6 +108,6 @@
 
   </main>
 
-  <script src="public-imoveis.js?v=20260512e"></script>
+  <script src="public-imoveis.js?v=20260514u"></script>
 </body>
 </html>

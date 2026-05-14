@@ -6,7 +6,9 @@
 
 const params = new URLSearchParams(window.location.search);
 const tenantIdOrSlug = params.get('t');
+const finalidadeInicial = (params.get('finalidade') || '').toLowerCase();
 let tenantId = null; // será resolvido no init
+let _finalidadeAtiva = ''; // '', 'locacao' ou 'venda'
 
 async function resolveTenantId(slugOrId) {
   if (!slugOrId) return null;
@@ -98,11 +100,23 @@ let _allImoveis = []; // cache pra filtros
     }));
 
     $$('vitrine-count').textContent = _allImoveis.length;
-    renderLista(_allImoveis);
+
+    // Configura tabs visuais (clique alterna finalidade)
+    document.querySelectorAll('.vitrine-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        ativarTab(btn.dataset.tabFinalidade);
+      });
+    });
+
+    // Aplica finalidade inicial vinda da URL (?finalidade=locacao|venda)
+    if (finalidadeInicial === 'locacao' || finalidadeInicial === 'venda') {
+      ativarTab(finalidadeInicial);
+    } else {
+      ativarTab(''); // todos
+    }
 
     // Filtros
     $$('filtro-busca').addEventListener('input', applyFiltros);
-    $$('filtro-finalidade').addEventListener('change', applyFiltros);
     $$('filtro-tipo').addEventListener('change', applyFiltros);
     $$('filtro-quartos').addEventListener('change', applyFiltros);
 
@@ -114,9 +128,46 @@ let _allImoveis = []; // cache pra filtros
   }
 })();
 
+function ativarTab(finalidade) {
+  _finalidadeAtiva = finalidade || '';
+  // Atualiza visual das tabs
+  document.querySelectorAll('.vitrine-tab').forEach(btn => {
+    const isActive = (btn.dataset.tabFinalidade || '') === _finalidadeAtiva;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  // Aplica classe no hero pra mudar cor/título conforme modalidade
+  const hero = $$('public-hero');
+  if (hero) {
+    hero.classList.remove('mode-locacao', 'mode-venda', 'mode-todos');
+    hero.classList.add(_finalidadeAtiva === 'locacao' ? 'mode-locacao'
+      : _finalidadeAtiva === 'venda' ? 'mode-venda' : 'mode-todos');
+  }
+
+  // Atualiza textos do hero conforme tab
+  const titulo = $$('hero-titulo');
+  const breadcrumb = $$('hero-breadcrumb');
+  if (_finalidadeAtiva === 'locacao') {
+    if (titulo) titulo.textContent = '🏠 Imóveis para Alugar';
+    if (breadcrumb) breadcrumb.textContent = 'Aluguel';
+    document.title = `${($$('header-empresa').textContent || 'DRG-Rently')} — Imóveis para Alugar`;
+  } else if (_finalidadeAtiva === 'venda') {
+    if (titulo) titulo.textContent = '💼 Imóveis para Comprar';
+    if (breadcrumb) breadcrumb.textContent = 'Venda';
+    document.title = `${($$('header-empresa').textContent || 'DRG-Rently')} — Imóveis para Comprar`;
+  } else {
+    if (titulo) titulo.textContent = 'Imóveis disponíveis';
+    if (breadcrumb) breadcrumb.textContent = 'Vitrine';
+    document.title = `${($$('header-empresa').textContent || 'DRG-Rently')} — Imóveis disponíveis`;
+  }
+
+  applyFiltros();
+}
+
 function applyFiltros() {
   const busca = $$('filtro-busca').value.trim().toLowerCase();
-  const finalidade = $$('filtro-finalidade').value;
+  const finalidade = _finalidadeAtiva;
   const tipo = $$('filtro-tipo').value;
   const quartosMin = parseInt($$('filtro-quartos').value, 10) || 0;
 
@@ -124,8 +175,8 @@ function applyFiltros() {
     if (tipo && im.tipo !== tipo) return false;
     if (finalidade) {
       const f = im.finalidade || 'locacao';
-      // 'locacao' filter → mostra imóveis com finalidade locacao ou ambos
-      // 'venda' filter → mostra imóveis com finalidade venda ou ambos
+      // 'locacao' tab → mostra imóveis com finalidade locacao ou ambos
+      // 'venda' tab → mostra imóveis com finalidade venda ou ambos
       if (finalidade === 'locacao' && f === 'venda') return false;
       if (finalidade === 'venda' && f === 'locacao') return false;
     }

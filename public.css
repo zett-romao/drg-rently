@@ -59,6 +59,57 @@ body.public-page {
   background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   color: white;
   padding: 36px 0;
+  transition: background 0.4s ease;
+}
+.public-hero.mode-locacao {
+  background: linear-gradient(135deg, #0F766E 0%, #0E7490 100%);
+}
+.public-hero.mode-venda {
+  background: linear-gradient(135deg, #B45309 0%, #92400E 100%);
+}
+
+/* Tabs Aluguel | Venda (vitrine) */
+.vitrine-tabs-wrapper {
+  background: white;
+  border-bottom: 1px solid #E2E8F0;
+}
+.vitrine-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0;
+  flex-wrap: wrap;
+}
+.vitrine-tab {
+  padding: 10px 18px;
+  background: transparent;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 22px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.vitrine-tab:hover {
+  background: #F1F5F9;
+  border-color: #94A3B8;
+}
+.vitrine-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  box-shadow: 0 2px 8px rgba(71, 85, 105, 0.25);
+}
+.vitrine-tab.tab-aluguel.active {
+  background: #0F766E;
+  border-color: #0F766E;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.35);
+}
+.vitrine-tab.tab-venda.active {
+  background: #B45309;
+  border-color: #B45309;
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.35);
 }
 
 .public-hero .public-container { display: block; }
