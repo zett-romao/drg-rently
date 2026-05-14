@@ -1901,7 +1901,7 @@ async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis',
                'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
-               'stat-balancetes-mes', 'stat-contratos-atrasados'];
+               'stat-balancetes-mes', 'stat-contratos-atrasados', 'stat-leads-novos'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
@@ -1959,6 +1959,16 @@ async function loadDashboard() {
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
+  }
+
+  // Contagem de leads novos (não bloqueia o resto do dashboard se falhar)
+  try {
+    const leadsSnap = await tenantPath().collection('leadsImoveis').where('status', '==', 'novo').limit(100).get();
+    const el = $('stat-leads-novos');
+    if (el) el.textContent = leadsSnap.size;
+  } catch (e) {
+    console.warn('Erro ao contar leads novos:', e);
+    const el = $('stat-leads-novos'); if (el) el.textContent = '0';
   }
 
   // Painel de alertas resumo (não bloqueia o resto do dashboard)
