@@ -742,6 +742,43 @@ label.required::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
+/* Status inline contextual — aparece perto do botão clicado, não no topo */
+.status-inline {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  word-break: break-word;
+}
+.status-inline.is-loading {
+  background: #F1F5F9;
+  border-color: #CBD5E1;
+  color: var(--text-muted);
+  animation: ia-pulse 1.4s ease-in-out infinite;
+}
+.status-inline.is-success {
+  background: var(--success-light);
+  border-color: #86EFAC;
+  color: var(--success);
+}
+.status-inline.is-error {
+  background: var(--danger-light);
+  border-color: #FCA5A5;
+  color: var(--danger);
+}
+.status-inline.is-info {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+.status-inline a {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
 /* Caixa Asaas no rodapé do balancete */
 .asaas-balancete-box {
   background: linear-gradient(135deg, #ECFEFF, #CFFAFE);

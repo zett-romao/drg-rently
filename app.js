@@ -2298,6 +2298,31 @@ async function processarDocumentoPessoa(file, alvo) {
 window.processarDocumentoPessoa = processarDocumentoPessoa;
 
 // =============================================================
+// Helper genérico — status contextual inline
+// Mostra a mensagem PRÓXIMA ao botão/ação que disparou, em vez de
+// pulando pro topo do modal/página.
+//   showInlineStatus('id-do-div', 'msg', 'loading'|'success'|'error'|'info')
+//   clearInlineStatus('id-do-div')
+// =============================================================
+function showInlineStatus(elementId, msg, kind = 'info', autoHideMs = 0) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.className = 'status-inline is-' + kind;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+  if (autoHideMs > 0) {
+    if (el._hideTimer) clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, autoHideMs);
+  }
+}
+function clearInlineStatus(elementId) {
+  const el = document.getElementById(elementId);
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+window.showInlineStatus = showInlineStatus;
+window.clearInlineStatus = clearInlineStatus;
+
+// =============================================================
 // G4 — Asaas: cobrar locatário + pagar locador (no balancete)
 // =============================================================
 
@@ -2386,19 +2411,24 @@ async function garantirCustomerAsaas(locatarioId) {
 }
 
 async function cobrarLocatarioAsaas() {
+  // Mostra status NA CAIXA Asaas (próximo ao botão), não no topo do modal
+  const STATUS_ID = 'asaas-balancete-status';
   if (!_balanceteLocadorInfo) {
-    showAlert('balancete-alert', 'Selecione um contrato primeiro.');
+    showInlineStatus(STATUS_ID, 'Selecione um contrato primeiro.', 'error');
     return;
   }
   const contratoId = $('balancete-contrato').value;
-  if (!contratoId) { showAlert('balancete-alert', 'Selecione um contrato.'); return; }
+  if (!contratoId) {
+    showInlineStatus(STATUS_ID, 'Selecione um contrato.', 'error');
+    return;
+  }
 
   // Soma entradas pra cobrança
   const totalEntradas = _balanceteLancamentos
     .filter(l => l.bloco === 'entrada' || l.bloco === 'despesa_locatario')
     .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
   if (totalEntradas <= 0) {
-    showAlert('balancete-alert', 'Adicione lançamentos de entrada antes de cobrar.');
+    showInlineStatus(STATUS_ID, 'Adicione lançamentos de entrada antes de cobrar.', 'error');
     return;
   }
 
@@ -2408,10 +2438,10 @@ async function cobrarLocatarioAsaas() {
     const locatarioId = c.locatarioId;
     if (!locatarioId) throw new Error('Contrato sem locatário.');
 
-    showAlert('balancete-alert', '🔄 Criando cliente no Asaas (se necessário)…', 'success');
+    showInlineStatus(STATUS_ID, '🔄 Criando cliente no Asaas (se necessário)…', 'loading');
     const customerId = await garantirCustomerAsaas(locatarioId);
 
-    // Vencimento: data 10 dias adiante (configurável depois)
+    showInlineStatus(STATUS_ID, '🔄 Gerando cobrança PIX…', 'loading');
     const venc = new Date();
     venc.setDate(venc.getDate() + 10);
     const dueDate = venc.toISOString().slice(0, 10);
@@ -2435,27 +2465,32 @@ async function cobrarLocatarioAsaas() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Erro Asaas');
     const link = data.payment.invoiceUrl || data.payment.bankSlipUrl || '';
-    showAlert('balancete-alert', `✅ Cobrança criada: ${fmtBRL(totalEntradas)}. <a href="${link}" target="_blank" rel="noopener" style="color:var(--success); text-decoration:underline; font-weight:600;">📄 Ver fatura</a>`, 'success');
+    showInlineStatus(
+      STATUS_ID,
+      `✅ Cobrança criada: <strong>${fmtBRL(totalEntradas)}</strong>. Vencimento ${dueDate}. ${link ? `<a href="${link}" target="_blank" rel="noopener">📄 Abrir fatura</a>` : ''}`,
+      'success'
+    );
   } catch (err) {
     console.error('Erro ao cobrar locatário:', err);
-    showAlert('balancete-alert', `❌ ${err.message}`);
+    showInlineStatus(STATUS_ID, `❌ ${err.message}`, 'error');
   }
 }
 
 async function pagarLocadorAsaas() {
+  const STATUS_ID = 'asaas-balancete-status';
   if (!_balanceteLocadorInfo) {
-    showAlert('balancete-alert', 'Selecione um contrato primeiro.');
+    showInlineStatus(STATUS_ID, 'Selecione um contrato primeiro.', 'error');
     return;
   }
   const liquidoStr = ($('resumo-liquido').textContent || '').replace(/[^\d,.-]/g, '').replace('.', '').replace(',', '.');
   const liquido = parseFloat(liquidoStr) || 0;
   if (liquido <= 0) {
-    showAlert('balancete-alert', 'Líquido a repassar é zero ou negativo.');
+    showInlineStatus(STATUS_ID, 'Líquido a repassar é zero ou negativo.', 'error');
     return;
   }
   const locador = _balanceteLocadorInfo;
   if (!locador.pix) {
-    showAlert('balancete-alert', 'Locador sem chave PIX cadastrada. Cadastre antes de pagar.');
+    showInlineStatus(STATUS_ID, 'Locador sem chave PIX cadastrada. Cadastre antes de pagar.', 'error');
     return;
   }
   if (!confirm(`Transferir ${fmtBRL(liquido)} via PIX para ${locador.nome}?\n\nChave PIX: ${locador.pix}\n\nEssa operação é IRREVERSÍVEL.`)) return;
@@ -2469,6 +2504,7 @@ async function pagarLocadorAsaas() {
   else if (/^\+?\d{10,13}$/.test(pix.replace(/\D/g, ''))) tipo = 'PHONE';
 
   try {
+    showInlineStatus(STATUS_ID, '🔄 Enviando PIX…', 'loading');
     const { url, token } = await getCfgAsaas();
     if (!url || !token) throw new Error('Configure Asaas primeiro.');
     const res = await fetch(`${url}/tenant/transfers`, {
@@ -2483,10 +2519,14 @@ async function pagarLocadorAsaas() {
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Erro Asaas');
-    showAlert('balancete-alert', `✅ Transferência criada: ${fmtBRL(liquido)} via PIX ${tipo} → ${locador.nome}.`, 'success');
+    showInlineStatus(
+      STATUS_ID,
+      `✅ Transferência criada: <strong>${fmtBRL(liquido)}</strong> via PIX ${tipo} → ${locador.nome}.`,
+      'success'
+    );
   } catch (err) {
     console.error('Erro ao pagar locador:', err);
-    showAlert('balancete-alert', `❌ ${err.message}`);
+    showInlineStatus(STATUS_ID, `❌ ${err.message}`, 'error');
   }
 }
 
