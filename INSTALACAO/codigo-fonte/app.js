@@ -10695,11 +10695,6 @@ async function processarArquivoContrato(file) {
   const isDocx = ext === 'docx';
   const isDoc = ext === 'doc';
 
-  if (isDoc) {
-    importarContratoErro('Arquivos .doc antigos não são suportados. Salve como .docx ou PDF no Word.');
-    return;
-  }
-
   const maxBytes = 15 * 1024 * 1024;
   if (file.size > maxBytes) {
     importarContratoErro(`Arquivo excede ${(maxBytes / 1024 / 1024).toFixed(0)} MB.`);
@@ -10709,7 +10704,9 @@ async function processarArquivoContrato(file) {
   _importContrato.arquivo = file;
   $('importar-contrato-progress').style.display = 'block';
   $('importar-contrato-alert').style.display = 'none';
-  $('importar-progress-titulo').textContent = isDocx ? '📄 Extraindo texto do Word…' : '🤖 Lendo o contrato com IA…';
+  $('importar-progress-titulo').textContent = isDocx ? '📄 Extraindo texto do Word…'
+    : isDoc ? '📄 Convertendo Word antigo (.doc)…'
+    : '🤖 Lendo o contrato com IA…';
   $('importar-progress-subtitulo').textContent = 'Pode levar 15-40 segundos para PDFs longos.';
 
   try {
@@ -10731,6 +10728,18 @@ async function processarArquivoContrato(file) {
       fileBase64 = btoa(unescape(encodeURIComponent(html)));
       mimeType = 'text/html';
       $('importar-progress-titulo').textContent = '🤖 Lendo o contrato com IA…';
+    } else if (isDoc) {
+      // .doc antigo (Word 97-2003, formato binário CFBF).
+      // Não há lib JS robusta pra extrair texto direto no browser.
+      // Tentamos 2 caminhos:
+      // 1) Enviar o binário direto pro Gemini como application/msword
+      //    (o modelo às vezes consegue ler — vale a tentativa).
+      // 2) Se Gemini falhar com erro específico de formato, mostramos
+      //    instruções amigáveis de conversão.
+      $('importar-progress-titulo').textContent = '🤖 Tentando ler .doc com IA…';
+      $('importar-progress-subtitulo').textContent = 'Formato antigo do Word — pode demorar mais ou falhar. Se falhar, tem botão pra converter online.';
+      fileBase64 = await fileToBase64(file);
+      mimeType = file.type || 'application/msword';
     } else {
       fileBase64 = await fileToBase64(file);
       mimeType = file.type || (ext === 'pdf' ? 'application/pdf' : 'image/jpeg');
@@ -10750,11 +10759,22 @@ async function processarArquivoContrato(file) {
     if (!res.ok) {
       let errMsg = `Erro ${res.status}`;
       try { const j = await res.json(); if (j.error) errMsg = j.error; } catch (_) {}
+      // Mensagem amigável + sugestão de conversão pra .doc antigos
+      if (isDoc) {
+        importarContratoErroDocAntigo(errMsg);
+        return;
+      }
       throw new Error(errMsg);
     }
 
     const result = await res.json();
-    if (!result.success || !result.data) throw new Error('Resposta inválida do Worker.');
+    if (!result.success || !result.data) {
+      if (isDoc) {
+        importarContratoErroDocAntigo('A IA não conseguiu ler este arquivo .doc antigo.');
+        return;
+      }
+      throw new Error('Resposta inválida do Worker.');
+    }
 
     const dados = result.data;
 
@@ -10791,6 +10811,31 @@ function importarContratoErro(msg) {
   const el = $('importar-contrato-alert');
   el.textContent = '❌ ' + msg;
   el.style.display = 'block';
+}
+
+// Erro específico pra .doc antigos — não suportados pela IA. Mostra
+// 3 opções de conversão pro usuário.
+function importarContratoErroDocAntigo(detalheErro) {
+  $('importar-contrato-progress').style.display = 'none';
+  const el = $('importar-contrato-alert');
+  el.style.display = 'block';
+  el.innerHTML = `
+    <strong>⚠️ Formato .doc antigo não suportado bem pela IA</strong><br>
+    <span style="font-size:12px;">Detalhe: ${escapeHtml(detalheErro || 'A IA não conseguiu extrair o conteúdo')}.</span>
+    <p style="margin:8px 0 4px;"><strong>O que fazer:</strong></p>
+    <ul style="margin:0; padding-left:20px; font-size:12px; line-height:1.6;">
+      <li><strong>Opção 1 (recomendado):</strong> abre o arquivo no Word, vai em <code>Arquivo → Salvar como</code> e escolhe <code>Documento do Word (*.docx)</code>. Tenta de novo aqui.</li>
+      <li><strong>Opção 2:</strong> abre no Word, vai em <code>Arquivo → Salvar como</code> e escolhe <code>PDF</code>. Sobe o PDF aqui.</li>
+      <li><strong>Opção 3:</strong> usa um conversor online como
+        <a href="https://cloudconvert.com/doc-to-docx" target="_blank" rel="noopener" style="color:#1d4ed8; font-weight:600;">cloudconvert.com</a>
+        (gratuito, sem cadastro). Converte pra .docx e sobe aqui.
+      </li>
+    </ul>
+    <p style="margin-top:8px; font-size:11px; color:var(--text-muted);">
+      💡 Documentos novos (Word 2007+) já vêm em .docx por padrão. Só arquivos
+      antigos (Word 97-2003) usam .doc.
+    </p>
+  `;
 }
 
 // ----- Detecção de duplicatas -----
