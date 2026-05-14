@@ -4608,8 +4608,14 @@ function recalcBalancete() {
 
 function aplicarStatusBalancete() {
   const fechado = $('balancete-status').value !== 'aberto';
-  // Trava edição se fechado
-  document.querySelectorAll('#modal-balancete .lanc-row input, #modal-balancete .lanc-row select, #modal-balancete .lanc-row button').forEach(el => {
+  // Trava edição se fechado — MAS mantém o botão × habilitado pra excluir
+  // (o operador pode querer remover um lançamento mesmo se o balancete foi
+  //  marcado como fechado/pago por engano).
+  document.querySelectorAll('#modal-balancete .lanc-row input, #modal-balancete .lanc-row select').forEach(el => {
+    el.disabled = fechado;
+  });
+  // Botões dos lançamentos: só desabilita .lanc-comprovante-btn (upload), não .lanc-del
+  document.querySelectorAll('#modal-balancete .lanc-row .lanc-comprovante-btn').forEach(el => {
     el.disabled = fechado;
   });
   $('balancete-taxa-adm').disabled = fechado;
