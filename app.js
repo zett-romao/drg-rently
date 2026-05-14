@@ -1495,7 +1495,7 @@ async function addPagamento() {
 }
 
 async function deletePagamento(tenantId, pagId) {
-  if (!confirm('Excluir este pagamento do histórico?')) return;
+  if (!(await confirmar({ titulo: 'Excluir pagamento?', mensagem: 'Remover este pagamento do histórico do tenant.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await db.collection('tenants').doc(tenantId).collection('pagamentos').doc(pagId).delete();
     loadTenantPagamentos(tenantId);
@@ -1576,7 +1576,7 @@ async function atuarComoTenant() {
 async function definirTenantAtivoSuperAdmin(tenantId) {
   if (!State.isSuperAdmin || !State.user) return;
   if (!tenantId) {
-    if (!confirm('Limpar a escolha de tenant ativo? Você ficará SEM tenant até escolher de novo.')) return;
+    if (!(await confirmar({ titulo: 'Limpar tenant ativo?', mensagem: 'Você ficará sem tenant até escolher de novo.', detalhe: 'O DRG-Rently vai carregar sem nenhum tenant operacional. Você precisa abrir o Super Admin e clicar em "🎯 Operar aqui" em algum tenant.', confirmar: 'Limpar', aviso: true }))) return;
     localStorage.removeItem(`drg-tenant-ativo-${State.user.uid}`);
     State.tenant = null;
     State.tenantOriginal = null;
@@ -1606,7 +1606,7 @@ async function definirTenantAtivoSuperAdmin(tenantId) {
 // Apenas 1 tenant pode ser o dono — se já existir, desmarca os outros.
 async function marcarComoTenantDono(tenantId) {
   if (!State.isSuperAdmin) return;
-  if (!confirm('Marcar este tenant como o "dono" da DRG Global?\n\nEm futuros logins do Super Admin (sem escolha salva), este será o tenant padrão.\n\nApenas 1 tenant pode ser dono — qualquer outro será automaticamente desmarcado.')) return;
+  if (!(await confirmar({ titulo: 'Marcar como tenant dono?', mensagem: 'Definir este tenant como padrão da DRG Global.', detalhe: 'Em futuros logins do Super Admin (sem escolha salva), este será o tenant carregado automaticamente.<br><br><strong>Apenas 1 tenant pode ser dono</strong> — qualquer outro será automaticamente desmarcado.', confirmar: '🏠 Marcar como meu', aviso: true }))) return;
   try {
     // Desmarca todos os outros (batch leve — limit 50 é mais que suficiente)
     const outrosSnap = await db.collection('tenants').where('donoSuperAdmin', '==', true).limit(50).get();
@@ -1644,7 +1644,7 @@ function voltarParaSuperAdmin() {
 // Compat — função antiga usada em outras partes do código
 async function toggleTenantStatus(tenantId, ativo) {
   const acao = ativo ? 'reativar' : 'suspender';
-  if (!confirm(`Confirma ${acao} este tenant?`)) return;
+  if (!(await confirmar({ titulo: `${acao.charAt(0).toUpperCase() + acao.slice(1)} tenant?`, mensagem: `Confirma ${acao} este tenant?`, confirmar: `${acao.charAt(0).toUpperCase() + acao.slice(1)}`, aviso: true }))) return;
   try {
     await db.collection('tenants').doc(tenantId).update({
       ativo,
@@ -2366,7 +2366,7 @@ async function onLocadorDocumentoBlur() {
   if (digits.length !== 14 || !isCNPJValid(digits)) return;
 
   const nomeAtual = $('locador-nome').value.trim();
-  if (nomeAtual && !confirm('Buscar dados na Receita Federal pode sobrescrever a razão social e o endereço já preenchidos. Deseja prosseguir?')) return;
+  if (nomeAtual && !(await confirmar({ titulo: 'Buscar dados na Receita Federal?', mensagem: 'Vai consultar o CNPJ na BrasilAPI e preencher automaticamente os dados.', detalhe: '⚠️ A razão social e o endereço <strong>já preenchidos serão sobrescritos</strong>. Cancele se quiser manter os dados atuais.', confirmar: '🔍 Buscar e sobrescrever', aviso: true }))) return;
 
   const status = $('locador-doc-status');
   status.style.display = 'block';
@@ -2800,6 +2800,48 @@ function confirmar(opcoes) {
 window.confirmar = confirmar;
 
 // =============================================================
+// Helper — padrões operacionais do tenant (Configurações → Padrões)
+// Lê do cache (State._configCache) ou faz fetch do Firestore.
+// Retorna objeto com valores padrão se a configuração estiver vazia.
+// =============================================================
+const PADROES_DEFAULT = {
+  taxaAdm: 10,
+  multaRescisoria: 3,
+  comissaoCaptacao: 1,
+  diaVencimento: 10,
+  diaFechamentoBalancete: 5,
+  carenciaMora: 0,
+  multaAtraso: 2,
+  jurosMora: 1,
+  honorariosCobranca: 10,
+  indiceReajuste: 'IPCA',
+  periodicidadeReajuste: 12,
+};
+
+async function getPadroesTenant() {
+  if (!State.tenant) return { ...PADROES_DEFAULT };
+  // Cache em memória pra evitar refetch toda hora
+  if (State._padroesCache) return State._padroesCache;
+  try {
+    const snap = await tenantPath().collection('config').doc('site').get();
+    const cfg = snap.exists ? snap.data() : {};
+    const padroes = { ...PADROES_DEFAULT, ...(cfg.padroes || {}) };
+    State._padroesCache = padroes;
+    return padroes;
+  } catch (err) {
+    console.warn('Erro ao carregar padrões — usando defaults:', err);
+    return { ...PADROES_DEFAULT };
+  }
+}
+
+function invalidatePadroesCache() {
+  if (State) State._padroesCache = null;
+}
+
+window.getPadroesTenant = getPadroesTenant;
+window.invalidatePadroesCache = invalidatePadroesCache;
+
+// =============================================================
 // Helper genérico — status contextual inline
 // Mostra a mensagem PRÓXIMA ao botão/ação que disparou, em vez de
 // pulando pro topo do modal/página.
@@ -2998,7 +3040,7 @@ async function pagarLocadorAsaas() {
     showInlineStatus(STATUS_ID, 'Locador sem chave PIX cadastrada. Cadastre antes de pagar.', 'error');
     return;
   }
-  if (!confirm(`Transferir ${fmtBRL(liquido)} via PIX para ${locador.nome}?\n\nChave PIX: ${locador.pix}\n\nEssa operação é IRREVERSÍVEL.`)) return;
+  if (!(await confirmar({ titulo: 'Transferir PIX agora?', mensagem: `Transferir <strong>${fmtBRL(liquido)}</strong> para <strong>${escapeHtml(locador.nome)}</strong>.`, detalhe: `Chave PIX: <code>${escapeHtml(locador.pix)}</code><br><br>⚠️ Esta operação é <strong>IRREVERSÍVEL</strong>. O Asaas vai executar a transferência imediatamente.`, confirmar: '💸 Transferir agora', perigo: true }))) return;
 
   // Detecta tipo da chave PIX
   let tipo = 'EVP';
@@ -3064,7 +3106,7 @@ window.autoPreencherWorkerAsaas = autoPreencherWorkerAsaas;
 async function deleteLocador() {
   const id = $('locador-id').value;
   if (!id) return;
-  if (!confirm('Excluir este locador? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+  if (!(await confirmar({ titulo: 'Excluir locador/vendedor?', mensagem: 'Você está prestes a remover este proprietário do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
     // apagar arquivos do Storage
@@ -3167,7 +3209,7 @@ async function uploadLocadorDocs() {
 }
 
 async function deleteLocadorDoc(locadorId, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locadores/${locadorId}/${filename}`).delete();
     loadLocadorDocs(locadorId);
@@ -3315,7 +3357,7 @@ async function onLocatarioDocumentoBlur() {
   if (digits.length !== 14 || !isCNPJValid(digits)) return;
 
   const nomeAtual = $('locatario-nome').value.trim();
-  if (nomeAtual && !confirm('Buscar dados na Receita Federal pode sobrescrever a razão social e o endereço já preenchidos. Deseja prosseguir?')) return;
+  if (nomeAtual && !(await confirmar({ titulo: 'Buscar dados na Receita Federal?', mensagem: 'Vai consultar o CNPJ na BrasilAPI e preencher automaticamente os dados.', detalhe: '⚠️ A razão social e o endereço <strong>já preenchidos serão sobrescritos</strong>. Cancele se quiser manter os dados atuais.', confirmar: '🔍 Buscar e sobrescrever', aviso: true }))) return;
 
   const status = $('locatario-doc-status');
   status.style.display = 'block';
@@ -3511,7 +3553,7 @@ async function saveLocatario() {
 async function deleteLocatario() {
   const id = $('locatario-id').value;
   if (!id) return;
-  if (!confirm('Excluir este locatário? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+  if (!(await confirmar({ titulo: 'Excluir locatário?', mensagem: 'Você está prestes a remover este locatário do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
     const folderRef = storageTenantRef().child(`locatarios/${id}`);
@@ -3609,7 +3651,7 @@ async function uploadLocatarioDocs() {
 }
 
 async function deleteLocatarioDoc(locatarioId, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locatarios/${locatarioId}/${filename}`).delete();
     loadLocatarioDocs(locatarioId);
@@ -4028,7 +4070,7 @@ async function saveGarantia() {
 async function deleteGarantia() {
   const id = $('garantia-id').value;
   if (!id) return;
-  if (!confirm('Excluir esta garantia? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+  if (!(await confirmar({ titulo: 'Excluir garantia?', mensagem: 'Você está prestes a remover esta garantia do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
     const folderRef = storageTenantRef().child(`garantias/${id}`);
@@ -4126,7 +4168,7 @@ async function uploadGarantiaDocs() {
 }
 
 async function deleteGarantiaDoc(garantiaId, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`garantias/${garantiaId}/${filename}`).delete();
     loadGarantiaDocs(garantiaId);
@@ -6150,7 +6192,7 @@ function buildBalanceteHtml(b, contrato, locador, locatario, imovel, cabecalho, 
 async function deleteBalancete() {
   const id = $('balancete-id').value;
   if (!id) return;
-  if (!confirm('Excluir este balancete? Os comprovantes anexados também serão removidos.')) return;
+  if (!(await confirmar({ titulo: 'Excluir balancete?', mensagem: 'Remover este balancete e todos os comprovantes anexados.', detalhe: '⚠️ Os comprovantes do storage também serão removidos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     // Apaga comprovantes do storage
     const folderRef = storageTenantRef().child(`balancetes/${id}/comprovantes`);
@@ -6298,7 +6340,7 @@ async function onCompradorDocumentoBlur() {
   const digits = $('comprador-documento').value.replace(/\D/g, '');
   if (digits.length !== 14 || !isCNPJValid(digits)) return;
   const nomeAtual = $('comprador-nome').value.trim();
-  if (nomeAtual && !confirm('Buscar dados na Receita Federal pode sobrescrever a razão social e o endereço. Deseja prosseguir?')) return;
+  if (nomeAtual && !(await confirmar({ titulo: 'Buscar dados na Receita Federal?', mensagem: 'Vai consultar o CNPJ na BrasilAPI e preencher automaticamente os dados.', detalhe: '⚠️ A razão social e o endereço <strong>já preenchidos serão sobrescritos</strong>. Cancele se quiser manter os dados atuais.', confirmar: '🔍 Buscar e sobrescrever', aviso: true }))) return;
   const status = $('comprador-doc-status');
   status.style.display = 'block';
   status.textContent = 'Buscando na Receita…';
@@ -6477,7 +6519,7 @@ async function saveComprador() {
 async function deleteComprador() {
   const id = $('comprador-id').value;
   if (!id) return;
-  if (!confirm('Excluir este comprador? Os documentos anexados também serão removidos.')) return;
+  if (!(await confirmar({ titulo: 'Excluir comprador?', mensagem: 'Você está prestes a remover este comprador do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     const folderRef = storageTenantRef().child(`compradores/${id}`);
     try {
@@ -6556,7 +6598,7 @@ async function uploadCompradorDocs() {
 }
 
 async function deleteCompradorDoc(id, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`compradores/${id}/${filename}`).delete();
     loadCompradorDocs(id);
@@ -6966,7 +7008,7 @@ async function syncImovelStatusFromNegociacao(imovelId, statusNovo, statusAnteri
 async function deleteNegociacao() {
   const id = $('negociacao-id').value;
   if (!id) return;
-  if (!confirm('Excluir esta negociação?')) return;
+  if (!(await confirmar({ titulo: 'Excluir negociação?', mensagem: 'Remover esta negociação de venda.', detalhe: 'Os documentos anexados não serão afetados. Esta ação <strong>não pode ser desfeita</strong>.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     const snap = await tenantPath().collection('negociacoes').doc(id).get();
     if (snap.exists) {
@@ -7051,7 +7093,7 @@ async function uploadNegociacaoDocs() {
 }
 
 async function deleteNegociacaoDoc(id, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`negociacoes/${id}/${filename}`).delete();
     loadNegociacaoDocs(id);
@@ -7607,7 +7649,7 @@ async function saveImovel() {
 async function deleteImovel() {
   const id = $('imovel-id').value;
   if (!id) return;
-  if (!confirm('Excluir este imóvel? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+  if (!(await confirmar({ titulo: 'Excluir imóvel?', mensagem: 'Você está prestes a remover este imóvel do sistema.', detalhe: '⚠️ Os documentos e fotos anexados serão removidos do storage<br>⚠️ Contratos vinculados ficarão órfãos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
     const folderRef = storageTenantRef().child(`imoveis/${id}`);
@@ -7705,7 +7747,7 @@ async function uploadImovelDocs() {
 }
 
 async function deleteImovelDoc(imovelId, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`imoveis/${imovelId}/${filename}`).delete();
     loadImovelDocs(imovelId);
@@ -8014,7 +8056,7 @@ async function uploadImovelFotos() {
 }
 
 async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
-  if (!confirm('Excluir esta foto?')) return;
+  if (!(await confirmar({ titulo: 'Excluir foto?', mensagem: 'Remover esta foto do imóvel.', detalhe: 'A foto será apagada do storage. Você pode subir outra a qualquer momento.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId).delete();
     if (storagePath) {
@@ -8189,6 +8231,22 @@ async function loadConfigImobiliaria() {
     if (lgTok) lgTok.value = cfg.legisAdminToken || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
+
+    // Padrões operacionais (objeto cfg.padroes)
+    const pad = cfg.padroes || {};
+    const setNum = (id, val, fallback) => { const el = $(id); if (el) el.value = (val != null ? val : (fallback != null ? fallback : '')); };
+    setNum('cfg-taxa-adm-padrao', pad.taxaAdm, 10);
+    setNum('cfg-multa-rescisoria', pad.multaRescisoria, 3);
+    setNum('cfg-comissao-captacao', pad.comissaoCaptacao, 1);
+    setNum('cfg-dia-vencimento', pad.diaVencimento, 10);
+    setNum('cfg-dia-fechamento-balancete', pad.diaFechamentoBalancete, 5);
+    setNum('cfg-carencia-mora', pad.carenciaMora, 0);
+    setNum('cfg-multa-atraso', pad.multaAtraso, 2);
+    setNum('cfg-juros-mora', pad.jurosMora, 1);
+    setNum('cfg-honorarios-cobranca', pad.honorariosCobranca, 10);
+    const indiceEl = $('cfg-indice-reajuste');
+    if (indiceEl) indiceEl.value = pad.indiceReajuste || 'IPCA';
+    setNum('cfg-periodicidade-reajuste', pad.periodicidadeReajuste, 12);
   } catch (err) {
     console.warn('Sem config de site ainda:', err);
     $('cfg-watermark-default').checked = true;
@@ -8268,10 +8326,26 @@ async function saveConfigImobiliaria() {
         asaasTenantToken: $('cfg-asaas-tenant-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
+        // Padrões operacionais
+        padroes: {
+          taxaAdm: parseFloat($('cfg-taxa-adm-padrao')?.value) || null,
+          multaRescisoria: parseInt($('cfg-multa-rescisoria')?.value, 10) || null,
+          comissaoCaptacao: parseFloat($('cfg-comissao-captacao')?.value) || null,
+          diaVencimento: parseInt($('cfg-dia-vencimento')?.value, 10) || null,
+          diaFechamentoBalancete: parseInt($('cfg-dia-fechamento-balancete')?.value, 10) || null,
+          carenciaMora: parseInt($('cfg-carencia-mora')?.value, 10) || null,
+          multaAtraso: parseFloat($('cfg-multa-atraso')?.value) || null,
+          jurosMora: parseFloat($('cfg-juros-mora')?.value) || null,
+          honorariosCobranca: parseFloat($('cfg-honorarios-cobranca')?.value) || null,
+          indiceReajuste: $('cfg-indice-reajuste')?.value || null,
+          periodicidadeReajuste: parseInt($('cfg-periodicidade-reajuste')?.value, 10) || null,
+        },
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
       // Invalida cache local (usado por renderPortais)
       State._configCache = null;
+      // Invalida cache de padrões operacionais (refetch no próximo getPadroesTenant)
+      State._padroesCache = null;
 
       showAlert('cfg-alert', 'Configuração salva.', 'success');
     } catch (err) {
@@ -8654,7 +8728,7 @@ async function uploadLogoTenant() {
 }
 
 async function removerLogoTenant() {
-  if (!confirm('Voltar pra logo padrão (D.R. Global)?')) return;
+  if (!(await confirmar({ titulo: 'Remover logo customizada?', mensagem: 'A logo da sua imobiliária será removida e o sistema voltará a exibir a logo padrão D.R. Global.', confirmar: 'Remover logo', aviso: true }))) return;
   try {
     // Apaga do storage se possível
     if (State.tenant.logoPath) {
@@ -8875,11 +8949,13 @@ function onContratoPrazoOrInicioChange() {
 function onContratoAluguelChange() {
   const aluguel = parseFloat($('contrato-aluguel').value) || 0;
   const multaInput = $('contrato-multa');
+  // Usa multiplicador do padrão do tenant (default 3)
+  const multiplicador = (State._padroesCache?.multaRescisoria) || 3;
   // Só auto-preenche multa se ela estiver vazia
   if (!multaInput.value || parseFloat(multaInput.value) === 0) {
-    multaInput.value = (aluguel * 3).toFixed(2);
+    multaInput.value = (aluguel * multiplicador).toFixed(2);
   }
-  $('contrato-multa-info').textContent = `Sugerido: 3× o aluguel = ${fmtBRL(aluguel * 3)}`;
+  $('contrato-multa-info').textContent = `Sugerido: ${multiplicador}× o aluguel = ${fmtBRL(aluguel * multiplicador)}`;
 }
 
 async function openContratoModal(id) {
@@ -8899,15 +8975,20 @@ async function openContratoModal(id) {
    'contrato-clausulas', 'contrato-obs', 'contrato-motivo-status'].forEach(f => $(f).value = '');
   $('contrato-status').value = 'rascunho';
   $('contrato-prazo').value = '30';
-  $('contrato-vencimento').value = '5';
-  $('contrato-taxa-adm').value = '10';
-  $('contrato-reajuste-indice').value = 'ipca';
-  $('contrato-reajuste-periodicidade').value = 'anual';
+  // Aplica padrões do tenant (Configurações → Padrões operacionais)
+  const padroes = await getPadroesTenant();
+  $('contrato-vencimento').value = String(padroes.diaVencimento || 5);
+  $('contrato-taxa-adm').value = String(padroes.taxaAdm || 10);
+  // Mapeia índice IPCA/IGP-M/INPC do select de Padrões pro select do contrato (lowercase)
+  const indiceMap = { 'IPCA': 'ipca', 'IGP-M': 'igpm', 'INPC': 'inpc' };
+  $('contrato-reajuste-indice').value = indiceMap[padroes.indiceReajuste] || 'ipca';
+  $('contrato-reajuste-periodicidade').value = (padroes.periodicidadeReajuste || 12) >= 12 ? 'anual' : 'semestral';
   $('contrato-primeiro-aluguel-escritorio').checked = false;
   $('contrato-inadimplente').checked = false;
   $('contrato-imovel-info').style.display = 'none';
   $('contrato-locatario-info').style.display = 'none';
-  $('contrato-multa-info').textContent = 'Sugerido: 3× o aluguel';
+  const multaSug = padroes.multaRescisoria || 3;
+  $('contrato-multa-info').textContent = `Sugerido: ${multaSug}× o aluguel`;
 
   // Invalida caches pra pegar entidades atualizadas
   invalidateLocadoresCache();
@@ -9011,16 +9092,13 @@ async function renumerarRegistros(colecao) {
     return;
   }
   const label = colecao === 'contratos' ? 'Contratos' : 'Negociações';
-  const confirma1 = confirm(
-    `⚠️ Renumerar TODOS os ${label}\n\n` +
-    `Esta ação:\n` +
-    `• Ordena os ${label.toLowerCase()} por data de criação\n` +
-    `• Atribui números 00001, 00002, 00003... em sequência\n` +
-    `• Sobrescreve os números atuais (NÃO é reversível)\n` +
-    `• Atualiza o contador pra próximas inserções\n\n` +
-    `Recomendação: fazer backup antes via Firebase Console.\n\n` +
-    `Quer continuar?`
-  );
+  const confirma1 = await confirmar({
+    titulo: `⚠️ Renumerar TODOS os ${label}?`,
+    mensagem: `Vai renumerar TODOS os ${label.toLowerCase()} do tenant.`,
+    detalhe: `<strong>Esta ação:</strong><br>• Ordena por data de criação<br>• Atribui números 00001, 00002, 00003… em sequência<br>• <strong>Sobrescreve</strong> os números atuais (NÃO é reversível)<br>• Atualiza o contador pra próximas inserções<br><br>💡 Recomendação: fazer backup antes via Firebase Console.`,
+    confirmar: 'Continuar',
+    perigo: true,
+  });
   if (!confirma1) return;
   const confirma2 = prompt(`Pra confirmar, digite RENUMERAR (maiúsculas):`);
   if (confirma2 !== 'RENUMERAR') {
@@ -9197,7 +9275,7 @@ async function syncImovelStatusFromContrato(imovelId, statusNovo, statusAnterior
 async function deleteContrato() {
   const id = $('contrato-id').value;
   if (!id) return;
-  if (!confirm('Excluir este contrato? Os documentos anexados também serão removidos. Esta ação não pode ser desfeita.')) return;
+  if (!(await confirmar({ titulo: 'Excluir contrato?', mensagem: 'Você está prestes a remover este contrato do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos<br>⚠️ Balancetes vinculados podem ficar órfãos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
     // Liberar imóvel se contrato vigente
@@ -9305,7 +9383,7 @@ async function uploadContratoDocs() {
 }
 
 async function deleteContratoDoc(contratoId, filename) {
-  if (!confirm(`Excluir o arquivo "${filename}"?`)) return;
+  if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`contratos/${contratoId}/${filename}`).delete();
     loadContratoDocs(contratoId);
@@ -9814,7 +9892,7 @@ async function confirmarImportacao() {
   const validas = rows.filter((_, i) => errosPorLinha[i].length === 0);
   if (validas.length === 0) { alert('Nenhuma linha válida pra importar.'); return; }
 
-  if (!confirm(`Importar ${validas.length} registro(s) de ${schema.label}? Esta ação não pode ser desfeita.`)) return;
+  if (!(await confirmar({ titulo: 'Confirmar importação?', mensagem: `Importar <strong>${validas.length}</strong> registro(s) de <strong>${escapeHtml(schema.label)}</strong> agora.`, detalhe: 'Esta ação <strong>não pode ser desfeita</strong>. Cada linha vira um documento permanente no Firestore.<br><br>💡 Se houver erros depois, edite ou exclua os registros um a um.', confirmar: '✓ Importar agora', aviso: true }))) return;
 
   const btn = $('btn-confirmar-import');
   btn.disabled = true; btn.textContent = 'Importando…';
@@ -10593,7 +10671,7 @@ async function savePerfil() {
 async function deletePerfil() {
   const id = $('perfil-id').value;
   if (!id) return;
-  if (!confirm('Excluir este perfil? Usuários vinculados voltarão ao padrão.')) return;
+  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Os usuários vinculados a ele perdem o perfil e voltam ao padrão (operador básico). Você pode reatribuir manualmente depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await tenantPath().collection('perfis').doc(id).delete();
     logAuditoria('delete', 'config', 'perfil:' + id);
@@ -10772,7 +10850,7 @@ async function saveUsuarioTenant() {
 
 async function toggleUsuarioAtivo(uid, novoAtivo) {
   const acao = novoAtivo ? 'reativar' : 'desativar';
-  if (!confirm(`Confirma ${acao} este usuário?`)) return;
+  if (!(await confirmar({ titulo: `${acao.charAt(0).toUpperCase() + acao.slice(1)} usuário?`, mensagem: `Confirma ${acao} este usuário do tenant?`, confirmar: `${acao.charAt(0).toUpperCase() + acao.slice(1)}`, aviso: true }))) return;
   try {
     await db.collection('users').doc(uid).update({ ativo: novoAtivo });
     logAuditoria('toggle_ativo', 'usuario', uid, { ativo: novoAtivo });
@@ -10948,7 +11026,7 @@ async function loadEquipeDRGUsuarios() {
 
 async function toggleDRGUsuarioAtivo(uid, novoAtivo) {
   const acao = novoAtivo ? 'reativar' : 'desativar';
-  if (!confirm(`Confirma ${acao} este membro da equipe DRG?`)) return;
+  if (!(await confirmar({ titulo: `${acao.charAt(0).toUpperCase() + acao.slice(1)} membro DRG?`, mensagem: `Confirma ${acao} este membro da equipe interna DRG?`, confirmar: `${acao.charAt(0).toUpperCase() + acao.slice(1)}`, aviso: true }))) return;
   try {
     await db.collection('users').doc(uid).update({ ativo: novoAtivo });
     logAuditoria('toggle_ativo', 'usuario_drg', uid, { ativo: novoAtivo });
@@ -11226,7 +11304,7 @@ async function deleteDRGPerfil() {
   if (!State.isDRGMaster) return;
   const id = $('drg-perfil-id').value;
   if (!id) return;
-  if (!confirm('Excluir este perfil DRG? Operadores vinculados voltarão ao padrão (apenas visualização).')) return;
+  if (!(await confirmar({ titulo: 'Excluir perfil DRG?', mensagem: 'Remover este perfil da equipe DRG.', detalhe: 'Os operadores DRG vinculados perdem o perfil e voltam ao padrão (apenas visualização). Você pode reatribuir manualmente.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await db.collection('drgPerfis').doc(id).delete();
     logAuditoria('delete', 'drg_perfil', id, {});
@@ -11473,7 +11551,7 @@ async function criarSubscriptionAsaas(tenantId) {
   if (!valor || valor <= 0) { showAlert('tenant-alert', 'Informe o valor mensal.'); return; }
   if (!dataVenc) { showAlert('tenant-alert', 'Informe a data do primeiro vencimento.'); return; }
 
-  if (!confirm(`Criar assinatura recorrente?\n\nValor: ${fmtBRL(valor)}/mês\nMétodo: ${billingType}\nPrimeiro vencimento: ${dataVenc}\n\nO cliente vai começar a receber cobranças automaticamente.`)) return;
+  if (!(await confirmar({ titulo: 'Criar assinatura recorrente?', mensagem: 'O cliente vai começar a receber cobranças automaticamente todo mês.', detalhe: `<strong>Valor:</strong> ${fmtBRL(valor)}/mês<br><strong>Método:</strong> ${escapeHtml(billingType)}<br><strong>Primeiro vencimento:</strong> ${escapeHtml(dataVenc)}`, confirmar: '💳 Criar assinatura', aviso: true }))) return;
 
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
@@ -11526,7 +11604,7 @@ async function reajustarSubscriptionAsaas(tenantId) {
     const novoValor = parseFloat(novoValorStr.replace(',', '.'));
     if (!novoValor || novoValor <= 0) { alert('Valor inválido.'); return; }
 
-    const aplicarPendentes = confirm(`Aplicar também a cobranças JÁ GERADAS mas ainda PENDENTES?\n\nOK = sim (cliente recebe nova cobrança com valor reajustado)\nCancelar = não (só vale a partir do próximo ciclo)`);
+    const aplicarPendentes = await confirmar({ titulo: 'Aplicar a cobranças pendentes?', mensagem: 'O reajuste deve afetar também as cobranças já geradas mas ainda não pagas?', detalhe: '<strong>Sim:</strong> cliente recebe nova cobrança com valor reajustado, substituindo as pendentes<br><strong>Não:</strong> só vale a partir do próximo ciclo (próximo mês)', confirmar: 'Sim, reaplicar pendentes', cancelar: 'Não, só próximo ciclo' });
 
     const result = await chamarAsaas('PUT', `/subscriptions/${t.asaas.subscriptionId}`, {
       value: novoValor,
@@ -11581,7 +11659,7 @@ async function cobrancaAvulsaAsaas(tenantId) {
     const metodo = prompt('Método (PIX, BOLETO, CREDIT_CARD ou UNDEFINED = cliente escolhe):', 'PIX');
     if (!metodo) return;
 
-    if (!confirm(`Confirmar cobrança avulsa?\n\nCliente: ${t.nome}\nDescrição: ${descricao}\nValor: ${fmtBRL(valor)}\nVencimento: ${fmtDataBR(dataVenc)}\nMétodo: ${metodo.toUpperCase()}\n\nO cliente vai receber por e-mail.`)) return;
+    if (!(await confirmar({ titulo: 'Cobrança avulsa?', mensagem: 'O cliente vai receber a fatura por e-mail.', detalhe: `<strong>Cliente:</strong> ${escapeHtml(t.nome)}<br><strong>Descrição:</strong> ${escapeHtml(descricao)}<br><strong>Valor:</strong> ${fmtBRL(valor)}<br><strong>Vencimento:</strong> ${fmtDataBR(dataVenc)}<br><strong>Método:</strong> ${escapeHtml(metodo.toUpperCase())}`, confirmar: '💰 Gerar cobrança', aviso: true }))) return;
 
     const result = await chamarAsaas('POST', '/payments', {
       customer: t.asaas.customerId,
@@ -12976,9 +13054,9 @@ async function importarContratoPorIA(tipoHint) {
   $('modal-importar-contrato').style.display = 'flex';
 }
 
-function fecharImportarContrato() {
+async function fecharImportarContrato() {
   if (_importContrato && _importContrato.dadosIA && !_importContrato.contratoCriadoId) {
-    if (!confirm('Descartar os dados extraídos? O contrato NÃO será salvo.')) return;
+    if (!(await confirmar({ titulo: 'Descartar dados extraídos?', mensagem: 'A IA leu o contrato e extraiu os dados, mas você está fechando antes de salvar.', detalhe: '<strong>O contrato NÃO será salvo</strong> no sistema. Você pode reimportar o mesmo arquivo se mudar de ideia.', confirmar: 'Descartar', aviso: true }))) return;
   }
   $('modal-importar-contrato').style.display = 'none';
   _importContrato = null;
@@ -13083,7 +13161,7 @@ async function processarArquivoContrato(file) {
     if (detectado && hint && detectado !== hint) {
       const detectadoLabel = detectado === 'locacao' ? 'LOCAÇÃO' : 'VENDA';
       const hintLabel = hint === 'locacao' ? 'locação' : 'venda';
-      const ok = confirm(`⚠️ Conflito detectado.\n\nVocê clicou em "Importar contrato" na seção de ${hintLabel}, mas a IA identificou este documento como um contrato de ${detectadoLabel}.\n\nClique OK para seguir com ${detectadoLabel} (recomendado) ou Cancelar para abortar.`);
+      const ok = await confirmar({ titulo: '⚠️ Conflito de tipo de contrato', mensagem: `A IA identificou este documento como contrato de <strong>${detectadoLabel}</strong>, mas você clicou em "Importar" na seção de <strong>${hintLabel}</strong>.`, detalhe: `<strong>Seguir com ${detectadoLabel}</strong> é o recomendado — usa o que a IA detectou no conteúdo real do PDF.`, confirmar: `Usar ${detectadoLabel}`, cancelar: 'Abortar', aviso: true });
       if (!ok) {
         $('importar-contrato-progress').style.display = 'none';
         return;
@@ -14732,7 +14810,7 @@ async function legisDispararCheck() {
   const url = $('cfg-worker-legis-url').value.trim();
   const box = $('legis-status');
   if (!url) { box.innerHTML = '<span style="color:#b91c1c;">Informe a URL primeiro.</span>'; box.style.display = 'block'; return; }
-  if (!confirm('Disparar verificação imediata? Pode levar 30-60 segundos para responder.')) return;
+  if (!(await confirmar({ titulo: 'Disparar verificação imediata?', mensagem: 'O monitor legislativo vai consultar todas as URLs configuradas agora.', detalhe: 'Pode levar <strong>30 a 60 segundos</strong> pra responder. O monitor automático já roda diariamente — use esta opção pra teste ou check pontual.', confirmar: '⚡ Verificar agora', aviso: true }))) return;
   box.style.display = 'block';
   box.innerHTML = '⏳ Verificando agora… (pode levar 30-60s)';
   try {
@@ -14834,8 +14912,8 @@ function legisAddUrl() {
   renderLegisUrlsLista();
 }
 
-function legisRemoverUrl(idx) {
-  if (!confirm(`Remover a URL "${_legisUrlsEditor.urls[idx]?.nome || idx + 1}" da lista?`)) return;
+async function legisRemoverUrl(idx) {
+  if (!(await confirmar({ titulo: 'Remover URL monitorada?', mensagem: `Tirar <strong>${escapeHtml(_legisUrlsEditor.urls[idx]?.nome || `URL #${idx + 1}`)}</strong> da lista de monitoramento.`, detalhe: 'A URL para de ser checada pela rotina diária. Você pode adicionar de novo a qualquer momento.', confirmar: '🗑 Remover', perigo: true }))) return;
   _legisUrlsEditor.urls.splice(idx, 1);
   _legisUrlsEditor.dirty = true;
   renderLegisUrlsLista();
@@ -14875,7 +14953,7 @@ async function legisSalvarUrls() {
 }
 
 async function legisRestaurarUrls() {
-  if (!confirm('Restaurar URLs padrão (hardcoded)? A lista customizada será removida do KV.')) return;
+  if (!(await confirmar({ titulo: 'Restaurar URLs padrão?', mensagem: 'A lista customizada será apagada do KV e o monitor passa a usar apenas as URLs hardcoded no Worker.', detalhe: 'Você perde suas adições. Pode recadastrar manualmente depois.', confirmar: '↻ Restaurar padrão', aviso: true }))) return;
   const SID = 'legis-urls-status';
   try {
     const workerUrl = legisWorkerUrlNormalizada();
@@ -15046,7 +15124,7 @@ async function carregarPergEditor() {
 
 async function trocarTabPerguntas(tab) {
   if (_pergEditor.dirty) {
-    if (!confirm('Há alterações não salvas. Trocar de aba mesmo assim?')) return;
+    if (!(await confirmar({ titulo: 'Trocar sem salvar?', mensagem: 'Você tem alterações não salvas nesta aba.', detalhe: 'Se trocar de aba agora, as alterações pendentes serão <strong>perdidas</strong>. Salve antes pra preservar.', confirmar: 'Trocar mesmo assim', cancelar: 'Voltar', aviso: true }))) return;
   }
   _pergEditor.tab = tab;
   _pergEditor.dirty = false;
@@ -15200,7 +15278,7 @@ async function pergSalvar() {
 }
 
 async function pergRestaurarPadrao() {
-  if (!confirm(`Restaurar perguntas padrão da modalidade "${_pergEditor.tab}"?\n\nTodas as customizações desta aba serão perdidas.`)) return;
+  if (!(await confirmar({ titulo: 'Restaurar perguntas padrão?', mensagem: `Voltar as perguntas da modalidade <strong>${escapeHtml(_pergEditor.tab)}</strong> ao padrão de fábrica.`, detalhe: 'Todas as customizações desta aba serão <strong>perdidas</strong>. Você pode customizar de novo a qualquer momento.', confirmar: '↻ Restaurar padrão', aviso: true }))) return;
   try {
     await tenantPath().collection('elabPerguntas').doc(_pergEditor.tab).delete().catch(() => {});
     _perguntasOverridesCache = null;
@@ -15311,7 +15389,7 @@ async function tplSalvar() {
 }
 
 async function tplRestaurarPadrao() {
-  if (!confirm('Restaurar o template padrão? A customização atual será apagada.')) return;
+  if (!(await confirmar({ titulo: 'Restaurar template padrão?', mensagem: 'O template atual será apagado e voltará ao padrão de fábrica.', detalhe: 'Você perde suas customizações. Pode customizar de novo a qualquer momento.', confirmar: '↻ Restaurar', aviso: true }))) return;
   if (!State.tenant) { alert('Selecione um tenant antes.'); return; }
   const tab = _tplEditor.tabAtual;
   try {

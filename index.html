@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514am">
+  <link rel="stylesheet" href="styles.css?v=20260514an">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1538,6 +1538,94 @@
               <button class="btn btn-secondary btn-sm" type="button" onclick="renumerarRegistros('negociacoes')">
                 🔢 Renumerar Negociações
               </button>
+            </div>
+
+            <h4 class="form-section-title">🎛 Padrões operacionais</h4>
+            <div style="background:linear-gradient(135deg, #ECFEFF, #CFFAFE); border:1px solid #67E8F9; border-radius:8px; padding:14px; margin-bottom:14px;">
+              <p style="margin:0 0 6px; color:#0E7490; font-size:13px;">
+                <strong>⚙ Valores-padrão da operação</strong>
+              </p>
+              <p style="margin:0; color:var(--text-muted); font-size:12px; line-height:1.5;">
+                Esses valores são <strong>sugeridos automaticamente</strong> em novos contratos, balancetes e cobranças. Você pode sobrescrever caso a caso, mas configurar aqui economiza tempo.
+              </p>
+            </div>
+
+            <h5 style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin: 12px 0 8px;">💼 Administração e contratos</h5>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Taxa de administração padrão (%)</label>
+                <input type="number" id="cfg-taxa-adm-padrao" min="0" max="100" step="0.1" placeholder="10" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Sugerido em novos contratos. Padrão de mercado: 8-12%.</span>
+              </div>
+              <div class="form-group">
+                <label>Multa rescisória padrão (meses de aluguel)</label>
+                <input type="number" id="cfg-multa-rescisoria" min="0" max="12" step="1" placeholder="3" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Lei 8.245/91, art. 4º — proporcional ao tempo restante.</span>
+              </div>
+              <div class="form-group">
+                <label>Comissão de captação (meses de aluguel)</label>
+                <input type="number" id="cfg-comissao-captacao" min="0" max="3" step="0.1" placeholder="1" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Para captadores externos. 1 = primeiro aluguel inteiro.</span>
+              </div>
+            </div>
+
+            <h5 style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin: 14px 0 8px;">💰 Cobrança mensal</h5>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Dia padrão de vencimento (1-28)</label>
+                <input type="number" id="cfg-dia-vencimento" min="1" max="28" step="1" placeholder="10" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Sugerido nos boletos do Asaas. Evite 29-31 (mês curto).</span>
+              </div>
+              <div class="form-group">
+                <label>Dia de fechamento do balancete (1-28)</label>
+                <input type="number" id="cfg-dia-fechamento-balancete" min="1" max="28" step="1" placeholder="5" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Dia em que o balancete do mês anterior é enviado ao locador.</span>
+              </div>
+              <div class="form-group">
+                <label>Carência antes de juros/multa (dias)</label>
+                <input type="number" id="cfg-carencia-mora" min="0" max="15" step="1" placeholder="0" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Dias após vencimento sem cobrar mora. 0 = começa no dia seguinte.</span>
+              </div>
+            </div>
+
+            <h5 style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin: 14px 0 8px;">⚖ Encargos sobre atraso (cobrança de débito)</h5>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Multa por atraso (% sobre o valor)</label>
+                <input type="number" id="cfg-multa-atraso" min="0" max="20" step="0.1" placeholder="2" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Padrão Lei do Inquilinato: até 10% (média 2%).</span>
+              </div>
+              <div class="form-group">
+                <label>Juros de mora (% ao mês)</label>
+                <input type="number" id="cfg-juros-mora" min="0" max="10" step="0.01" placeholder="1" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">CC art. 406. Padrão de mercado: 1% a.m. (proporcional aos dias).</span>
+              </div>
+              <div class="form-group">
+                <label>Honorários sobre cobrança em atraso (%)</label>
+                <input type="number" id="cfg-honorarios-cobranca" min="0" max="30" step="0.1" placeholder="10" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">Cobrança extrajudicial. Padrão: 10-20%.</span>
+              </div>
+            </div>
+
+            <h5 style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; margin: 14px 0 8px;">🏷 Correção monetária</h5>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Índice de reajuste padrão</label>
+                <select id="cfg-indice-reajuste" onchange="saveConfigImobiliaria()">
+                  <option value="">— Selecione —</option>
+                  <option value="IPCA">IPCA (IBGE — mais comum, oficial)</option>
+                  <option value="IGP-M">IGP-M (FGV — usado em muitos contratos antigos)</option>
+                  <option value="INPC">INPC (IBGE — inflação ao consumidor)</option>
+                  <option value="ICC">ICC (Custo da Construção)</option>
+                  <option value="OUTRO">Outro / definido caso a caso</option>
+                </select>
+                <span class="muted" style="font-size:11px;">Sugerido em novos contratos. Aplicação anual (aniversário).</span>
+              </div>
+              <div class="form-group">
+                <label>Periodicidade do reajuste (meses)</label>
+                <input type="number" id="cfg-periodicidade-reajuste" min="1" max="36" step="1" placeholder="12" oninput="saveConfigImobiliaria()">
+                <span class="muted" style="font-size:11px;">12 = anual (padrão legal). Não pode ser menor que 12 por lei.</span>
+              </div>
             </div>
 
             <h4 class="form-section-title">Cláusulas padrão dos contratos</h4>
@@ -4517,6 +4605,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514am"></script>
+  <script src="app.js?v=20260514an"></script>
 </body>
 </html>
