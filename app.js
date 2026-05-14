@@ -693,7 +693,7 @@ function aplicarMarcaContexto() {
   }
 }
 
-function renderApp() {
+async function renderApp() {
   aplicarMarcaContexto();
   $('user-name').textContent = State.userDoc?.nome || State.user?.email || '—';
   $('footer-version').textContent = `v${APP_VERSION}`;
@@ -709,6 +709,10 @@ function renderApp() {
     if (mod === 'superadmin') return; // já tratado acima
     el.style.display = userPodeVerModulo(mod) ? 'flex' : 'none';
   });
+
+  // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
+  await applySidebarOrder();
+  enableSidebarDnD();
 
   // Se a seção atual não é permitida, manda pro dashboard
   if (State.currentSection && !userPodeVerModulo(State.currentSection)) {
@@ -769,7 +773,7 @@ function showSection(name, _opts = {}) {
 
   const titles = {
     dashboard: 'Dashboard',
-    locadores: 'Locadores',
+    locadores: 'Locadores / Vendedores',
     locatarios: 'Locatários',
     garantias: 'Garantias',
     imoveis: 'Imóveis',
@@ -1494,6 +1498,134 @@ function enableDashboardDnD() {
   });
 
   _dndCardEnabled = true;
+}
+
+// =============================================================
+// Sidebar — drag & drop pra reordenar itens do menu
+// =============================================================
+let _dndSidebarEnabled = false;
+
+function enableSidebarDnD() {
+  if (_dndSidebarEnabled) return;
+
+  document.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
+    let dragged = null;
+    let startedAt = 0;
+
+    group.querySelectorAll('.nav-link').forEach(link => {
+      link.setAttribute('draggable', 'true');
+
+      link.addEventListener('dragstart', (e) => {
+        dragged = link;
+        startedAt = Date.now();
+        link.classList.add('dragging-nav');
+        try {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', link.dataset.section || '');
+        } catch (_) {}
+      });
+
+      link.addEventListener('dragend', () => {
+        if (dragged) dragged.classList.remove('dragging-nav');
+        dragged = null;
+        group.querySelectorAll('.nav-link').forEach(l => l.classList.remove('drag-over-nav'));
+      });
+
+      link.addEventListener('dragover', (e) => {
+        if (!dragged || dragged === link) return;
+        // Só permite drop no mesmo grupo
+        if (link.parentElement !== dragged.parentElement) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        link.classList.add('drag-over-nav');
+      });
+
+      link.addEventListener('dragleave', () => {
+        link.classList.remove('drag-over-nav');
+      });
+
+      link.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        link.classList.remove('drag-over-nav');
+        if (!dragged || dragged === link) return;
+        if (link.parentElement !== dragged.parentElement) return;
+
+        // Decide inserir antes ou depois baseado na posição vertical
+        const rect = link.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        if (insertBefore) {
+          group.insertBefore(dragged, link);
+        } else {
+          group.insertBefore(dragged, link.nextSibling);
+        }
+        saveSidebarOrder();
+      });
+
+      // Bloqueia click logo após drag pra não navegar acidentalmente
+      link.addEventListener('click', (e) => {
+        if (Date.now() - startedAt < 250) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }, true);
+    });
+  });
+
+  _dndSidebarEnabled = true;
+}
+
+async function saveSidebarOrder() {
+  if (!State.user) return;
+  const sidebarOrder = {};
+  document.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
+    const key = group.dataset.navGroup;
+    const items = Array.from(group.querySelectorAll('.nav-link'))
+      .map(l => l.dataset.section || l.id || '')
+      .filter(Boolean);
+    sidebarOrder[key] = items;
+  });
+  try {
+    await db.collection('users').doc(State.user.uid).set({
+      sidebarOrder,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+  } catch (err) {
+    console.error('Erro ao salvar ordem da sidebar:', err);
+  }
+}
+
+async function applySidebarOrder() {
+  if (!State.user) return;
+  try {
+    const snap = await db.collection('users').doc(State.user.uid).get();
+    if (!snap.exists) return;
+    const data = snap.data() || {};
+    const order = data.sidebarOrder;
+    if (!order || typeof order !== 'object') return;
+
+    Object.entries(order).forEach(([groupKey, items]) => {
+      if (!Array.isArray(items)) return;
+      const group = document.querySelector(`.nav-group[data-nav-group="${groupKey}"]`);
+      if (!group) return;
+      const links = Array.from(group.querySelectorAll('.nav-link'));
+      const byKey = {};
+      links.forEach(l => {
+        const key = l.dataset.section || l.id || '';
+        if (key) byKey[key] = l;
+      });
+      // Reordena: primeiro os que estão na ordem salva, depois novos
+      items.forEach(key => {
+        if (byKey[key]) {
+          group.appendChild(byKey[key]);
+          delete byKey[key];
+        }
+      });
+      // Restantes (novos não previstos) ficam no final (já estão lá)
+    });
+  } catch (err) {
+    console.error('Erro ao aplicar ordem da sidebar:', err);
+  }
 }
 
 async function saveDashboardOrder() {

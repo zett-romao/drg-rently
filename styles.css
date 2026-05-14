@@ -357,6 +357,41 @@ label.required::after {
   color: rgba(255,255,255,0.5);
 }
 
+/* Drag & drop dos itens do menu lateral */
+.nav-link[draggable="true"] {
+  cursor: grab;
+}
+.nav-link[draggable="true"]:active {
+  cursor: grabbing;
+}
+.nav-link.dragging-nav {
+  opacity: 0.45;
+  transform: scale(0.97);
+  border-style: dashed;
+}
+.nav-link.drag-over-nav {
+  border-color: rgba(96, 165, 250, 0.8);
+  box-shadow:
+    0 0 0 2px rgba(96, 165, 250, 0.25),
+    0 4px 10px rgba(0,0,0,0.40);
+}
+.nav-group {
+  position: relative;
+}
+.nav-group .drag-hint {
+  font-size: 10px;
+  color: rgba(255,255,255,0.35);
+  margin: 2px 6px 0;
+  font-style: italic;
+  user-select: none;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.nav-group:hover .drag-hint {
+  opacity: 1;
+}
+
 .main {
   flex: 1;
   display: flex;
