@@ -4430,11 +4430,32 @@ function addLancamento(bloco) {
 }
 
 function removeLanc(id) {
-  if (!confirm('Remover este lançamento?')) return;
+  console.log('[removeLanc] chamado com id:', id, '— total atual:', _balanceteLancamentos.length);
+  if (!confirm('Remover este lançamento?')) {
+    console.log('[removeLanc] usuário cancelou no confirm');
+    return;
+  }
+  const antes = _balanceteLancamentos.length;
   _balanceteLancamentos = _balanceteLancamentos.filter(l => l.id !== id);
+  console.log('[removeLanc] após filter:', antes, '→', _balanceteLancamentos.length);
   renderLancamentos();
   recalcBalancete();
 }
+
+// Expor funções de edição de lançamentos pro onclick inline (defesa em profundidade)
+// Algumas dessas funções são definidas DEPOIS deste ponto no arquivo — usamos
+// setTimeout pra esperar todo o script ser parseado antes da atribuição.
+setTimeout(() => {
+  window.removeLanc = removeLanc;
+  window.addLancamento = addLancamento;
+  window.updateLanc = updateLanc;
+  if (typeof uploadLancComprovante === 'function') window.uploadLancComprovante = uploadLancComprovante;
+  if (typeof abrirLancComprovante === 'function') window.abrirLancComprovante = abrirLancComprovante;
+  if (typeof toggleMultiLancar === 'function') window.toggleMultiLancar = toggleMultiLancar;
+  if (typeof toggleVincularContrato === 'function') window.toggleVincularContrato = toggleVincularContrato;
+  if (typeof updateMultiCampo === 'function') window.updateMultiCampo = updateMultiCampo;
+  if (typeof atualizarContadorMulti === 'function') window.atualizarContadorMulti = atualizarContadorMulti;
+}, 0);
 
 // Estado: ids dos lançamentos sobre os quais a taxa incide (modo "selecionadas")
 let _balanceteTaxaIncideIds = new Set();
