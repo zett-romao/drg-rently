@@ -1882,8 +1882,7 @@ async function loadDashboard() {
   const ids = ['stat-locadores', 'stat-locatarios', 'stat-imoveis-alugados',
                'stat-imoveis-disponiveis', 'stat-imoveis-venda',
                'stat-contratos-vigentes', 'stat-garantias-ativas', 'stat-negociacoes',
-               'stat-balancetes-mes', 'stat-contratos-atrasados',
-               'stat-ia-contratos', 'stat-ia-comprovantes'];
+               'stat-balancetes-mes', 'stat-contratos-atrasados'];
   ids.forEach(id => { const el = $(id); if (el) el.textContent = '…'; });
 
   if (!State.tenant) return;
@@ -1939,18 +1938,6 @@ async function loadDashboard() {
       if (el) el.textContent = '—';
     }
 
-    // Stats IA do mês (não bloqueia o dashboard se falhar)
-    try {
-      const stats = await contarUsosIaDoMes(contratosSnap, negociacoesSnap, balancetesMesSnap);
-      const elC = $('stat-ia-contratos');
-      const elP = $('stat-ia-comprovantes');
-      if (elC) elC.textContent = stats.contratosIa;
-      if (elP) elP.textContent = stats.comprovantesIa;
-    } catch (e) {
-      console.warn('Erro ao contar stats IA:', e);
-      const elC = $('stat-ia-contratos'); if (elC) elC.textContent = '—';
-      const elP = $('stat-ia-comprovantes'); if (elP) elP.textContent = '—';
-    }
   } catch (err) {
     console.error('Erro ao carregar dashboard:', err);
     ids.forEach(id => { const el = $(id); if (el) el.textContent = '—'; });
