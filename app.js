@@ -808,14 +808,20 @@ function showSection(name, _opts = {}) {
 
   const titles = {
     dashboard: 'Dashboard',
+    alertas: 'Alertas',
+    relatorios: 'Relatórios',
     locadores: 'Locadores / Vendedores',
     locatarios: 'Locatários',
+    compradores: 'Compradores',
     garantias: 'Garantias',
     imoveis: 'Imóveis',
     'elab-contrato': 'Elaborar contrato',
     contratos: 'Contratos',
+    negociacoes: 'Negociações',
     balancetes: 'Balancetes Mensais',
     portais: 'Portais Imobiliários',
+    importacao: 'Importação em massa (CSV)',
+    auditoria: 'Auditoria',
     superadmin: 'Super Admin — Tenants',
     configuracoes: 'Configurações',
   };
@@ -9320,7 +9326,26 @@ function parseCSV(text) {
   return { header, rows };
 }
 
+// Sincroniza os 2 inputs: cards radio (UI nova) e select hidden (código legado)
 function onImportTipoChange() {
+  // Lê do radio se vier de clique nos cards, senão do select hidden
+  const radio = document.querySelector('input[name="import-tipo-radio"]:checked');
+  if (radio) {
+    const sel = $('import-tipo');
+    if (sel && sel.value !== radio.value) sel.value = radio.value;
+  } else {
+    // Caso o select hidden seja alterado por outro caminho, sincroniza o radio
+    const sel = $('import-tipo');
+    if (sel) {
+      const r = document.querySelector(`input[name="import-tipo-radio"][value="${sel.value}"]`);
+      if (r) r.checked = true;
+    }
+  }
+  // Atualiza o label do botão "Baixar template" pra refletir o tipo selecionado
+  const tipo = $('import-tipo')?.value || 'locadores';
+  const labels = { locadores: 'Locadores/Vendedores', locatarios: 'Locatários', imoveis: 'Imóveis' };
+  const lbl = $('import-tipo-label');
+  if (lbl) lbl.textContent = labels[tipo] || tipo;
   cancelarImportacao();
 }
 
@@ -9348,6 +9373,21 @@ async function processarArquivoImport() {
   const tipo = $('import-tipo').value;
   const sch = IMPORT_SCHEMAS[tipo];
   if (!sch) return;
+
+  // Atualiza UI do "arquivo selecionado" (esconde dropzone, mostra card verde)
+  const info = document.getElementById('import-arquivo-info');
+  const dropzone = document.getElementById('import-dropzone');
+  if (info && dropzone) {
+    const nomeEl = document.getElementById('import-arquivo-nome');
+    const metaEl = document.getElementById('import-arquivo-meta');
+    if (nomeEl) nomeEl.textContent = file.name;
+    if (metaEl) {
+      const kb = (file.size / 1024).toFixed(1);
+      metaEl.textContent = `${kb} KB · ${new Date(file.lastModified).toLocaleString('pt-BR')}`;
+    }
+    dropzone.style.display = 'none';
+    info.style.display = 'flex';
+  }
 
   const text = await file.text();
   const { header, rows } = parseCSV(text);
@@ -9410,8 +9450,15 @@ function renderImportPreview() {
 
 function cancelarImportacao() {
   _importParsed = null;
-  $('import-preview-container').style.display = 'none';
-  $('import-arquivo').value = '';
+  const prev = $('import-preview-container');
+  if (prev) prev.style.display = 'none';
+  const arq = $('import-arquivo');
+  if (arq) arq.value = '';
+  // Volta o dropzone visível e esconde o card de arquivo
+  const dropzone = document.getElementById('import-dropzone');
+  const info = document.getElementById('import-arquivo-info');
+  if (dropzone) dropzone.style.display = 'block';
+  if (info) info.style.display = 'none';
 }
 
 async function confirmarImportacao() {
@@ -12303,6 +12350,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mostra/esconde botão de login com biometria conforme suporte
   atualizarBotaoBiometria();
+
+  // Drag & drop no dropzone de importação CSV
+  const importDropzone = document.getElementById('import-dropzone');
+  if (importDropzone) {
+    ['dragenter', 'dragover'].forEach(ev => {
+      importDropzone.addEventListener(ev, (e) => {
+        if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        importDropzone.classList.add('is-dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+      importDropzone.addEventListener(ev, (e) => {
+        if (e.target !== importDropzone && importDropzone.contains(e.target) && ev === 'dragleave') return;
+        importDropzone.classList.remove('is-dragover');
+      });
+    });
+    importDropzone.addEventListener('drop', async (e) => {
+      if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const file = Array.from(e.dataTransfer.files || []).find(f => /\.csv$/i.test(f.name) || /csv/i.test(f.type));
+      if (!file) { alert('Solte um arquivo CSV.'); return; }
+      const input = document.getElementById('import-arquivo');
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      await processarArquivoImport();
+    });
+  }
   $('link-show-signup').addEventListener('click', () => {
     clearAlert('signup-alert');
     showScreen('screen-signup');

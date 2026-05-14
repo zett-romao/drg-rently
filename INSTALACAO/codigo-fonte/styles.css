@@ -920,6 +920,150 @@ label.required::after {
 }
 
 /* =========================================================
+   IMPORTAÇÃO CSV — passos guiados (4 etapas)
+   ========================================================= */
+.import-passo {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 18px;
+  background: #FFFFFF;
+}
+.import-passo-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.import-passo-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.import-passo-header strong {
+  font-size: 15px;
+  color: var(--text);
+}
+
+/* Grid de cards pra escolher tipo de registro */
+.import-tipos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.import-tipo-card {
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: white;
+  position: relative;
+  display: block;
+}
+.import-tipo-card input[type="radio"] {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.import-tipo-card:hover {
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+.import-tipo-card:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 0 0 2px rgba(71, 85, 105, 0.2);
+}
+.import-tipo-emoji {
+  font-size: 32px;
+  margin-bottom: 6px;
+}
+.import-tipo-titulo {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.import-tipo-desc {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+/* Dropzone de upload do CSV */
+.import-dropzone {
+  border: 2px dashed #94A3B8;
+  border-radius: 12px;
+  padding: 36px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
+}
+.import-dropzone:hover,
+.import-dropzone.is-dragover {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  transform: scale(1.01);
+}
+.import-dropzone-icone {
+  font-size: 42px;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+.import-dropzone-titulo {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.import-dropzone-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Card de arquivo selecionado (pós-upload) */
+.import-arquivo-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--success-light);
+  border: 1.5px solid #86EFAC;
+  border-radius: 10px;
+  margin-top: 10px;
+}
+.import-arquivo-info-icone {
+  font-size: 30px;
+  line-height: 1;
+}
+.import-arquivo-info-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.import-arquivo-info-body strong {
+  font-size: 14px;
+  color: #166534;
+  word-break: break-all;
+}
+
+/* =========================================================
    IA Dropzone — upload de documento pra autopreencher cadastros
    ========================================================= */
 .ia-dropzone-card {
