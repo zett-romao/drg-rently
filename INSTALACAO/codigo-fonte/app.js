@@ -2343,9 +2343,8 @@ function asaasHeaders(token) {
 }
 
 async function testarAsaasTenant() {
-  const statusEl = $('asaas-tenant-status');
-  statusEl.textContent = '🔄 Testando…';
-  statusEl.style.color = 'var(--text-muted)';
+  const SID = 'asaas-tenant-status';
+  showInlineStatus(SID, '🔄 Testando…', 'loading');
   try {
     const { url, token } = await getCfgAsaas();
     if (!url) throw new Error('URL do Worker Asaas não configurada.');
@@ -2353,18 +2352,15 @@ async function testarAsaasTenant() {
     const res = await fetch(`${url}/tenant/health`, { headers: asaasHeaders(token) });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Chave inválida');
-    statusEl.textContent = `✅ ${data.account.name} (${data.ambiente}) — chave válida.`;
-    statusEl.style.color = 'var(--success)';
+    showInlineStatus(SID, `✅ <strong>${data.account.name}</strong> (${data.ambiente}) — chave válida.`, 'success');
   } catch (err) {
-    statusEl.textContent = `❌ ${err.message}`;
-    statusEl.style.color = 'var(--danger)';
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
   }
 }
 
 async function verSaldoAsaas() {
-  const statusEl = $('asaas-tenant-status');
-  statusEl.textContent = '🔄 Consultando saldo…';
-  statusEl.style.color = 'var(--text-muted)';
+  const SID = 'asaas-tenant-status';
+  showInlineStatus(SID, '🔄 Consultando saldo…', 'loading');
   try {
     const { url, token } = await getCfgAsaas();
     if (!url || !token) throw new Error('Configure URL e chave Asaas primeiro.');
@@ -2372,11 +2368,9 @@ async function verSaldoAsaas() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Erro ao consultar saldo');
     const saldo = data.balance.balance || 0;
-    statusEl.innerHTML = `💰 Saldo disponível: <strong>${fmtBRL(saldo)}</strong>`;
-    statusEl.style.color = 'var(--success)';
+    showInlineStatus(SID, `💰 Saldo disponível: <strong>${fmtBRL(saldo)}</strong>`, 'success');
   } catch (err) {
-    statusEl.textContent = `❌ ${err.message}`;
-    statusEl.style.color = 'var(--danger)';
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
   }
 }
 
@@ -11369,24 +11363,26 @@ function assertionToJson(cred) {
 // Cadastrar nova passkey (usuário precisa estar logado)
 // =============================================================
 async function passkeyCadastrar() {
+  const SID = 'passkey-status';
   if (!State.user) {
-    showAlert('cfg-alert', 'Faça login antes de cadastrar uma passkey.');
+    showInlineStatus(SID, 'Faça login antes de cadastrar uma passkey.', 'error');
     return;
   }
   const supported = await isPasskeySupported();
   if (!supported) {
-    showAlert('cfg-alert', 'Seu dispositivo não suporta biometria. Configure Windows Hello / TouchID / FaceID primeiro.');
+    showInlineStatus(SID, 'Seu dispositivo não suporta biometria. Configure Windows Hello / TouchID / FaceID primeiro.', 'error');
     return;
   }
 
   const url = getPasskeyWorkerUrl();
   if (!url) {
-    showAlert('cfg-alert', 'URL do Worker Passkey não configurada.');
+    showInlineStatus(SID, 'URL do Worker Passkey não configurada.', 'error');
     return;
   }
 
   const btn = document.getElementById('btn-cadastrar-passkey');
   if (btn) { btn.disabled = true; btn.textContent = 'Cadastrando…'; }
+  showInlineStatus(SID, '🔄 Iniciando cadastro…', 'loading');
 
   try {
     // 1. Pede options ao Worker
@@ -11419,11 +11415,11 @@ async function passkeyCadastrar() {
     const completeData = await completeResp.json();
     if (!completeData.ok) throw new Error(completeData.error || 'Erro no /register/complete');
 
-    showAlert('cfg-alert', '✅ Passkey cadastrada com sucesso! Use "Entrar com biometria" no próximo login.', 'success');
+    showInlineStatus('passkey-status', '✅ Passkey cadastrada com sucesso! Use "Entrar com biometria" no próximo login.', 'success', 8000);
     await carregarPasskeysList();
   } catch (e) {
     console.error('Erro ao cadastrar passkey:', e);
-    showAlert('cfg-alert', `Erro: ${e.message}`);
+    showInlineStatus('passkey-status', `❌ ${e.message}`, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '🔐 Cadastrar biometria neste dispositivo'; }
   }
@@ -11525,6 +11521,8 @@ async function carregarPasskeysList() {
 async function passkeyRemover(credId) {
   if (!confirm('Remover esta passkey? Você não poderá mais logar com biometria deste dispositivo.')) return;
   const url = getPasskeyWorkerUrl();
+  const SID = 'passkey-status';
+  showInlineStatus(SID, '🔄 Removendo…', 'loading');
   try {
     const resp = await fetch(`${url.replace(/\/+$/, '')}/credentials/${encodeURIComponent(credId)}`, {
       method: 'DELETE',
@@ -11533,11 +11531,11 @@ async function passkeyRemover(credId) {
     });
     const data = await resp.json();
     if (!data.ok) throw new Error(data.error);
-    showAlert('cfg-alert', 'Passkey removida.', 'success');
+    showInlineStatus(SID, '✅ Passkey removida.', 'success', 5000);
     await carregarPasskeysList();
   } catch (e) {
     console.error('Erro ao remover:', e);
-    showAlert('cfg-alert', `Erro: ${e.message}`);
+    showInlineStatus(SID, `❌ ${e.message}`, 'error');
   }
 }
 
@@ -13594,9 +13592,8 @@ function legisWorkerUrlNormalizada() {
 }
 
 async function legisCarregarUrls() {
-  const status = $('legis-urls-status');
-  status.textContent = '⏳ Carregando…';
-  status.style.color = 'var(--text-muted)';
+  const SID = 'legis-urls-status';
+  showInlineStatus(SID, '⏳ Carregando…', 'loading');
   try {
     const url = legisWorkerUrlNormalizada();
     const res = await fetch(url + '/urls');
@@ -13609,11 +13606,9 @@ async function legisCarregarUrls() {
     $('legis-urls-aviso').textContent = _legisUrlsEditor.customizadas
       ? '⚠️ Você está editando uma lista customizada (salva no KV). Pra voltar ao padrão, clique "Restaurar URLs padrão".'
       : 'Usando lista padrão hardcoded no Worker. Edite e clique "Salvar" pra customizar.';
-    status.textContent = `✅ ${_legisUrlsEditor.urls.length} URL(s) carregadas.`;
-    status.style.color = '#065f46';
+    showInlineStatus(SID, `✅ ${_legisUrlsEditor.urls.length} URL(s) carregadas.`, 'success', 5000);
   } catch (err) {
-    status.textContent = '❌ ' + err.message;
-    status.style.color = '#b91c1c';
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
   }
 }
 
@@ -13650,16 +13645,14 @@ function legisUpdateUrl(idx, campo, valor) {
   if (!_legisUrlsEditor.urls[idx]) return;
   _legisUrlsEditor.urls[idx][campo] = valor;
   _legisUrlsEditor.dirty = true;
-  $('legis-urls-status').textContent = '✏️ Alterações não salvas';
-  $('legis-urls-status').style.color = '#92400e';
+  showInlineStatus('legis-urls-status', '✏️ Alterações não salvas', 'info');
 }
 
 function legisUpdateTemplatesAfetados(idx, raw) {
   if (!_legisUrlsEditor.urls[idx]) return;
   _legisUrlsEditor.urls[idx].templatesAfetados = raw.split(',').map(s => s.trim()).filter(Boolean);
   _legisUrlsEditor.dirty = true;
-  $('legis-urls-status').textContent = '✏️ Alterações não salvas';
-  $('legis-urls-status').style.color = '#92400e';
+  showInlineStatus('legis-urls-status', '✏️ Alterações não salvas', 'info');
 }
 
 function legisAddUrl() {
@@ -13681,7 +13674,7 @@ function legisRemoverUrl(idx) {
 }
 
 async function legisSalvarUrls() {
-  const status = $('legis-urls-status');
+  const SID = 'legis-urls-status';
   try {
     const workerUrl = legisWorkerUrlNormalizada();
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
@@ -13689,16 +13682,11 @@ async function legisSalvarUrls() {
     if (!cfg.legisAdminToken) {
       throw new Error('Configure o "Token administrativo do Worker" antes (campo logo acima).');
     }
-
-    // Validação local
     const invalidas = _legisUrlsEditor.urls.filter(u => !u.url || !/^https?:\/\//i.test(u.url));
     if (invalidas.length) {
       throw new Error(`${invalidas.length} URL(s) inválida(s). Toda URL deve começar com http:// ou https://`);
     }
-
-    status.textContent = '⏳ Salvando…';
-    status.style.color = 'var(--text-muted)';
-
+    showInlineStatus(SID, '⏳ Salvando…', 'loading');
     const res = await fetch(workerUrl + '/urls', {
       method: 'POST',
       headers: {
@@ -13709,47 +13697,38 @@ async function legisSalvarUrls() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-
     _legisUrlsEditor.dirty = false;
     _legisUrlsEditor.customizadas = true;
-    status.textContent = `✅ ${data.salvas} URL(s) salvas no Worker (próxima execução já usa).`;
-    status.style.color = '#065f46';
+    showInlineStatus(SID, `✅ ${data.salvas} URL(s) salvas no Worker (próxima execução já usa).`, 'success', 6000);
     $('legis-urls-aviso').textContent = '⚠️ Você está editando uma lista customizada (salva no KV).';
   } catch (err) {
-    status.textContent = '❌ ' + err.message;
-    status.style.color = '#b91c1c';
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
   }
 }
 
 async function legisRestaurarUrls() {
   if (!confirm('Restaurar URLs padrão (hardcoded)? A lista customizada será removida do KV.')) return;
-  const status = $('legis-urls-status');
+  const SID = 'legis-urls-status';
   try {
     const workerUrl = legisWorkerUrlNormalizada();
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    if (!cfg.legisAdminToken) {
-      throw new Error('Configure o "Token administrativo do Worker" antes.');
-    }
-
-    status.textContent = '⏳ Restaurando…';
+    if (!cfg.legisAdminToken) throw new Error('Configure o "Token administrativo do Worker" antes.');
+    showInlineStatus(SID, '⏳ Restaurando…', 'loading');
     const res = await fetch(workerUrl + '/urls', {
       method: 'DELETE',
       headers: { 'X-DRG-Admin-Token': cfg.legisAdminToken },
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-
     _legisUrlsEditor.urls = (data.urls || []).map(u => ({ ...u }));
     _legisUrlsEditor.customizadas = false;
     _legisUrlsEditor.dirty = false;
     renderLegisUrlsLista();
     $('legis-urls-aviso').textContent = 'Usando lista padrão hardcoded no Worker.';
-    status.textContent = '↻ Restaurado. Próxima execução usa as URLs padrão.';
-    status.style.color = '#065f46';
+    showInlineStatus(SID, '↻ Restaurado. Próxima execução usa as URLs padrão.', 'success', 6000);
   } catch (err) {
-    status.textContent = '❌ ' + err.message;
-    status.style.color = '#b91c1c';
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
   }
 }
 
@@ -14044,13 +14023,11 @@ async function pergSalvar() {
     _pergEditor.dirty = false;
     _pergEditor.customizado = overrides.length > 0;
     _perguntasOverridesCache = null; // força reload na próxima abertura do wizard
-    $('perg-status').textContent = `✅ Customização salva (${overrides.length} pergunta(s) modificada(s)).`;
-    $('perg-status').style.color = '#065f46';
+    showInlineStatus('perg-status', `✅ Customização salva (${overrides.length} pergunta(s) modificada(s)).`, 'success', 6000);
     $('perg-aviso').style.display = overrides.length > 0 ? 'block' : 'none';
   } catch (err) {
     console.error('Erro ao salvar perguntas:', err);
-    $('perg-status').textContent = '❌ Erro ao salvar: ' + err.message;
-    $('perg-status').style.color = '#b91c1c';
+    showInlineStatus('perg-status', `❌ Erro ao salvar: ${err.message}`, 'error');
   }
 }
 
@@ -14061,11 +14038,9 @@ async function pergRestaurarPadrao() {
     _perguntasOverridesCache = null;
     logAuditoria('delete', 'elabPerguntas', _pergEditor.tab, {});
     await trocarTabPerguntas(_pergEditor.tab);
-    $('perg-status').textContent = '↻ Perguntas restauradas ao padrão.';
-    $('perg-status').style.color = '#065f46';
+    showInlineStatus('perg-status', '↻ Perguntas restauradas ao padrão.', 'success', 5000);
   } catch (err) {
-    $('perg-status').textContent = '❌ Erro: ' + err.message;
-    $('perg-status').style.color = '#b91c1c';
+    showInlineStatus('perg-status', `❌ Erro: ${err.message}`, 'error');
   }
 }
 
