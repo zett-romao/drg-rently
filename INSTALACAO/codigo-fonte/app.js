@@ -3384,11 +3384,13 @@ async function openBalanceteModal(id) {
 
   _balanceteLancamentos = [];
   _balanceteLocadorInfo = null;
+  _balanceteTaxaIncideIds = new Set();
   $('balancete-aluguel-base').value = '';
   $('balancete-taxa-adm').value = '';
   $('balancete-taxa-valor').value = '';
   $('balancete-obs').value = '';
   $('balancete-status').value = 'aberto';
+  if ($('balancete-taxa-incidencia')) $('balancete-taxa-incidencia').value = 'aluguel';
   $('balancete-contrato-info').style.display = 'none';
   $('resumo-pix').style.display = 'none';
   $('resumo-pix-aviso').style.display = 'none';
@@ -3420,6 +3422,12 @@ async function openBalanceteModal(id) {
           ...l,
           id: l.id || cryptoRandomId(),
         }));
+        // Modo de incidência (default: aluguel — compat com balancetes antigos)
+        if ($('balancete-taxa-incidencia')) {
+          $('balancete-taxa-incidencia').value = b.taxaIncidencia || 'aluguel';
+        }
+        _balanceteTaxaIncideIds = new Set(b.taxaIncideIds || []);
+        if ((b.taxaIncidencia || 'aluguel') !== 'aluguel') onTaxaIncidenciaChange();
       }
     } catch (err) {
       console.error('Erro ao carregar balancete:', err);
@@ -3663,6 +3671,64 @@ function removeLanc(id) {
   recalcBalancete();
 }
 
+// Estado: ids dos lançamentos sobre os quais a taxa incide (modo "selecionadas")
+let _balanceteTaxaIncideIds = new Set();
+
+function onTaxaIncidenciaChange() {
+  const modo = $('balancete-taxa-incidencia').value;
+  const help = $('balancete-taxa-incidencia-help');
+  const lista = $('balancete-taxa-verbas-lista');
+
+  if (modo === 'aluguel') {
+    help.innerHTML = '💡 A taxa é calculada apenas sobre o valor do aluguel-base do contrato.';
+    lista.style.display = 'none';
+  } else if (modo === 'todas') {
+    help.innerHTML = '💡 A taxa é calculada sobre <strong>TODAS as receitas</strong> do locador (entradas + reembolsos de despesas do locatário).';
+    lista.style.display = 'none';
+  } else if (modo === 'selecionadas') {
+    help.innerHTML = '💡 Marque abaixo quais receitas devem servir de base para o cálculo da taxa.';
+    lista.style.display = 'block';
+    renderTaxaVerbasChecks();
+  }
+  recalcBalancete();
+}
+
+function renderTaxaVerbasChecks() {
+  const container = $('balancete-taxa-verbas-checks');
+  if (!container) return;
+  // Lista todas as entradas (receitas) do balancete
+  const entradas = _balanceteLancamentos.filter(l => l.bloco === 'entrada');
+  const despesasLocatario = _balanceteLancamentos.filter(l => l.bloco === 'despesa_locatario');
+  const todas = [...entradas, ...despesasLocatario];
+
+  if (todas.length === 0) {
+    container.innerHTML = '<p class="muted" style="font-size:12px;">Nenhuma receita lançada ainda. Adicione lançamentos primeiro.</p>';
+    return;
+  }
+
+  container.innerHTML = todas.map(l => {
+    const checked = _balanceteTaxaIncideIds.has(l.id) ? 'checked' : '';
+    const tipo = l.bloco === 'entrada' ? '🟢' : '🟡';
+    const blocoLabel = l.bloco === 'entrada' ? 'Receita' : 'Reembolso (locatário)';
+    return `
+      <label style="display:flex; align-items:center; gap:8px; padding:6px 0; cursor:pointer;">
+        <input type="checkbox" ${checked} onchange="toggleTaxaIncide('${l.id}', this.checked)">
+        <span>${tipo} <strong>${escapeHtml(l.categoria || '—')}</strong> ${escapeHtml(l.descricao || '')} — ${fmtBRL(parseFloat(l.valor) || 0)}</span>
+        <span class="muted" style="font-size:10px; margin-left:auto;">${blocoLabel}</span>
+      </label>
+    `;
+  }).join('');
+}
+
+function toggleTaxaIncide(id, checked) {
+  if (checked) _balanceteTaxaIncideIds.add(id);
+  else _balanceteTaxaIncideIds.delete(id);
+  recalcBalancete();
+}
+
+window.onTaxaIncidenciaChange = onTaxaIncidenciaChange;
+window.toggleTaxaIncide = toggleTaxaIncide;
+
 function recalcBalancete() {
   const sum = (bloco) => _balanceteLancamentos.filter(l => l.bloco === bloco)
     .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
@@ -3679,10 +3745,23 @@ function recalcBalancete() {
   const receitaTotalLocador = totalEntradas + totalDespLocatario;
   const despesaTotalLocador = totalDespLocador + totalDespLocatario;
 
-  // Taxa adm é calculada sobre o aluguel-base do contrato
+  // Base da taxa depende do modo de incidência configurado
+  const modoIncidencia = $('balancete-taxa-incidencia')?.value || 'aluguel';
   const aluguelBase = parseFloat($('balancete-aluguel-base').value) || 0;
   const taxaPercent = parseFloat($('balancete-taxa-adm').value) || 0;
-  const taxaValor = aluguelBase * taxaPercent / 100;
+
+  let baseTaxa = aluguelBase;
+  if (modoIncidencia === 'todas') {
+    baseTaxa = receitaTotalLocador;
+  } else if (modoIncidencia === 'selecionadas') {
+    baseTaxa = _balanceteLancamentos
+      .filter(l => _balanceteTaxaIncideIds.has(l.id))
+      .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
+  }
+  const taxaValor = baseTaxa * taxaPercent / 100;
+
+  // Re-renderiza checkboxes se modo for "selecionadas" (lançamentos podem ter mudado)
+  if (modoIncidencia === 'selecionadas') renderTaxaVerbasChecks();
 
   const liquido = receitaTotalLocador - despesaTotalLocador - taxaValor;
 
@@ -4444,7 +4523,19 @@ async function saveBalancete() {
   const despesaTotalLocador = totalDespLocador + totalDespLocatario;
   const aluguelBase = c.aluguel || 0;
   const taxaAdm = parseFloat($('balancete-taxa-adm').value) || 0;
-  const taxaAdmValor = aluguelBase * taxaAdm / 100;
+
+  // Modo de incidência da taxa (G2)
+  const taxaIncidencia = $('balancete-taxa-incidencia')?.value || 'aluguel';
+  const taxaIncideIds = Array.from(_balanceteTaxaIncideIds || []);
+  let baseTaxa = aluguelBase;
+  if (taxaIncidencia === 'todas') {
+    baseTaxa = receitaTotalLocador;
+  } else if (taxaIncidencia === 'selecionadas') {
+    baseTaxa = _balanceteLancamentos
+      .filter(l => _balanceteTaxaIncideIds.has(l.id))
+      .reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
+  }
+  const taxaAdmValor = baseTaxa * taxaAdm / 100;
   const liquidoLocador = receitaTotalLocador - despesaTotalLocador - taxaAdmValor;
 
   const data = {
@@ -4457,6 +4548,9 @@ async function saveBalancete() {
     aluguelBase,
     taxaAdm,
     taxaAdmValor,
+    taxaIncidencia,
+    taxaIncideIds,
+    taxaBase: baseTaxa,
     totalEntradas,
     totalDespesasLocador: totalDespLocador,
     totalDespesasLocatario: totalDespLocatario,
