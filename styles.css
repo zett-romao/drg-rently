@@ -920,6 +920,28 @@ label.required::after {
 }
 
 /* =========================================================
+   BANNER OFFLINE (PWA — quando navigator.onLine === false)
+   ========================================================= */
+.offline-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(90deg, #DC2626, #B91C1C);
+  color: white;
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 13px;
+  z-index: 99998;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.2);
+  animation: slide-up-banner 0.3s ease-out;
+}
+@keyframes slide-up-banner {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* =========================================================
    MODAL DE CONFIRMAÇÃO (substitui confirm() nativo)
    ========================================================= */
 .modal-confirm-overlay {

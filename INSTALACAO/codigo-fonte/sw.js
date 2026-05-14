@@ -10,9 +10,9 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v1';
+const CACHE_VERSION = 'drg-rently-v2-20260514ai';
 const STATIC_ASSETS = [
-  './logo.png?v=20260513a',
+  './logo.png?v=20260514ai',
   './manifest.json',
 ];
 
@@ -59,6 +59,12 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
+
+  // ----- SHARE TARGET ----- (recebe arquivo compartilhado do SO)
+  if (req.method === 'POST' && url.pathname.endsWith('/') && url.searchParams.has('share-target')) {
+    event.respondWith(handleShareTarget(req));
+    return;
+  }
 
   // Só processa GETs (POST/PUT vão direto pra rede)
   if (req.method !== 'GET') return;
@@ -120,6 +126,47 @@ async function cacheFirst(req) {
 }
 
 // =============================================================
+// Handler do Share Target — recebe arquivo via "Compartilhar com..."
+// do SO Android/iOS e armazena em cache temporário pra o app pegar.
+// =============================================================
+async function handleShareTarget(request) {
+  try {
+    const formData = await request.formData();
+    const files = formData.getAll('documento');
+    const cache = await caches.open('shared-files');
+
+    // Limpa shares antigos (mantém só os de hoje)
+    const oldKeys = await cache.keys();
+    for (const k of oldKeys) await cache.delete(k);
+
+    // Salva cada arquivo no cache (chave = nome do arquivo)
+    let count = 0;
+    for (const file of files) {
+      if (file && file.name && file.size > 0) {
+        const safeKey = `/shared-files/${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`;
+        await cache.put(
+          safeKey,
+          new Response(file, {
+            headers: {
+              'Content-Type': file.type || 'application/octet-stream',
+              'X-Original-Name': file.name,
+              'X-Original-Size': String(file.size),
+            },
+          })
+        );
+        count++;
+      }
+    }
+
+    // Redireciona pro app com flag indicando que tem arquivos compartilhados
+    return Response.redirect(`./?shared=${count}`, 303);
+  } catch (err) {
+    console.error('[SW] Erro no share_target:', err);
+    return Response.redirect('./?shared-error=1', 303);
+  }
+}
+
+// =============================================================
 // Notificações push (Fase futura — placeholder por enquanto)
 // =============================================================
 self.addEventListener('push', (event) => {
@@ -129,8 +176,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'DRG-Rently';
   const options = {
     body: data.body || '',
-    icon: data.icon || './logo.png?v=20260513a',
-    badge: './logo.png?v=20260513a',
+    icon: data.icon || './logo.png?v=20260514ai',
+    badge: './logo.png?v=20260514ai',
     data: data.url || './',
   };
   event.waitUntil(self.registration.showNotification(title, options));

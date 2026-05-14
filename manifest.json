@@ -1,50 +1,105 @@
 {
-  "name": "DRG-Rently — Gestão de Locações",
+  "name": "DRG-Rently — Gestão de Imóveis",
   "short_name": "DRG-Rently",
-  "description": "Sistema completo de gestão de locações e vendas de imóveis residenciais e comerciais. Para imobiliárias e corretores autônomos.",
+  "description": "Sistema completo de locação, venda, balancetes, contratos e captação de leads de imóveis. Para imobiliárias e corretores autônomos. Inclui IA pra leitura de documentos, login biométrico e cobrança automática via PIX.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#0f172a",
   "theme_color": "#475569",
   "lang": "pt-BR",
-  "categories": ["business", "productivity", "finance"],
+  "dir": "ltr",
+  "categories": ["business", "productivity", "finance", "utilities"],
   "icons": [
     {
-      "src": "logo.png?v=20260513a",
+      "src": "logo.png?v=20260514ai",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "logo.png?v=20260513a",
+      "src": "logo.png?v=20260514ai",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "logo.png?v=20260514ai",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "shortcuts": [
     {
       "name": "Dashboard",
       "short_name": "Dashboard",
-      "description": "Acesso rápido ao painel",
+      "description": "Painel principal com alertas",
       "url": "./?section=dashboard",
-      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
     },
     {
-      "name": "Novo imóvel",
-      "short_name": "Imóvel",
-      "description": "Cadastrar novo imóvel",
+      "name": "Leads",
+      "short_name": "Leads",
+      "description": "Anúncios captados pela vitrine",
+      "url": "./?section=leads",
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
+    },
+    {
+      "name": "Imóveis",
+      "short_name": "Imóveis",
+      "description": "Gerenciar imóveis",
       "url": "./?section=imoveis",
-      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
+    },
+    {
+      "name": "Balancetes",
+      "short_name": "Balancetes",
+      "description": "Fechamento mensal",
+      "url": "./?section=balancetes",
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
+    },
+    {
+      "name": "Elaborar contrato",
+      "short_name": "Contrato",
+      "description": "Wizard de novo contrato",
+      "url": "./?section=elab-contrato",
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
     },
     {
       "name": "Vitrine pública",
       "short_name": "Vitrine",
-      "description": "Abrir vitrine",
+      "description": "Abrir vitrine pública",
       "url": "./imoveis.html",
-      "icons": [{ "src": "logo.png?v=20260513a", "sizes": "192x192" }]
+      "icons": [{ "src": "logo.png?v=20260514ai", "sizes": "192x192" }]
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./?share-target=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "documento",
+          "accept": [
+            "image/*",
+            "application/pdf",
+            ".pdf",
+            ".doc",
+            ".docx"
+          ]
+        }
+      ]
+    }
+  },
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 480
+  }
 }

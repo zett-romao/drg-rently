@@ -11412,7 +11412,14 @@ async function carregarBlocoAsaas(tenantId) {
 }
 
 async function criarCustomerAsaas(tenantId) {
-  if (!confirm('Criar cliente Asaas pra este tenant? Os dados (nome, CNPJ/CPF, email, telefone) serão enviados.')) return;
+  const ok = await confirmar({
+    titulo: 'Criar cliente Asaas?',
+    mensagem: 'Vamos cadastrar este tenant como cliente no Asaas.',
+    detalhe: 'Os dados enviados:<br>• Nome / Razão social<br>• CPF/CNPJ<br>• E-mail de contato<br>• Telefone<br><br>Após criar o customer, você poderá gerar a <strong>assinatura recorrente</strong> de mensalidade.',
+    confirmar: 'Criar customer',
+    aviso: true,
+  });
+  if (!ok) return;
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     const t = tSnap.data();
@@ -11637,7 +11644,14 @@ async function listarPagamentosAsaas(tenantId) {
 }
 
 async function cancelarSubscriptionAsaas(tenantId) {
-  if (!confirm('⚠️ Cancelar assinatura recorrente no Asaas?\n\nO cliente para de receber cobranças automáticas. Pagamentos já gerados continuam válidos.')) return;
+  const ok = await confirmar({
+    titulo: 'Cancelar assinatura recorrente?',
+    mensagem: 'A cobrança mensal automática deste tenant será desativada.',
+    detalhe: 'O que acontece:<br>• Cliente PARA de receber novas cobranças mensais<br>• Pagamentos JÁ gerados continuam válidos (boletos/PIX abertos)<br>• Você pode criar uma nova assinatura depois<br>• O tenant continua ativo no DRG-Rently — só não cobra mais',
+    confirmar: 'Cancelar assinatura',
+    perigo: true,
+  });
+  if (!ok) return;
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     const t = tSnap.data();
@@ -12611,7 +12625,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // =============================================================
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js?v=20260513f', { scope: './' })
+      navigator.serviceWorker.register('sw.js?v=20260514ai', { scope: './' })
         .then(reg => {
           // Detecta nova versão e oferece atualizar
           reg.addEventListener('updatefound', () => {
@@ -12693,6 +12707,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mostra/esconde botão de login com biometria conforme suporte
   atualizarBotaoBiometria();
+
+  // Detecta status online/offline e mostra banner
+  function atualizarStatusConexao() {
+    let banner = document.getElementById('offline-banner');
+    if (!navigator.onLine) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'offline-banner';
+        banner.className = 'offline-banner';
+        banner.innerHTML = '📡 <strong>Sem conexão</strong> — algumas operações podem falhar até reconectar';
+        document.body.appendChild(banner);
+      }
+    } else if (banner) {
+      banner.remove();
+    }
+  }
+  window.addEventListener('online', atualizarStatusConexao);
+  window.addEventListener('offline', atualizarStatusConexao);
+  atualizarStatusConexao();
+
+  // Detecta arquivos compartilhados via share_target do PWA
+  const urlParams = new URLSearchParams(window.location.search);
+  const sharedCount = parseInt(urlParams.get('shared'), 10);
+  if (sharedCount > 0) {
+    // Lê arquivos do cache temporário do SW
+    setTimeout(async () => {
+      try {
+        const cache = await caches.open('shared-files');
+        const keys = await cache.keys();
+        const arquivos = [];
+        for (const key of keys) {
+          const resp = await cache.match(key);
+          const blob = await resp.blob();
+          const nomeOriginal = resp.headers.get('X-Original-Name') || 'documento';
+          arquivos.push(new File([blob], nomeOriginal, { type: blob.type }));
+        }
+        if (arquivos.length > 0) {
+          await confirmar({
+            titulo: `📥 ${arquivos.length} arquivo(s) recebido(s)`,
+            mensagem: 'Você compartilhou arquivo(s) do seu celular pro DRG-Rently.',
+            detalhe: `Arquivos: <strong>${arquivos.map(f => escapeHtml(f.name)).join(', ')}</strong><br><br>💡 Próxima versão: o sistema vai sugerir automaticamente onde anexar (cadastro de pessoa, balancete, contrato, etc).<br><br>Por enquanto, vai pra Cadastros → Locador/Locatário/Comprador e use o botão "📎 Anexar documento" da seção IA.`,
+            confirmar: 'Entendi',
+            cancelar: 'Descartar arquivos',
+            icone: '📥',
+          });
+          await cache.delete(keys[0]).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('Erro ao processar share_target:', e);
+      }
+      // Remove query string pra não disparar de novo no F5
+      const url = new URL(window.location.href);
+      url.searchParams.delete('shared');
+      window.history.replaceState({}, '', url);
+    }, 1500);
+  }
 
   // Drag & drop no dropzone de importação CSV
   const importDropzone = document.getElementById('import-dropzone');
