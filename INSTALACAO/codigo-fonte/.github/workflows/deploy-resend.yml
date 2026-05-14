@@ -1,0 +1,26 @@
+name: Deploy Cloudflare Worker (Resend)
+
+# Dispara em mudanças no worker Resend ou no wrangler dele,
+# ou manualmente pela aba Actions do GitHub.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker-resend.js'
+      - 'wrangler-resend.toml'
+      - '.github/workflows/deploy-resend.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy worker via Wrangler (config separada)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler-resend.toml

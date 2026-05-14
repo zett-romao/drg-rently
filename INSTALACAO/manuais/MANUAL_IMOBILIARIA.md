@@ -1,6 +1,6 @@
 # 📘 Manual de Operação — DRG-Rently
 
-**Versão:** 1.2
+**Versão:** 1.4
 **Atualizado em:** 2026-05-14
 **Para quem:** Imobiliárias (PJ) e Corretores Autônomos (PF) clientes da D.R. Global
 
@@ -10,13 +10,41 @@
 
 ---
 
+## ✨ O que há de novo na versão 1.4
+
+- **🔐 Login biométrico (Passkeys)** — entre com Windows Hello, Touch ID ou Face ID, sem digitar senha
+- **🔑 Esqueci minha senha** — link no login envia e-mail de reset
+- **👁 Mostrar/esconder senha** — botão olho ao lado dos campos de senha
+- **⬅ Botão Voltar global** — aparece no topbar quando há histórico de navegação
+- **🏠💼 Locador / Vendedor unificado** — cadastro único com checkbox de papéis (pode atuar como um, outro ou ambos)
+- **🤖 IA preenche cadastros** — anexe RG, CNH, CPF ou comprovante e a IA preenche os campos automaticamente (em Locador, Locatário e Comprador)
+- **📷 Fotos do imóvel turbinadas** — drag & drop pra subir, arrastar pra reordenar, badge 👑 Capa na primeira, auto-rascunho ao primeiro upload
+- **🏷 Vitrine com tabs Aluguel | Venda** — cores e títulos diferentes por modalidade, link direto compartilhável
+- **📤 Captação de leads** — visitantes da vitrine clicam "📤 Anuncie seu imóvel" e o lead vai direto pro Firestore
+- **💬 WhatsApp flutuante** — bolinha verde fixa em todas as páginas públicas, abre conversa pré-preenchida
+- **🧾 Taxa de administração configurável** — aluguel apenas / todas as receitas / verbas selecionadas
+- **💳 Asaas no balancete** — cobrar locatário (boleto/PIX) + pagar locador (PIX) sem sair do app
+- **🔔 Painel de alertas no Dashboard** — pendências críticas / atenção / info já na home
+- **🌐 Editor de URLs do monitor legislativo** — adicione, remova e edite as leis monitoradas
+- **📝 Editor de perguntas do wizard** — customize o texto das perguntas do "Elaborar contrato"
+- **📥 Importação CSV redesenhada** — 4 passos visuais guiados, dropzone com drag & drop
+- **🎯 Filtros chips na tabela de Imóveis** — Locação / Venda / Ambos + Status (Disponível / Alugado / Vendido / Em reforma)
+- **📋 Imóveis em rascunho** — comece a cadastrar fotos sem ter completado os dados (sistema salva como rascunho automaticamente)
+- **💬 Mensagens contextuais inline** — feedback aparece logo abaixo do botão clicado (não pula mais pro topo do modal)
+
+---
+
 ## Sumário
 
 1. [Primeiro acesso](#1-primeiro-acesso)
 2. [Conhecendo a interface](#2-conhecendo-a-interface)
 3. [Configurações iniciais (importantíssimo)](#3-configurações-iniciais-importantíssimo)
 4. [Cadastros — quem é quem no sistema](#4-cadastros)
+   - 4a. [Locadores / Vendedores (cadastro unificado)](#4a-locadores--vendedores)
+   - 4b. [IA preenche cadastros a partir de RG/CNH/CPF](#4b-ia-preenche-cadastros)
 5. [Imóveis — coração do sistema](#5-imóveis)
+   - 5a. [Fotos com drag & drop + reordenação + auto-rascunho](#5a-fotos-do-imóvel)
+   - 5b. [Filtros chips (Locação / Venda / Status)](#5b-filtros-da-tabela)
 6. [Garantias](#6-garantias)
 7. [Contratos](#7-contratos)
    - 7a. [Elaborar contrato pelo Wizard](#7a-elaborar-contrato-pelo-wizard)
@@ -27,18 +55,24 @@
 8. [Negociações (Vendas)](#8-negociações-vendas)
 9. [Balancetes mensais](#9-balancetes-mensais)
    - 9a. [IA multi-comprovante (Gemini Vision)](#9a-ia-multi-comprovante)
+   - 9b. [Taxa de administração configurável](#9b-taxa-de-administração-configurável)
+   - 9c. [Asaas — cobrar locatário e pagar locador](#9c-asaas-no-balancete)
 10. [Vitrine pública](#10-vitrine-pública)
+    - 10a. [Tabs Aluguel / Venda + links compartilháveis](#10a-tabs-da-vitrine)
+    - 10b. [Captação de leads pela vitrine](#10b-captação-de-leads)
+    - 10c. [WhatsApp FAB flutuante](#10c-whatsapp-fab)
 11. [Portais imobiliários (XML Feed)](#11-portais-imobiliários)
 12. [Operadores e perfis customizados](#12-operadores-e-perfis)
 13. [Importação CSV em massa](#13-importação-csv-em-massa)
-14. [Alertas e relatórios](#14-alertas-e-relatórios)
+14. [Painel de alertas](#14-painel-de-alertas)
     - 14a. [Card "🚨 Contratos atrasados"](#14a-card-contratos-atrasados)
-    - 14b. [Cards "🤖 IA" no Dashboard](#14b-cards-ia-no-dashboard)
+    - 14b. [Painel de alertas no Dashboard](#14b-painel-de-alertas-no-dashboard)
 15. [LGPD e auditoria](#15-lgpd-e-auditoria)
 16. [Monitor legislativo (IA jurídica)](#16-monitor-legislativo)
 17. [App mobile (PWA — Progressive Web App)](#17-app-mobile-pwa)
 18. [Manutenção administrativa](#18-manutenção-administrativa)
-19. [Solução de problemas](#19-solução-de-problemas)
+19. [Login biométrico (Passkeys)](#19-login-biométrico-passkeys)
+20. [Solução de problemas](#20-solução-de-problemas)
 
 ---
 
@@ -920,4 +954,264 @@ Renumera **todos** os contratos (ou negociações) em ordem cronológica:
 ---
 
 **🏠 Boa operação com o DRG-Rently!**
+*— Equipe D.R. Global Multi Services*
+
+---
+
+## 📑 Apêndice — Detalhes das novidades v1.4
+
+### 4a. Locadores / Vendedores (cadastro unificado)
+
+**O que mudou:** o cadastro de "Locadores" virou **"Locadores / Vendedores"**. Cada pessoa cadastrada tem checkbox indicando se atua como:
+
+- 🏠 **Locador** (proprietário que aluga imóveis)
+- 💼 **Vendedor** (proprietário que vende imóveis)
+- 🔁 **Ambos** (atua nos dois papéis)
+
+**Como funciona:**
+
+1. **+ Novo Locador/Vendedor** → na caixa "Esta pessoa pode atuar como" marca um ou os dois
+2. Validação: pelo menos UM papel deve estar marcado
+3. Na lista, aparece um **chip colorido** ao lado do nome indicando os papéis
+4. **Filtros rápidos**: [Todos | 🏠 Só locadores | 💼 Só vendedores]
+
+**Impacto nos modais:**
+
+- **Modal de Contrato** (locação) → select de "Locador" filtra automaticamente só quem tem `papel.locador=true`
+- **Modal de Negociação** (venda) → select de "Vendedor" filtra só quem tem `papel.vendedor=true`
+
+**Compatibilidade com cadastros antigos:** se o cadastro foi feito antes da v1.4 e não tem o campo `papeis`, o sistema assume **ambos os papéis ativos** (não quebra nada).
+
+### 4b. IA preenche cadastros
+
+Nos modais de **Locador, Locatário e Comprador**, há uma caixa roxo-claro com 🤖 **"Preencher automaticamente com IA"**:
+
+1. Clica **📎 Anexar documento**
+2. Escolhe um arquivo: PDF, JPG, PNG, WebP
+3. Documentos aceitos:
+   - RG (frente e verso)
+   - CNH (Carteira Nacional de Habilitação)
+   - CPF (cartão ou comprovante)
+   - Carteira de Trabalho (CTPS)
+   - Comprovante de residência (luz, água, telefone, contrato)
+   - Cartão CNPJ ou Contrato Social (PJ)
+   - Selfie com documento
+4. Em ~10-20s a IA lê o documento e preenche:
+   - Tipo (PF/PJ) — dispara onChange automaticamente
+   - Nome / Razão social
+   - CPF/CNPJ (com máscara)
+   - RG (com órgão expedidor)
+   - Data de nascimento
+   - Estado civil, profissão, nacionalidade
+   - E-mail e telefone
+   - Endereço completo
+5. **Sempre confira os dados antes de salvar** — a IA é precisa mas pode confundir caracteres em fotos de baixa qualidade
+
+**Privacidade:** o documento é enviado para o Worker Gemini (Cloudflare → Google Gemini Vision API) e **não é armazenado** após a extração. Apenas os dados estruturados ficam no Firestore.
+
+### 5a. Fotos do imóvel
+
+3 melhorias importantes:
+
+**1. Drag & drop pra subir:**
+- Arrasta arquivos do desktop direto pra zona "Fotos do imóvel"
+- Aparece overlay "📷 Solte aqui pra fazer upload"
+- Múltiplos arquivos de uma vez
+
+**2. Drag & drop pra reordenar:**
+- Clica e arrasta uma foto pra qualquer posição
+- A **primeira foto da lista vira a capa do anúncio** (badge dourado 👑 Capa)
+- A nova ordem é salva automaticamente no Firestore
+
+**3. Auto-rascunho:**
+- Antes: o card de fotos só aparecia DEPOIS de salvar o imóvel completo
+- Agora: o card aparece já na criação
+- Quando você anexa a primeira foto sem ter completado os dados:
+  - Sistema cria automaticamente um **rascunho** com flag `rascunho:true`
+  - Mostra mensagem "📋 Imóvel salvo como rascunho. Complete os campos antes de publicar"
+  - As fotos seguintes já vinculam ao mesmo imóvel
+- Rascunhos aparecem na lista com **chip 📋 rascunho** e opacity reduzida
+
+### 5b. Filtros da tabela (Imóveis)
+
+Na seção Imóveis há agora 2 linhas de filtros em chips:
+
+**Linha 1 — Finalidade:**
+- [Todos] [🏠 Locação] [💼 Venda] [🔁 Ambos]
+
+**Linha 2 — Status:**
+- [Todos] [🟢 Disponível] [🏘 Alugado] [💰 Vendido] [🔧 Em reforma]
+
+Os filtros combinam (AND). Exemplo: **🏠 Locação + 🟢 Disponível** = só os imóveis pra alugar que estão livres no momento.
+
+Coluna nova "Finalidade" com chips coloridos. Coluna "Valor" mostra o valor adaptado à finalidade:
+- Locação: `R$ 2.500/mês`
+- Venda: `R$ 450.000`
+- Ambos: ambos os valores
+
+### 9b. Taxa de administração configurável
+
+No modal de Balancete, dentro do bloco "🧾 Taxa de administração", há um novo select **"Incidência da taxa"** com 3 opções:
+
+1. **Sobre o aluguel base** (padrão) — taxa só sobre o aluguel-base do contrato
+2. **Sobre TODAS as verbas de receita** — taxa sobre entradas + reembolsos
+3. **Sobre verbas selecionadas** — abre lista de checkboxes; você marca quais receitas entram
+
+O valor da taxa recalcula em tempo real.
+
+### 9c. Asaas no balancete
+
+**Setup uma vez (em Configurações):**
+- URL do Worker Asaas (botão **🔗 Preencher automaticamente** facilita)
+- Sua chave API Asaas (botão **↗ pegar no Asaas** abre o painel)
+- **🧪 Testar conexão** → ✅ deve aparecer nome da sua conta
+- **💰 Ver saldo Asaas** → mostra saldo disponível
+
+**No modal de Balancete (caixa azul-claro no rodapé):**
+
+- **💳 Cobrar locatário via Asaas** — cria PIX/boleto automaticamente com o total das entradas, vencimento +10 dias. Retorna link da fatura pro locatário pagar.
+- **💸 Pagar locador (PIX)** — transfere o valor líquido pra chave PIX cadastrada no locador. Detecta tipo da chave (CPF/CNPJ/EMAIL/PHONE/EVP) automaticamente.
+
+**Segurança:** cada imobiliária usa SUA própria chave Asaas. A D.R. Global **não vê** seus pagamentos.
+
+### 10a. Tabs da vitrine
+
+A vitrine pública (`imoveis.html`) agora tem 3 tabs visíveis no topo:
+
+- **🏘 Todos os imóveis** — cor slate (padrão)
+- **🏠 Para Alugar** — cor **teal** (verde-azulado)
+- **💼 Para Comprar** — cor **âmbar/dourada**
+
+Cada tab muda:
+- A cor do hero (banner do topo)
+- O título da página: "Imóveis para Alugar" vs "Para Comprar"
+- O título da aba do navegador (SEO + bookmark)
+- O filtro aplicado
+
+**Links compartilháveis em Configurações:**
+- Vitrine geral → `imoveis.html?t=slug`
+- 🏠 Só Aluguel → `imoveis.html?t=slug&finalidade=locacao`
+- 💼 Só Venda → `imoveis.html?t=slug&finalidade=venda`
+
+Cada link tem botões **📋 Copiar** e **↗ Abrir**.
+
+### 10b. Captação de leads
+
+No header da vitrine pública aparece o botão **📤 Anuncie seu imóvel** (gradient âmbar). Clica:
+
+1. Abre modal com formulário:
+   - Nome + WhatsApp (obrigatórios)
+   - E-mail (opcional)
+   - Quero: 🏠 Alugar / 💼 Vender / 🏘 Tanto faz
+   - Tipo do imóvel
+   - Cidade / bairro
+   - Descrição livre
+2. Envia → cria documento na coleção `tenants/{id}/leadsImoveis` com status `novo`
+3. Mensagem de sucesso "✅ Vai entrar em contato em 1 dia útil"
+
+Os leads ficam armazenados no Firestore. Uma futura versão terá uma seção "📥 Leads" no painel admin pra gerenciá-los.
+
+### 10c. WhatsApp FAB
+
+Bolinha verde fixa no canto inferior direito, em **todas as páginas públicas** (vitrine + página individual do imóvel).
+
+- Logo oficial do WhatsApp
+- Animação pulse suave
+- Lê o campo "Telefone / WhatsApp" do seu tenant em Configurações
+- Adiciona DDI 55 (Brasil) automaticamente
+- Mensagem pré-preenchida:
+  - Vitrine: *"Olá, [imobiliária]! Vim pela vitrine de imóveis..."*
+  - Página do imóvel: *"...Tenho interesse no imóvel [apelido]."*
+- **Some** se você não tiver telefone cadastrado
+
+### 14b. Painel de alertas no Dashboard
+
+Logo abaixo dos cards de KPI no Dashboard, há um **painel resumido** com:
+
+**3 contadores grandes coloridos** (clicáveis):
+- 🚨 **Crítico** — vermelho
+- ⚠️ **Atenção** — âmbar
+- ℹ️ **Info** — azul
+
+**Top 5 alertas** ordenados por gravidade:
+- 🚨 Contratos vencidos / vencendo em ≤30 dias
+- ⚠️ Locatários pendentes há ≥5 dias
+- ⚠️ Negociações abertas há ≥15 dias
+- ⚠️ Garantias vencendo em 60 dias
+- ℹ️ Contratos sem balancete do mês
+- ℹ️ Imóveis em rascunho (5a)
+
+Cada alerta é clicável e leva direto à seção correspondente.
+
+Se total > 5: aparece link "+N alertas. Ver todos →" que abre a seção Alertas completa.
+
+Se zero: ✅ "Tudo em dia! Nenhuma pendência detectada no momento."
+
+### 19. Login biométrico (Passkeys)
+
+**Pré-requisito do dispositivo:**
+- Windows: **Windows Hello** configurado (Configurações → Contas → Opções de entrada)
+- Mac: **Touch ID** ou **Face ID** ativo
+- Android/iOS: biometria do sistema
+
+**Como cadastrar (1 vez por dispositivo):**
+
+1. Faça login normalmente (e-mail + senha)
+2. ⚙️ Configurações → role até **"🔐 Login com biometria (Passkeys)"** (banner verde)
+3. Clique **🔐 Cadastrar biometria neste dispositivo**
+4. O navegador pede biometria → olhe pra câmera ou coloque o dedo
+5. ✅ Cadastrada!
+
+**Como logar com biometria:**
+
+1. Na tela de login, abaixo do botão "Entrar" aparece **🔐 Entrar com biometria**
+2. Clica → SO pede biometria → entra direto, sem digitar senha
+
+**Privacidade:**
+- Os dados biométricos **NUNCA saem do seu dispositivo**
+- O servidor só recebe um **token criptográfico** assinado
+- Padrão W3C WebAuthn — mesma tecnologia que bancos e Big Tech estão adotando
+- **LGPD compliant** (não há armazenamento centralizado de biometria)
+
+**Gerenciar passkeys cadastradas:**
+- Configurações → "🔐 Login com biometria" → **↻ Recarregar lista**
+- Cada passkey mostra data de cadastro e tipo (☁ sincronizada / 🔒 só este dispositivo)
+- Botão 🗑 Remover por passkey
+
+### 20. Solução de problemas (atualizada)
+
+**"Recém-loguei mas o sidebar mostra outra imobiliária"**
+- Você é Super Admin e o sistema escolheu o tenant errado
+- Super Admin → linha do seu tenant → **🎯 Operar aqui** (azul)
+- Opcional: **🏠 Marcar como meu** (fixa esse tenant como padrão pra futuros logins)
+
+**"Failed to fetch" em Asaas, Legis ou outros Workers**
+- Provavelmente cache do navegador
+- **Ctrl+Shift+R** força reload sem cache
+- Persistindo: F12 → Application → Storage → "Clear site data" → recarrega
+
+**"Apelido / Identificação é obrigatório" no salvar imóvel**
+- Você não preencheu o campo "Apelido" no topo do modal
+- A mensagem agora aparece **logo acima do botão Salvar**
+- O sistema rola automaticamente até o campo e pisca a borda em vermelho 3x
+- Preenche → salva
+
+**"As 3 fotos que arrastei ficaram fora de ordem"**
+- Clica e arrasta cada uma pra posição desejada
+- A primeira sempre vira a 👑 Capa do anúncio público
+- A ordem é salva automaticamente
+
+**"O WhatsApp FAB não aparece na vitrine"**
+- Configurações → seção "Contato público" → preencha o campo **"Telefone / WhatsApp"**
+- Aceita formatos: `(11) 99999-9999`, `11999999999`, `+5511999999999`
+- O sistema adiciona DDI 55 automaticamente se faltar
+
+**"Passkey diz 'navegador não suporta'"**
+- Atualize o Chrome/Edge pra versão 108+
+- Confirme que tem **Windows Hello** configurado (Configurações → Contas → Opções de entrada → Reconhecimento facial / digital)
+- Em alguns laptops sem câmera infravermelha o Hello facial não funciona — use leitor de digital
+
+---
+
+**🏠 Versão 1.4 — boa operação com o DRG-Rently!**
 *— Equipe D.R. Global Multi Services*

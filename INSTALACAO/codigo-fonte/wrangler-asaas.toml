@@ -1,0 +1,17 @@
+# =============================================================
+# Config do Cloudflare Worker — DRG-Rently Asaas
+#
+# Cobrança de mensalidades (uso DRG Global) + endpoints /tenant/*
+# para imobiliárias cobrarem locatários e pagarem locadores via
+# sua própria chave Asaas.
+#
+# Deploy automático via .github/workflows/deploy-asaas.yml
+#
+# Setup manual no Cloudflare (one-time):
+#   - Secrets: ASAAS_API_KEY (da DRG), WEBHOOK_TOKEN, FIREBASE_API_KEY
+#   - Variables: PROJECT_ID = drg-rently, ASAAS_ENV = "production"
+#   - Webhooks no painel Asaas → URL do worker /webhook
+# =============================================================
+name = "drg-rently-asaas"
+main = "cloudflare-worker-asaas.js"
+compatibility_date = "2024-09-01"

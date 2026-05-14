@@ -25,14 +25,19 @@ INSTALACAO/
 │   ├── firestore.rules          ← regras de segurança Firebase
 │   └── SETUP-GIT.bat            ← script de setup automático (Windows)
 │
-├── workers/                     ← 3 Cloudflare Workers
-│   ├── cloudflare-worker-resend.js  ← envio de e-mail
-│   ├── cloudflare-worker-gemini.js  ← leitura de boletos
-│   └── cloudflare-worker-feed.js    ← XML feed pros portais
+├── workers/                     ← 7 Cloudflare Workers
+│   ├── cloudflare-worker-resend.js       ← envio de e-mail
+│   ├── cloudflare-worker-gemini.js       ← Gemini Vision (4 modos: boleto/contrato/multi/documento_pessoa)
+│   ├── cloudflare-worker-feed.js         ← XML feed pros portais
+│   ├── cloudflare-worker-zapsign.js      ← assinatura eletrônica (proxy)
+│   ├── cloudflare-worker-legis-monitor.js ← monitor diário Planalto (cron + KV)
+│   ├── cloudflare-worker-passkey.js      ← login biométrico WebAuthn (npm dep)
+│   └── cloudflare-worker-asaas.js        ← cobrança Asaas (admin DRG + tenant /tenant/*)
 │
 └── manuais/
-    ├── MANUAL_IMOBILIARIA.md    ← manual operacional pra usuários
-    └── MANUAL_DRG_SYSTEMS.md    ← manual interno DRG (gestão de licenças)
+    ├── MANUAL_IMOBILIARIA.md    ← manual operacional pra usuários (v1.4)
+    ├── MANUAL_DRG_SYSTEMS.md    ← manual interno DRG (gestão de licenças, v1.1)
+    └── SETUP_PASSKEY.md         ← setup do Worker Passkey (Firebase service account, RP_ID etc)
 ```
 
 ## 🚀 Por onde começar
@@ -41,8 +46,9 @@ INSTALACAO/
 2. **Lê o `PASSO-A-PASSO.md`** para instalação completa
 3. **Configura `firebase-config.template.js`** com suas credenciais
 4. **Roda `SETUP-GIT.bat`** (Windows) ou os comandos manuais do guia
-5. **Deploy dos 3 Workers** no Cloudflare
-6. **Bootstrap do super_admin** (último passo)
+5. **Deploy dos 7 Workers** no Cloudflare (resend, gemini, feed, zapsign, legis-monitor, passkey, asaas)
+6. **Setup do Worker Passkey** (Firebase service account + KV + variables — ver `SETUP_PASSKEY.md`)
+7. **Bootstrap do super_admin** (último passo)
 
 ## 🎯 Modelos de uso
 
@@ -84,4 +90,4 @@ Cliente com 50+ imóveis: ~R$ 30/mês. Cliente com 200+: ~R$ 80/mês.
 
 ---
 
-*Última atualização: 2026-05-12 · v1.0*
+*Última atualização: 2026-05-14 · v1.1*

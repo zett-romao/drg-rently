@@ -1,9 +1,22 @@
 # 📕 Manual DRG-Systems — Gestão das Licenças do SaaS
 
-**Versão:** 1.0
-**Atualizado em:** 2026-05-12
+**Versão:** 1.1
+**Atualizado em:** 2026-05-14
 **Para quem:** Equipe interna D.R. Global (Donizete + futuros operadores DRG)
 **Confidencial — uso interno**
+
+---
+
+## ✨ Novidades v1.1
+
+- **🔐 Worker Passkey** — login biométrico WebAuthn (Windows Hello / Touch ID / Face ID)
+- **💳 Worker Asaas com rotas /tenant/*** — cada imobiliária usa sua chave; D.R. Global não vê pagamentos do tenant
+- **🗄 Arquivar / Restaurar / Excluir tenants** — soft delete reversível + exclusão definitiva com proteção dupla
+- **🎯 "Operar aqui" + "Marcar como meu tenant"** — Super Admin escolhe qual tenant operar (persistido em localStorage por uid)
+- **🤖 Worker Gemini com novo modo `documento_pessoa`** — extrai dados de RG/CNH/CPF pra preencher cadastros
+- **📰 Worker Legis Monitor com endpoints CRUD de URLs** — adicionar/remover/editar leis monitoradas pelo painel
+- **📊 Painel de alertas no Dashboard** — KPI rápido de pendências
+- **📤 Coleção `leadsImoveis`** — captação via vitrine pública
 
 ---
 
@@ -11,6 +24,8 @@
 
 1. [Visão geral do negócio](#1-visão-geral-do-negócio)
 2. [Painel Super Admin](#2-painel-super-admin)
+   - 2a. [Arquivar / Restaurar / Excluir tenants](#2a-arquivar-restaurar-excluir)
+   - 2b. ["Operar aqui" + "Marcar como meu tenant"](#2b-operar-aqui)
 3. [Cadastro de uma nova imobiliária cliente](#3-cadastro-de-uma-nova-imobiliária-cliente)
 4. [Pacotes comerciais e módulos](#4-pacotes-comerciais-e-módulos)
 5. [Cobrança e renovação](#5-cobrança-e-renovação)
@@ -19,8 +34,12 @@
 8. [Suspensão e reativação de clientes](#8-suspensão-e-reativação-de-clientes)
 9. [Processo de vendas](#9-processo-de-vendas)
 10. [Operação técnica (deploys, secrets, regras)](#10-operação-técnica)
+    - 10a. [Workers Cloudflare ativos](#10a-workers-cloudflare-ativos)
+    - 10b. [KV namespaces](#10b-kv-namespaces)
+    - 10c. [Setup do Worker Passkey](#10c-setup-passkey)
 11. [Indicadores e MRR](#11-indicadores-e-mrr)
 12. [Procedimentos de emergência](#12-procedimentos-de-emergência)
+13. [Manual de URLs e Chaves](#13-manual-de-urls-e-chaves)
 
 ---
 
@@ -429,6 +448,8 @@ Cliente deletado = perde TUDO (locadores, contratos, balancetes, fotos).
 
 ### Tabela de preços sugerida
 
+**Pessoa Jurídica (Imobiliária):**
+
 | Pacote | Mensal | Trimestral | Anual |
 |---|---|---|---|
 | 🏠 Locação | R$ 150 | R$ 400 (R$ 133/mês) | R$ 1.500 (R$ 125/mês) |
@@ -437,7 +458,23 @@ Cliente deletado = perde TUDO (locadores, contratos, balancetes, fotos).
 | ⚙️ Customizado | A combinar | A combinar | A combinar |
 | 🏗 Self-hosted | R$ 8.000 setup + R$ 500/mês manutenção | | |
 
+**Pessoa Física (Corretor Autônomo):** ✨ NOVO
+
+| Pacote | Mensal | Trimestral | Anual |
+|---|---|---|---|
+| 👤 Corretor Completo | **R$ 79** | R$ 210 (R$ 70/mês) | R$ 800 (R$ 67/mês) |
+| 👤 Corretor + Portais | R$ 119 | R$ 320 (R$ 107/mês) | R$ 1.200 (R$ 100/mês) |
+
+> 💡 **Estratégia:** o pacote PF de R$ 79 funciona como **isca de entrada**.
+> Corretor autônomo entra barato, escala carteira e quando virar imobiliária
+> migra pro pacote PJ Completo (R$ 300). LTV potencial: R$ 7.200 em 24 meses.
+
 ### Argumentos pra fechar venda
+
+**Pra corretor autônomo (PF):** ✨
+- "Por R$ 79/mês você tem o mesmo sistema das grandes imobiliárias"
+- "Cadastra seus 5-20 imóveis, gera vitrine pública, publica no ZAP/Viva automaticamente"
+- "Sai mais barato que o Imovelweb sozinho, e você ganha gestão completa de contratos"
 
 **Pra imobiliária pequena (1-10 imóveis):**
 - "Por R$ 150 você economiza 5h/mês fazendo balancete na planilha"
@@ -690,3 +727,153 @@ Mantenha em cofre (1Password, Bitwarden, KeePass):
 **🚀 D.R. Global Multi Services — vamos crescer juntos!**
 
 *Donizete, este manual é seu — atualize sempre que aprender algo novo no campo.*
+
+---
+
+## 📑 Apêndice v1.1 — Detalhes técnicos das novidades
+
+### 2a. Arquivar / Restaurar / Excluir tenants
+
+Na tabela de tenants do Super Admin, cada linha tem agora ações dependendo do estado:
+
+**Tenant ATIVO:**
+- `[⚙ Gerenciar]` — abre modal de edição completa
+- `[🎯 Operar aqui]` — define como tenant ativo da sua sessão (super admin)
+- `[🏠 Marcar como meu]` — marca como `donoSuperAdmin: true` (1 só por vez)
+- `[🗄 Arquivar]` — soft delete reversível
+
+**Tenant ARQUIVADO** (opacity 0.6, badge cinza 🗄):
+- `[⚙ Ver]` — modo leitura
+- `[↻ Restaurar]` — volta pra ativo
+- `[🗑 Excluir]` — exclusão definitiva (confirmação dupla + digitação do nome)
+
+**Filtro novo "Arquivados":**
+- Ocultar arquivados (padrão)
+- Mostrar ativos + arquivados
+- Apenas arquivados
+
+**KPIs do Super Admin** (Total / Ativos / Trial / Inadimplentes / MRR) **ignoram arquivados** — só refletem operação real.
+
+**Exclusão definitiva:**
+1. Confirma 1 — aviso de irreversibilidade
+2. Confirma 2 — digitar nome exato do cliente
+3. Log de auditoria criado ANTES da deleção
+4. Documento principal deletado do Firestore
+5. ⚠️ Subcoleções (imóveis, contratos, etc) ficam **órfãs** no Firestore — limpeza profunda via Console Firebase se compliance LGPD pesado
+
+### 2b. "Operar aqui" + "Marcar como meu"
+
+**Problema resolvido:** super admin sem `tenantId` no userDoc caía em qualquer tenant aleatório (primeiro retornado pelo Firestore).
+
+**Solução em 3 níveis de prioridade:**
+
+1. **localStorage** `drg-tenant-ativo-{uid}` — escolha persistida do super admin
+2. **donoSuperAdmin: true** — tenant marcado como dono (fallback automático em outros navegadores)
+3. **Primeiro tenant ativo** não arquivado (último recurso)
+
+**Operação:**
+- `[🎯 Operar aqui]` — salva `localStorage` + recarrega UI no tenant escolhido
+- `[🏠 Marcar como meu]` — batch updates pra colocar `donoSuperAdmin: true` no escolhido E `false` nos outros (só 1 por vez)
+- Linha do tenant ativo fica com **fundo verde claro** + chip 🎯 "ativo agora"
+- Linha do tenant dono ganha chip âmbar 🏠 "meu tenant"
+
+### 10a. Workers Cloudflare ativos
+
+| Worker | URL | Função | Secrets críticos |
+|---|---|---|---|
+| **drg-rently-gemini** | `drg-rently-gemini.zett-romao.workers.dev` | Gemini Vision (boleto, contrato, documento_pessoa, multi) | `GEMINI_API_KEY` |
+| **drg-rently-resend** | `drg-rently-resend.zett-romao.workers.dev` | Envio de e-mails (balancete, alertas) | `RESEND_API_KEY` |
+| **drg-rently-legis-monitor** | `drg-rently-legis-monitor.zett-romao.workers.dev` | Monitor diário Planalto + IA + alerta DRG | `GEMINI_API_KEY`, `LEGIS_ADMIN_TOKEN` |
+| **drg-rently-passkey** | `drg-rently-passkey.zett-romao.workers.dev` | WebAuthn passkeys + custom token Firebase | `FIREBASE_SERVICE_ACCOUNT_JSON` |
+| **drg-rently-asaas** | `drg-rently-asaas.zett-romao.workers.dev` | Asaas (cobrar mensalidade DRG + endpoints /tenant/*) | `ASAAS_API_KEY`, `WEBHOOK_TOKEN`, `FIREBASE_API_KEY` |
+| **drg-rently-feed** | `drg-rently-feed.zett-romao.workers.dev` | XML feed para portais imobiliários | — |
+| **drg-rently-zapsign** | `drg-rently-zapsign.zett-romao.workers.dev` | ZapSign (proxy de assinatura eletrônica) | — (cada tenant usa sua chave) |
+| **drg-rently-telemetria** | (opcional) | Telemetria de instâncias self-hosted (Modelo C) | — |
+
+**Workflows CI/CD** em `.github/workflows/`:
+- `deploy-worker.yml` (Gemini), `deploy-resend.yml`, `deploy-legis-monitor.yml`, `deploy-passkey.yml`, `deploy-asaas.yml`
+- Todos disparam em push pra `main` quando o arquivo do worker ou seu `wrangler-*.toml` muda
+- Secrets do GitHub: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
+
+### 10b. KV namespaces
+
+| Namespace | ID | Usado por | Estrutura de chaves |
+|---|---|---|---|
+| **LEGIS_KV** | `e826d3cd0571422691aca35600b9ecc4` | drg-rently-legis-monitor | `urls_config`, `historico:{date}`, `etag:{url-hash}` |
+| **PASSKEYS_KV** | `3832a2f3ed7d4209b9d5ce716cef6a74` | drg-rently-passkey | `cred:{uid}:{credId}`, `idx:{uid}`, `uid:{credId}`, `chal:register:{uid}`, `chal:login:{sessionId}` |
+
+### 10c. Setup do Worker Passkey
+
+Documentação completa em `SETUP_PASSKEY.md`. Resumo:
+
+**Pré-requisitos:**
+1. KV namespace `PASSKEYS_KV` criada e ID colado em `wrangler-passkey.toml`
+2. Service account Firebase com role "Firebase Authentication Admin"
+3. Variables no Worker: `RP_ID`, `RP_NAME`, `ORIGIN`
+4. Secret: `FIREBASE_SERVICE_ACCOUNT_JSON` (cole o JSON inteiro)
+
+**Endpoints:**
+- `POST /register/begin` + `/register/complete`
+- `POST /login/begin` + `/login/complete`
+- `GET /credentials/list?uid=...`
+- `DELETE /credentials/:credId`
+- `GET /health` (debug — não expõe secrets)
+
+**Bibliotecas:**
+- `@simplewebauthn/server ^11` (via `package.json` raiz + npm install no CI/CD)
+
+### Rotas /tenant/* no Worker Asaas
+
+Cada imobiliária usa SUA própria chave Asaas (header `X-Tenant-Asaas-Token`). D.R. Global continua usando `env.ASAAS_API_KEY` (Secret) pra cobrar mensalidades.
+
+**Endpoints `/tenant/*`:**
+- `POST /tenant/customers` — cria cliente Asaas pro locatário
+- `POST /tenant/payments` — cobrança PIX/boleto
+- `GET /tenant/payments/:id` — status
+- `POST /tenant/transfers` — transferência PIX/TED (pagar locador)
+- `GET /tenant/balance` — saldo
+- `GET /tenant/health` — valida chave (`/myAccount` do Asaas)
+
+**Auth dupla no Worker:**
+- `X-DRG-Admin-Token` → rotas administrativas (cobrança SaaS pela DRG)
+- `X-Tenant-Asaas-Token` → rotas `/tenant/*` (operação da imobiliária)
+
+### Coleções Firestore novas
+
+- `tenants/{id}/elabPerguntas/{modalidade}` — perguntas customizadas do wizard "Elaborar contrato"
+- `tenants/{id}/leadsImoveis` — captação via vitrine pública (status: `novo|contatado|convertido`)
+- `tenants/{id}/imoveis/{id}/fotos` — ordem editável via drag&drop (campo `ordem`)
+- `tenants/{id}/locadores/{id}.papeis` — `{ locador: bool, vendedor: bool }`
+- `tenants/{id}/imoveis/{id}.rascunho` — `true` pra imóveis criados via H2 (auto-rascunho de fotos)
+- `tenants/{id}/locatarios/{id}.asaasCustomerId` — Customer ID no Asaas (criado on-demand)
+- `tenants/{id}.arquivado` + `arquivadoEm` + `arquivadoPor` + `donoSuperAdmin`
+- `users/{uid}.role = 'super_admin' | 'operador_drg' | 'admin' | 'operador'`
+- `drgPerfis/{perfilId}` — perfis customizados da equipe DRG
+
+### 13. Manual de URLs e Chaves
+
+Arquivo `MANUAL_URLS_E_CHAVES.md` (uso pessoal Donizete, **NÃO** versionado — está no `.gitignore`):
+- Estrutura completa com 12 seções
+- Placeholders `<COLE_AQUI>` pra cada chave/credencial
+- Localização: `G:\Meu Drive\DRG-Rently\MANUAL_URLS_E_CHAVES.md` (só local + Google Drive sync)
+
+Conteúdo:
+1. GitHub e Hospedagem
+2. Firebase
+3. Cloudflare Workers
+4. Asaas
+5. Gemini
+6. Resend
+7. ZapSign
+8. Monitor Legislativo
+9. Passkey
+10. Conta administrativa
+11. URLs Públicas
+12. Comandos rápidos
++ Tabela de recuperação de credencial perdida
++ Checklist de segurança
+
+---
+
+**📕 v1.1 — manual interno DRG Systems atualizado.**
+*D.R. Global Multi Services · 2026-05-14*

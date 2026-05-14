@@ -27,3 +27,10 @@ MANUAL_URLS_E_CHAVES.md
 secrets-*.json
 **/service-account-*.json
 firebase-admin-*.json
+
+# 🚨 Firebase service account JSON (admin SDK — chave privada RSA!)
+*firebase-adminsdk*.json
+drg-rently-firebase-*.json
+**/firebase-adminsdk*.json
+adminsdk-*.json
+*-adminsdk-*.json

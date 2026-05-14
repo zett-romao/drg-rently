@@ -1,12 +1,29 @@
 # DRG-Rently — Prompt do Projeto
 
-**Última atualização:** 2026-05-13
-**Versão atual:** 0.3.0
-**Estado:** ✅ SaaS funcional em produção — multi-tenant + portais + telemetria + PF/PJ
+**Última atualização:** 2026-05-14
+**Versão atual:** 0.4.0
+**Estado:** ✅ SaaS em produção — multi-tenant + portais + biometria + IA + Asaas tenant
 
 > Documento serve como ponto de partida pra qualquer pessoa (ou IA) que vai
 > retomar o projeto. Cole no início de uma conversa nova ou leia antes de
 > mexer no código.
+
+## 🆕 Mudanças notáveis 2026-05-14 (v0.4.0)
+
+- **🔐 Login biométrico (Passkeys)** — Worker drg-rently-passkey + `@simplewebauthn/server`
+- **💳 Asaas multi-tenant** — Worker `drg-rently-asaas` ganhou rotas `/tenant/*` (cada imobiliária com sua chave)
+- **🤖 IA preenche cadastros** — modo `documento_pessoa` no Worker Gemini, dropzone em 3 modais
+- **🏠💼 Locador/Vendedor unificado** — campo `papeis: {locador, vendedor}` + filtros
+- **🏷 Vitrine pública com tabs Aluguel/Venda** + WhatsApp FAB + captação de leads
+- **🗄 Arquivar / Restaurar / Excluir tenants** — soft + hard delete com proteção
+- **🎯 Operar aqui / Marcar como meu** — Super Admin escolhe tenant ativo persistido
+- **📷 Fotos: drag&drop subir + reordenar + auto-rascunho + badge Capa**
+- **🧾 Taxa adm configurável** (aluguel/verbas/todas)
+- **📊 Painel de alertas no Dashboard**
+- **📥 Importação CSV redesenhada** (4 passos visuais + dropzone)
+- **📰 CRUD de URLs do monitor legislativo** via painel
+- **📝 Editor de perguntas do wizard** (override por tenant)
+- **🎨 Mensagens contextuais inline** (sweep UX em modais)
 
 ---
 
@@ -50,10 +67,15 @@ Mesmo codebase atende três modos:
   fotofobia-friendly.
 - **Backend:** Firebase (Auth + Firestore + Storage) — plano Blaze ativo.
 - **Hosting:** GitHub Pages em `https://zett-romao.github.io/drg-rently/`
-- **APIs externas via Cloudflare Workers** (3 deployados):
-  - `drg-rently-resend` — envio de e-mail via Resend (balancetes)
-  - `drg-rently-gemini` — leitura de boletos via Gemini Vision
+- **APIs externas via Cloudflare Workers** (7+ deployados):
+  - `drg-rently-resend` — envio de e-mail via Resend (balancetes, leads)
+  - `drg-rently-gemini` — Gemini Vision com 4 modos (boleto, contrato, multi, documento_pessoa)
   - `drg-rently-feed` — gera XML feed pros portais imobiliários
+  - `drg-rently-zapsign` — proxy de assinatura eletrônica (cada tenant com sua chave)
+  - `drg-rently-legis-monitor` — monitor diário Planalto (cron) + endpoints CRUD URLs
+  - `drg-rently-passkey` — WebAuthn (passkeys) + emite custom token Firebase (RS256)
+  - `drg-rently-asaas` — Asaas dual-auth (admin DRG p/ mensalidade SaaS + tenant p/ cobrança própria)
+  - `drg-rently-telemetria` — opcional (instâncias self-hosted Modelo C)
 - **Domínio do e-mail:** `drglobal.com.br` verificado no Resend (SPF + DKIM).
   Remetente final: `balancetes@drglobal.com.br`.
 

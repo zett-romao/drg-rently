@@ -1,0 +1,26 @@
+name: Deploy Cloudflare Worker (Asaas)
+
+# Dispara em mudanças no worker Asaas ou seu wrangler,
+# ou manualmente pela aba Actions do GitHub.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker-asaas.js'
+      - 'wrangler-asaas.toml'
+      - '.github/workflows/deploy-asaas.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy worker via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler-asaas.toml
