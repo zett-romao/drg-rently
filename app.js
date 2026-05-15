@@ -33,6 +33,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'contratos',     label: 'Contratos',     grupo: 'Operação' },
   { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
   { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação' },
+  { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação' },
   { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação' },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
@@ -399,6 +400,8 @@ async function loadProfileAndShow(user) {
     logAuditoria('login', 'sessao', user.uid, { email: user.email });
     // Telemetria pra Modelo C (self-hosted): só dispara se for instância em Firebase de outro projeto
     enviarTelemetria();
+    // Notificações nativas do navegador/OS (lead novo, contrato vencendo, etc)
+    inicializarNotificacoes().catch(e => console.warn('Notif init falhou:', e));
 
   } catch (err) {
     console.error('Erro carregando perfil:', err);
@@ -820,6 +823,7 @@ function showSection(name, _opts = {}) {
     contratos: 'Contratos',
     negociacoes: 'Negociações',
     leads: 'Leads (anúncios captados)',
+    calendario: 'Calendário de vencimentos',
     balancetes: 'Balancetes Mensais',
     portais: 'Portais Imobiliários',
     importacao: 'Importação em massa (CSV)',
@@ -863,6 +867,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'leads' && State.tenant) {
     loadLeads();
+  }
+  if (name === 'calendario' && State.tenant) {
+    loadCalendario();
   }
   if (name === 'garantias' && State.tenant) {
     loadGarantias();
@@ -1973,7 +1980,1066 @@ async function loadDashboard() {
 
   // Painel de alertas resumo (não bloqueia o resto do dashboard)
   loadAlertasResumoDashboard().catch(e => console.warn('Alertas resumo falhou:', e));
+
+  // Gráficos analíticos (também não bloqueante)
+  loadGraficosDashboard().catch(e => console.warn('Gráficos falharam:', e));
 }
+
+// =============================================================
+// Gráficos do Dashboard (Chart.js — lazy load via CDN)
+// =============================================================
+let _graficosChart = { receita: null, ocupacao: null, leads: null, contratos: null };
+
+async function loadGraficosDashboard() {
+  // Aguarda Chart.js carregar (CDN com defer pode demorar 1-2s)
+  if (typeof Chart === 'undefined') {
+    setTimeout(() => loadGraficosDashboard(), 500);
+    return;
+  }
+  if (!State.tenant) return;
+
+  try {
+    const hoje = new Date();
+    const meses = [];  // labels últimos 12 meses, ex: "Jun/25"
+    const mesesISO = []; // ex: "2025-06"
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      meses.push(d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''));
+      mesesISO.push(`${d.getFullYear()}-${m}`);
+    }
+
+    // Carrega dados em paralelo
+    const [balancetesSnap, imoveisSnap, leadsSnap, contratosSnap] = await Promise.all([
+      tenantPath().collection('balancetes').get(),
+      tenantPath().collection('imoveis').get(),
+      tenantPath().collection('leadsImoveis').get().catch(() => ({ docs: [] })),
+      tenantPath().collection('contratos').get(),
+    ]);
+
+    // ===== 1. Receita mensal (soma totalEntradas dos balancetes) =====
+    const receitaPorMes = mesesISO.map(() => 0);
+    balancetesSnap.docs.forEach(d => {
+      const b = d.data();
+      const idx = mesesISO.indexOf(`${b.ano}-${String(b.mes || 0).padStart(2, '0')}`);
+      if (idx >= 0) receitaPorMes[idx] += parseFloat(b.totalEntradas) || 0;
+    });
+
+    // ===== 2. Ocupação (donut) =====
+    let alugados = 0, disponiveis = 0, vendidos = 0, emReforma = 0, outros = 0;
+    imoveisSnap.docs.forEach(d => {
+      const s = (d.data().status || 'disponivel');
+      if (s === 'alugado') alugados++;
+      else if (s === 'disponivel') disponiveis++;
+      else if (s === 'vendido') vendidos++;
+      else if (s === 'em_reforma') emReforma++;
+      else outros++;
+    });
+
+    // ===== 3. Leads por mês =====
+    const leadsPorMes = mesesISO.map(() => 0);
+    leadsSnap.docs.forEach(d => {
+      const data = d.data().criadoEm?.toDate ? d.data().criadoEm.toDate() : null;
+      if (!data) return;
+      const key = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}`;
+      const idx = mesesISO.indexOf(key);
+      if (idx >= 0) leadsPorMes[idx]++;
+    });
+
+    // ===== 4. Status dos contratos =====
+    const statusContratos = { vigente: 0, encerrado: 0, distratado: 0, rascunho: 0, outros: 0 };
+    contratosSnap.docs.forEach(d => {
+      const s = (d.data().status || 'rascunho').toLowerCase();
+      if (statusContratos[s] !== undefined) statusContratos[s]++;
+      else statusContratos.outros++;
+    });
+
+    // Render — destruir gráficos antigos antes de recriar
+    Object.values(_graficosChart).forEach(c => { if (c) c.destroy(); });
+
+    const corPrim = '#475569';
+    const corTeal = '#0F766E';
+    const corAmbar = '#F59E0B';
+    const corVermelho = '#DC2626';
+    const corCinza = '#94A3B8';
+
+    // Receita (linha)
+    _graficosChart.receita = new Chart(document.getElementById('grafico-receita'), {
+      type: 'line',
+      data: {
+        labels: meses,
+        datasets: [{
+          label: 'Receita',
+          data: receitaPorMes,
+          borderColor: corTeal,
+          backgroundColor: 'rgba(15, 118, 110, 0.12)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointBackgroundColor: corTeal,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx) => fmtBRL(ctx.raw) } },
+        },
+        scales: {
+          y: { ticks: { callback: (v) => 'R$ ' + (v >= 1000 ? (v/1000).toFixed(1) + 'k' : v.toFixed(0)) } },
+        },
+      },
+    });
+
+    // Ocupação (donut)
+    _graficosChart.ocupacao = new Chart(document.getElementById('grafico-ocupacao'), {
+      type: 'doughnut',
+      data: {
+        labels: ['🏘 Alugados', '🟢 Disponíveis', '💰 Vendidos', '🔧 Em reforma', 'Outros'],
+        datasets: [{
+          data: [alugados, disponiveis, vendidos, emReforma, outros],
+          backgroundColor: ['#0F766E', '#10B981', '#F59E0B', '#94A3B8', '#CBD5E1'],
+          borderWidth: 2,
+          borderColor: '#fff',
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+        },
+      },
+    });
+
+    // Leads (barra)
+    _graficosChart.leads = new Chart(document.getElementById('grafico-leads'), {
+      type: 'bar',
+      data: {
+        labels: meses,
+        datasets: [{
+          label: 'Leads',
+          data: leadsPorMes,
+          backgroundColor: corAmbar,
+          borderRadius: 6,
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { precision: 0 } } },
+      },
+    });
+
+    // Contratos (donut)
+    _graficosChart.contratos = new Chart(document.getElementById('grafico-contratos'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Vigente', 'Encerrado', 'Distratado', 'Rascunho', 'Outros'],
+        datasets: [{
+          data: [statusContratos.vigente, statusContratos.encerrado, statusContratos.distratado, statusContratos.rascunho, statusContratos.outros],
+          backgroundColor: ['#0F766E', '#94A3B8', '#DC2626', '#CBD5E1', '#E5E7EB'],
+          borderWidth: 2,
+          borderColor: '#fff',
+        }],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+        },
+      },
+    });
+  } catch (err) {
+    console.error('Erro ao carregar gráficos:', err);
+  }
+}
+
+window.loadGraficosDashboard = loadGraficosDashboard;
+
+// =============================================================
+// AUTO-SAVE em modais grandes — recovery em caso de fechar sem salvar
+// =============================================================
+//
+// Como funciona:
+// 1. Registra um modal com modalAutoSaveInit(modalId, prefix, campos[])
+// 2. Quando o user digita/seleciona, salva snapshot no localStorage (debounce 800ms)
+// 3. Quando o modal abre vazio (criar novo), verifica se há snapshot recente
+//    e oferece "📥 Recuperar rascunho não salvo?"
+// 4. Ao salvar com sucesso (modalAutoSaveClear), apaga o snapshot
+// =============================================================
+
+const AUTOSAVE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+
+function _autosaveKey(prefix) {
+  const tenantId = State.tenant?.id || 'no-tenant';
+  return `drg-autosave:${tenantId}:${prefix}`;
+}
+
+function modalAutoSaveSnapshot(prefix, campos) {
+  if (!State.tenant) return;
+  const snap = {};
+  campos.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox' || el.type === 'radio') snap[id] = el.checked;
+    else snap[id] = el.value;
+  });
+  // Só salva se tem ao menos 1 campo preenchido (evita lixo)
+  const temConteudo = Object.values(snap).some(v => v && v !== false && v !== '');
+  if (!temConteudo) {
+    try { localStorage.removeItem(_autosaveKey(prefix)); } catch (_) {}
+    return;
+  }
+  try {
+    localStorage.setItem(_autosaveKey(prefix), JSON.stringify({ ts: Date.now(), data: snap }));
+  } catch (e) {
+    // Quota exceeded — silencioso
+    console.warn('[autosave] localStorage cheio:', e);
+  }
+}
+
+function modalAutoSaveLer(prefix) {
+  try {
+    const raw = localStorage.getItem(_autosaveKey(prefix));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !parsed.ts) return null;
+    // TTL: 7 dias
+    if (Date.now() - parsed.ts > AUTOSAVE_TTL_MS) {
+      localStorage.removeItem(_autosaveKey(prefix));
+      return null;
+    }
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function modalAutoSaveClear(prefix) {
+  try { localStorage.removeItem(_autosaveKey(prefix)); } catch (_) {}
+}
+
+function modalAutoSaveAplicar(prefix, campos) {
+  const snap = modalAutoSaveLer(prefix);
+  if (!snap || !snap.data) return false;
+  campos.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const val = snap.data[id];
+    if (val === undefined) return;
+    if (el.type === 'checkbox' || el.type === 'radio') el.checked = !!val;
+    else el.value = val;
+  });
+  return true;
+}
+
+// Listener inteligente: anexa listeners de input em todos os campos do modal
+// e chama snapshot com debounce
+const _autosaveTimers = {};
+function modalAutoSaveLigar(prefix, campos) {
+  campos.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el._autosaveBound) return;
+    el._autosaveBound = true;
+    const ev = (el.tagName === 'SELECT' || el.type === 'date' || el.type === 'checkbox' || el.type === 'radio') ? 'change' : 'input';
+    el.addEventListener(ev, () => {
+      if (_autosaveTimers[prefix]) clearTimeout(_autosaveTimers[prefix]);
+      _autosaveTimers[prefix] = setTimeout(() => modalAutoSaveSnapshot(prefix, campos), 800);
+    });
+  });
+}
+
+// Ao abrir modal NOVO (id vazio), checa snapshot e pergunta
+async function modalAutoSaveCheckRecovery(prefix, campos, labelEntidade) {
+  const snap = modalAutoSaveLer(prefix);
+  if (!snap || !snap.data) return false;
+  const minutosAtras = Math.floor((Date.now() - snap.ts) / 60000);
+  const tempoTxt = minutosAtras < 1 ? 'menos de 1 minuto'
+    : minutosAtras < 60 ? `${minutosAtras} minuto${minutosAtras > 1 ? 's' : ''}`
+    : minutosAtras < 1440 ? `${Math.floor(minutosAtras/60)} hora${Math.floor(minutosAtras/60) > 1 ? 's' : ''}`
+    : `${Math.floor(minutosAtras/1440)} dia${Math.floor(minutosAtras/1440) > 1 ? 's' : ''}`;
+  const camposPreenchidos = Object.keys(snap.data).filter(k => snap.data[k]).length;
+  const ok = await confirmar({
+    titulo: '📥 Rascunho não salvo encontrado',
+    mensagem: `Há um cadastro de <strong>${escapeHtml(labelEntidade)}</strong> não finalizado de <strong>${tempoTxt}</strong> atrás.`,
+    detalhe: `${camposPreenchidos} campo(s) preenchido(s). Deseja <strong>recuperar</strong> e continuar de onde parou, ou <strong>descartar</strong> e começar do zero?`,
+    confirmar: '📥 Recuperar rascunho',
+    cancelar: 'Começar do zero',
+    aviso: true,
+  });
+  if (ok) {
+    modalAutoSaveAplicar(prefix, campos);
+    return true;
+  } else {
+    modalAutoSaveClear(prefix);
+    return false;
+  }
+}
+
+window.modalAutoSaveSnapshot = modalAutoSaveSnapshot;
+window.modalAutoSaveClear = modalAutoSaveClear;
+window.modalAutoSaveLigar = modalAutoSaveLigar;
+window.modalAutoSaveCheckRecovery = modalAutoSaveCheckRecovery;
+
+// =============================================================
+// EXPORT CSV — gera CSV no browser e baixa
+// =============================================================
+function exportarParaCSV(nomeArquivo, dados, colunas) {
+  // dados = array de objetos
+  // colunas = array de { header: 'Nome', key: 'nome', formatter?: (v, row) => str }
+  if (!dados || !dados.length) {
+    confirmar({ titulo: 'Nada pra exportar', mensagem: 'Não há registros pra incluir no CSV.', confirmar: 'OK' });
+    return;
+  }
+  const csvEscape = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes('"') || s.includes(',') || s.includes('\n') || s.includes(';')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+  const header = colunas.map(c => csvEscape(c.header)).join(';');
+  const linhas = dados.map(row => colunas.map(c => {
+    let v = row[c.key];
+    if (c.formatter) v = c.formatter(v, row);
+    return csvEscape(v);
+  }).join(';'));
+  // BOM UTF-8 pro Excel reconhecer acentuação
+  const csv = '﻿' + header + '\n' + linhas.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  const dataStr = new Date().toISOString().slice(0, 10);
+  link.download = `${nomeArquivo}-${dataStr}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function exportarLocadores() {
+  if (!_locadoresCarregados || !_locadoresCarregados.length) {
+    await confirmar({ titulo: 'Nada pra exportar', mensagem: 'Carregue a lista de locadores primeiro.', confirmar: 'OK' });
+    return;
+  }
+  exportarParaCSV('locadores-vendedores', _locadoresCarregados, [
+    { header: 'Nome / Razão Social', key: 'nome' },
+    { header: 'Tipo', key: 'tipo' },
+    { header: 'CPF/CNPJ', key: 'documento' },
+    { header: 'Papel Locador', key: 'papeis', formatter: (p) => (p?.locador !== false ? 'Sim' : 'Não') },
+    { header: 'Papel Vendedor', key: 'papeis', formatter: (p) => (p?.vendedor !== false ? 'Sim' : 'Não') },
+    { header: 'Email', key: 'email' },
+    { header: 'Telefone', key: 'telefone' },
+    { header: 'PIX', key: 'pix' },
+    { header: 'Cidade', key: 'endereco', formatter: (e) => e?.cidade || '' },
+    { header: 'UF', key: 'endereco', formatter: (e) => e?.uf || '' },
+  ]);
+}
+
+async function exportarImoveis() {
+  if (!_imoveisCarregados || !_imoveisCarregados.length) {
+    await confirmar({ titulo: 'Nada pra exportar', mensagem: 'Carregue a lista de imóveis primeiro.', confirmar: 'OK' });
+    return;
+  }
+  exportarParaCSV('imoveis', _imoveisCarregados, [
+    { header: 'Apelido', key: 'apelido' },
+    { header: 'Tipo', key: 'tipo' },
+    { header: 'Subtipo', key: 'subtipo' },
+    { header: 'Finalidade', key: 'finalidade' },
+    { header: 'Status', key: 'status' },
+    { header: 'Locador', key: 'locadorId', formatter: (id) => (_imovelLocMap?.[id] || '—') },
+    { header: 'CEP', key: 'endereco', formatter: (e) => e?.cep || '' },
+    { header: 'Cidade', key: 'endereco', formatter: (e) => e?.cidade || '' },
+    { header: 'UF', key: 'endereco', formatter: (e) => e?.uf || '' },
+    { header: 'Quartos', key: 'quartos' },
+    { header: 'Área útil (m²)', key: 'areaUtil' },
+    { header: 'Aluguel sugerido', key: 'aluguelSugerido' },
+    { header: 'Valor venda', key: 'valorVenda' },
+  ]);
+}
+
+async function exportarLeads() {
+  if (!_leadsCarregados || !_leadsCarregados.length) {
+    await confirmar({ titulo: 'Nada pra exportar', mensagem: 'Carregue a lista de leads primeiro.', confirmar: 'OK' });
+    return;
+  }
+  exportarParaCSV('leads-anuncios', _leadsCarregados, [
+    { header: 'Data', key: 'criadoEm', formatter: (ts) => {
+      const d = ts?.toDate ? ts.toDate() : null;
+      return d ? d.toLocaleString('pt-BR') : '';
+    }},
+    { header: 'Nome', key: 'nome' },
+    { header: 'Telefone', key: 'telefone' },
+    { header: 'Email', key: 'email' },
+    { header: 'Quer', key: 'finalidade' },
+    { header: 'Tipo Imóvel', key: 'tipo' },
+    { header: 'Cidade / Bairro', key: 'cidadeBairro' },
+    { header: 'Descrição', key: 'descricao' },
+    { header: 'Status', key: 'status' },
+  ]);
+}
+
+// Genérico: exporta qualquer tabela atualmente visível na tela como CSV
+async function exportarTabelaVisivel(tbodyId, nomeArquivo) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const table = tbody.closest('table');
+  if (!table) return;
+  const headers = Array.from(table.querySelectorAll('thead th'))
+    .map(th => th.textContent.trim())
+    .filter(h => h && h !== 'Ações' && h !== '#');
+  const rows = Array.from(tbody.querySelectorAll('tr')).map(tr => {
+    const cells = Array.from(tr.querySelectorAll('td'));
+    // Pula primeira coluna se for #
+    const skipFirst = table.querySelector('thead th')?.textContent.trim() === '#';
+    const skipLast = headers.length === cells.length - 1 - (skipFirst ? 1 : 0);
+    return cells.slice(skipFirst ? 1 : 0, skipLast ? -1 : undefined)
+      .map(td => td.textContent.trim().replace(/\s+/g, ' '));
+  }).filter(r => r.length === headers.length);
+  if (rows.length === 0) {
+    await confirmar({ titulo: 'Nada pra exportar', mensagem: 'A tabela está vazia ou ainda não carregou.', confirmar: 'OK' });
+    return;
+  }
+  const dados = rows.map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] || ''])));
+  exportarParaCSV(nomeArquivo, dados, headers.map(h => ({ header: h, key: h })));
+}
+
+window.exportarLocadores = exportarLocadores;
+window.exportarImoveis = exportarImoveis;
+window.exportarLeads = exportarLeads;
+window.exportarTabelaVisivel = exportarTabelaVisivel;
+
+// =============================================================
+// TAGS — sistema de etiquetas customizáveis (Imóveis, etc)
+// =============================================================
+let _imovelTags = []; // estado atual das tags do modal de imóvel
+
+function renderImovelTags() {
+  const container = document.getElementById('imovel-tags-chips');
+  if (!container) return;
+  container.innerHTML = _imovelTags.map((tag, idx) => `
+    <span class="tag-chip">
+      ${escapeHtml(tag)}
+      <button type="button" class="tag-chip-remove" onclick="removerTagImovel(${idx})" title="Remover">×</button>
+    </span>
+  `).join('');
+}
+
+function adicionarTagImovel(tag) {
+  if (!tag) return;
+  const normalizada = String(tag).trim().toLowerCase().replace(/\s+/g, '-');
+  if (!normalizada) return;
+  if (_imovelTags.includes(normalizada)) return;
+  if (_imovelTags.length >= 15) return; // limite
+  _imovelTags.push(normalizada);
+  renderImovelTags();
+  const input = document.getElementById('imovel-tags-input');
+  if (input) input.value = '';
+}
+
+function removerTagImovel(idx) {
+  _imovelTags.splice(idx, 1);
+  renderImovelTags();
+}
+
+function inicializarTagsInput() {
+  const input = document.getElementById('imovel-tags-input');
+  if (!input || input._tagsInit) return;
+  input._tagsInit = true;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      adicionarTagImovel(input.value);
+    } else if (e.key === 'Backspace' && !input.value && _imovelTags.length > 0) {
+      _imovelTags.pop();
+      renderImovelTags();
+    }
+  });
+  input.addEventListener('blur', () => {
+    if (input.value.trim()) adicionarTagImovel(input.value);
+  });
+}
+
+window.adicionarTagImovel = adicionarTagImovel;
+window.removerTagImovel = removerTagImovel;
+window.renderImovelTags = renderImovelTags;
+window.inicializarTagsInput = inicializarTagsInput;
+
+// =============================================================
+// ATALHOS DE TECLADO GLOBAIS
+// =============================================================
+// Ctrl+K  → busca global (TODO futuro)
+// Ctrl+/  → mostra lista de atalhos
+// Ctrl+N  → novo item conforme seção atual
+// Ctrl+,  → Configurações
+// Alt+D   → Dashboard
+// Alt+L   → Locadores
+// Alt+I   → Imóveis
+// Alt+C   → Contratos
+// Alt+B   → Balancetes
+// Alt+G   → Garantias
+// Alt+T   → Locatários
+// Alt+P   → Leads (📥)
+// Esc     → fecha modal aberto OU sidebar mobile
+// =============================================================
+
+function instalarAtalhosGlobais() {
+  if (window._atalhosInstalados) return;
+  window._atalhosInstalados = true;
+
+  document.addEventListener('keydown', (e) => {
+    // Ignora se está em input/textarea/select/contenteditable (exceto Esc)
+    const dentroDeInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
+
+    // Esc fecha modal aberto
+    if (e.key === 'Escape') {
+      // Modal de confirmação tem seu próprio Esc, então só os outros
+      const modais = document.querySelectorAll('.modal-overlay');
+      for (const m of modais) {
+        if (m.style.display !== 'none' && m.id !== 'modal-confirmar') {
+          // Tenta achar botão de fechar (×)
+          const btnFechar = m.querySelector('.modal-close, [onclick*="close"], [onclick*="fechar"]');
+          if (btnFechar) btnFechar.click();
+          else m.style.display = 'none';
+          return;
+        }
+      }
+      // Sidebar mobile aberta
+      const sidebar = $('sidebar');
+      if (sidebar && sidebar.classList.contains('mobile-open')) {
+        fecharSidebarMobile();
+      }
+      return;
+    }
+
+    if (dentroDeInput && e.key !== '?') return;
+
+    // Ctrl+/ ou Shift+? mostra ajuda de atalhos
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      mostrarAjudaAtalhos();
+      return;
+    }
+    if (e.key === '?' && !dentroDeInput) {
+      e.preventDefault();
+      mostrarAjudaAtalhos();
+      return;
+    }
+
+    // Ctrl+, abre Configurações
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      if (State.tenant) showSection('configuracoes');
+      return;
+    }
+
+    // Ctrl+K — busca global (placeholder)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      mostrarBuscaGlobal();
+      return;
+    }
+
+    // Ctrl+N — novo item conforme seção
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
+      e.preventDefault();
+      const sec = State.currentSection;
+      const acoes = {
+        locadores: () => typeof openLocadorModal === 'function' && openLocadorModal(),
+        locatarios: () => typeof openLocatarioModal === 'function' && openLocatarioModal(),
+        compradores: () => typeof openCompradorModal === 'function' && openCompradorModal(),
+        imoveis: () => typeof openImovelModal === 'function' && openImovelModal(),
+        contratos: () => typeof openContratoModal === 'function' && openContratoModal(),
+        negociacoes: () => typeof openNegociacaoModal === 'function' && openNegociacaoModal(),
+        garantias: () => typeof openGarantiaModal === 'function' && openGarantiaModal(),
+        balancetes: () => typeof openBalanceteModal === 'function' && openBalanceteModal(),
+      };
+      if (acoes[sec]) acoes[sec]();
+      return;
+    }
+
+    // Alt + letra → navegação
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const navMap = {
+        d: 'dashboard',
+        l: 'locadores',
+        i: 'imoveis',
+        c: 'contratos',
+        b: 'balancetes',
+        g: 'garantias',
+        t: 'locatarios',
+        p: 'leads',
+      };
+      const dest = navMap[e.key.toLowerCase()];
+      if (dest && State.tenant) {
+        e.preventDefault();
+        showSection(dest);
+      }
+    }
+  });
+}
+
+async function mostrarAjudaAtalhos() {
+  await confirmar({
+    titulo: '⌨️ Atalhos de teclado',
+    mensagem: 'Acelere sua operação com estes atalhos:',
+    detalhe: `
+      <table style="width:100%; font-size:12px; border-collapse:collapse;">
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Esc</kbd></td><td>Fechar modal aberto</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Busca global</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>N</kbd></td><td>Novo item (depende da seção)</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>,</kbd></td><td>Configurações</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>/</kbd> ou <kbd>?</kbd></td><td>Esta ajuda</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>D</kbd></td><td>Dashboard</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>L</kbd></td><td>Locadores/Vendedores</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>T</kbd></td><td>Locatários</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>I</kbd></td><td>Imóveis</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>G</kbd></td><td>Garantias</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>C</kbd></td><td>Contratos</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>B</kbd></td><td>Balancetes</td></tr>
+        <tr><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>P</kbd></td><td>Leads (anúncios)</td></tr>
+      </table>
+    `,
+    confirmar: 'Fechar',
+    cancelar: ' ',
+  });
+}
+
+async function mostrarBuscaGlobal() {
+  // Placeholder: futuro implementar busca real
+  await confirmar({
+    titulo: '🔍 Busca global',
+    mensagem: 'Funcionalidade em construção.',
+    detalhe: 'Em breve você poderá buscar locador, locatário, imóvel ou contrato por qualquer campo (CPF, nome, endereço, número) numa caixa única.<br><br>Por enquanto, use os filtros e a busca de cada seção.',
+    confirmar: 'OK',
+    cancelar: ' ',
+  });
+}
+
+window.mostrarAjudaAtalhos = mostrarAjudaAtalhos;
+window.mostrarBuscaGlobal = mostrarBuscaGlobal;
+
+// =============================================================
+// 📅 CALENDÁRIO DE VENCIMENTOS
+// =============================================================
+let _calendarioPeriodo = 30; // dias
+let _calendarioEventos = []; // cache
+
+function setFiltroCalendario(dias) {
+  _calendarioPeriodo = dias;
+  document.querySelectorAll('#calendario-filtros .papel-filtro-btn').forEach(b => {
+    b.classList.toggle('active', String(b.dataset.periodo) === String(dias));
+  });
+  renderCalendario();
+}
+
+async function loadCalendario() {
+  const lista = document.getElementById('calendario-lista');
+  if (!lista || !State.tenant) return;
+  lista.innerHTML = '<p class="muted" style="text-align:center; padding:24px;">Carregando eventos…</p>';
+
+  try {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const limite = new Date(hoje);
+    limite.setDate(limite.getDate() + 365); // sempre carrega 1 ano
+
+    const [contratosSnap, garantiasSnap, balancetesSnap] = await Promise.all([
+      tenantPath().collection('contratos').get(),
+      tenantPath().collection('garantias').get(),
+      tenantPath().collection('balancetes').get(),
+    ]);
+
+    const imoveisSnap = await tenantPath().collection('imoveis').get();
+    const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido || '—']));
+
+    const eventos = [];
+
+    // 1. Contratos vencendo
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.fim) return;
+      const fimDt = new Date(c.fim + 'T00:00:00');
+      if (fimDt >= hoje && fimDt <= limite) {
+        const dias = Math.floor((fimDt - hoje) / 86400000);
+        eventos.push({
+          data: c.fim,
+          dataObj: fimDt,
+          icone: '📝',
+          tipo: dias <= 30 ? 'critico' : (dias <= 90 ? 'atencao' : 'info'),
+          titulo: `Contrato vence (${dias} dia${dias === 1 ? '' : 's'})`,
+          sub: imovelMap[c.imovelId] || '—',
+          secao: 'contratos',
+          id: d.id,
+        });
+      }
+    });
+
+    // 2. Aniversários de contrato (reajustes anuais)
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.inicio) return;
+      const inicioDt = new Date(c.inicio + 'T00:00:00');
+      const periodicidadeMeses = 12; // simplificação
+      // Calcula próximos N aniversários dentro do período
+      let proxAniv = new Date(inicioDt);
+      while (proxAniv < hoje) proxAniv.setMonth(proxAniv.getMonth() + periodicidadeMeses);
+      if (proxAniv >= hoje && proxAniv <= limite) {
+        eventos.push({
+          data: proxAniv.toISOString().slice(0, 10),
+          dataObj: new Date(proxAniv),
+          icone: '📈',
+          tipo: 'rotina',
+          titulo: `Reajuste anual do contrato`,
+          sub: imovelMap[c.imovelId] || '—',
+          secao: 'contratos',
+          id: d.id,
+        });
+      }
+    });
+
+    // 3. Garantias vencendo
+    garantiasSnap.docs.forEach(d => {
+      const g = d.data();
+      const fim = g.validadeAte || g.fim || g.vencimento;
+      if (!fim) return;
+      const fimDt = new Date(fim + 'T00:00:00');
+      if (fimDt >= hoje && fimDt <= limite) {
+        const dias = Math.floor((fimDt - hoje) / 86400000);
+        eventos.push({
+          data: fim,
+          dataObj: fimDt,
+          icone: '🛡',
+          tipo: dias <= 60 ? 'atencao' : 'info',
+          titulo: `Garantia vence`,
+          sub: g.identificacao || g.tipo || '—',
+          secao: 'garantias',
+          id: d.id,
+        });
+      }
+    });
+
+    // 4. Próximas datas de fechamento de balancete (dia configurado pelo tenant)
+    try {
+      const padroes = await getPadroesTenant();
+      const diaFechamento = padroes.diaFechamentoBalancete || 5;
+      const contratosVigentes = contratosSnap.docs.filter(d => d.data().status === 'vigente');
+      for (let m = 0; m < 12; m++) {
+        const data = new Date(hoje.getFullYear(), hoje.getMonth() + m, diaFechamento);
+        if (data < hoje) continue;
+        if (data > limite) break;
+        if (contratosVigentes.length > 0) {
+          eventos.push({
+            data: data.toISOString().slice(0, 10),
+            dataObj: new Date(data),
+            icone: '💰',
+            tipo: 'rotina',
+            titulo: `Fechar balancete do mês`,
+            sub: `${contratosVigentes.length} contrato(s) vigente(s)`,
+            secao: 'balancetes',
+            id: null,
+          });
+        }
+      }
+    } catch (_) {}
+
+    eventos.sort((a, b) => a.dataObj - b.dataObj);
+    _calendarioEventos = eventos;
+    renderCalendario();
+  } catch (err) {
+    console.error('Erro ao carregar calendário:', err);
+    lista.innerHTML = `<p class="muted" style="color:var(--danger); text-align:center; padding:24px;">Erro: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderCalendario() {
+  const lista = document.getElementById('calendario-lista');
+  const resumo = document.getElementById('calendario-resumo');
+  if (!lista) return;
+
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const limite = new Date(hoje);
+  limite.setDate(limite.getDate() + _calendarioPeriodo);
+
+  const filtrados = _calendarioEventos.filter(ev => ev.dataObj >= hoje && ev.dataObj <= limite);
+
+  // Resumo
+  if (resumo) {
+    if (filtrados.length === 0) {
+      resumo.style.display = 'none';
+    } else {
+      const criticos = filtrados.filter(e => e.tipo === 'critico').length;
+      const atencao = filtrados.filter(e => e.tipo === 'atencao').length;
+      resumo.style.display = 'block';
+      resumo.innerHTML = `📊 <strong>${filtrados.length}</strong> evento(s) nos próximos <strong>${_calendarioPeriodo} dias</strong>${criticos > 0 ? ` · <span style="color:#991B1B;">${criticos} crítico(s)</span>` : ''}${atencao > 0 ? ` · <span style="color:#92400E;">${atencao} de atenção</span>` : ''}`;
+    }
+  }
+
+  if (filtrados.length === 0) {
+    lista.innerHTML = `
+      <div style="text-align:center; padding:40px 20px;">
+        <div style="font-size:42px;">✅</div>
+        <p style="font-weight:600; color:var(--success); margin-top:8px;">Tudo tranquilo!</p>
+        <p class="muted" style="font-size:12px;">Nenhum vencimento nos próximos ${_calendarioPeriodo} dias.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Agrupa por dia
+  const porDia = {};
+  filtrados.forEach(ev => {
+    if (!porDia[ev.data]) porDia[ev.data] = [];
+    porDia[ev.data].push(ev);
+  });
+
+  // Agrupa por mês (pra título)
+  const dias = Object.keys(porDia).sort();
+  const mesesLabels = {};
+  dias.forEach(diaISO => {
+    const d = new Date(diaISO + 'T00:00:00');
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!mesesLabels[key]) {
+      mesesLabels[key] = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+    }
+  });
+
+  let html = '';
+  let mesAtual = '';
+  dias.forEach(diaISO => {
+    const d = new Date(diaISO + 'T00:00:00');
+    const mesKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (mesKey !== mesAtual) {
+      mesAtual = mesKey;
+      html += `<div class="calendario-mes-titulo">${mesesLabels[mesKey]}</div>`;
+    }
+    const ehHoje = d.getTime() === hoje.getTime();
+    const ehPassado = d < hoje;
+    const classeData = ehHoje ? 'hoje' : (ehPassado ? 'passado' : '');
+    const diaSemana = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+    const mesAbrev = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+    const eventosDoDia = porDia[diaISO].map(ev => `
+      <div class="calendario-evento tipo-${ev.tipo}" onclick="showSection('${ev.secao}')">
+        <div class="calendario-evento-icone">${ev.icone}</div>
+        <div class="calendario-evento-body">
+          <div class="calendario-evento-titulo">${escapeHtml(ev.titulo)}</div>
+          <div class="calendario-evento-sub">${escapeHtml(ev.sub)}</div>
+        </div>
+        <div class="muted" style="font-size:11px;">→</div>
+      </div>
+    `).join('');
+    html += `
+      <div class="calendario-dia-grupo">
+        <div class="calendario-dia-caixa ${classeData}">
+          <div class="calendario-dia-num">${d.getDate()}</div>
+          <div class="calendario-dia-mes">${mesAbrev}</div>
+          <div class="calendario-dia-semana">${diaSemana}</div>
+        </div>
+        <div class="calendario-eventos">${eventosDoDia}</div>
+      </div>
+    `;
+  });
+
+  lista.innerHTML = html;
+}
+
+window.setFiltroCalendario = setFiltroCalendario;
+window.loadCalendario = loadCalendario;
+
+// =============================================================
+// 🔔 NOTIFICAÇÕES (Notification API local — sem backend push)
+// =============================================================
+// Estratégia pragmática:
+// - Pede permissão de notificação 1x (não chato — só após login + 30s)
+// - Verifica alertas a cada 15min (setInterval) quando o app está aberto
+// - Dispara notificação nativa OS quando detecta:
+//   • Lead novo cadastrado nas últimas 24h
+//   • Contrato vencendo em <=7 dias
+//   • Garantia vencendo em <=15 dias
+// - Anti-flood: cada notificação fica em localStorage com TTL 24h pra
+//   não disparar de novo o mesmo alerta.
+//
+// Pra push REAL (alertas mesmo com app fechado), precisaria de Firebase
+// Cloud Messaging + Worker — fase futura.
+// =============================================================
+
+const NOTIF_STATE_KEY = 'drg-notif-state';
+const NOTIF_TTL_MS = 24 * 60 * 60 * 1000;
+
+function notifGetEstado() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_STATE_KEY) || '{}'); }
+  catch (_) { return {}; }
+}
+function notifSetEstado(estado) {
+  try { localStorage.setItem(NOTIF_STATE_KEY, JSON.stringify(estado)); }
+  catch (_) {}
+}
+
+function notifJaEnviado(chave) {
+  const estado = notifGetEstado();
+  const ts = estado[chave];
+  return ts && (Date.now() - ts < NOTIF_TTL_MS);
+}
+function notifMarcarEnviado(chave) {
+  const estado = notifGetEstado();
+  estado[chave] = Date.now();
+  // Limpa entradas antigas (TTL)
+  const agora = Date.now();
+  for (const k of Object.keys(estado)) {
+    if (agora - estado[k] > NOTIF_TTL_MS * 2) delete estado[k];
+  }
+  notifSetEstado(estado);
+}
+
+async function pedirPermissaoNotificacao() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  if (Notification.permission === 'denied') return false;
+
+  // Pede permissão num modal de UX (não direto — assustaria o user)
+  const ok = await confirmar({
+    titulo: '🔔 Ativar notificações?',
+    mensagem: 'Quer receber alertas no celular/desktop quando houver:',
+    detalhe: '• 📥 <strong>Novo lead</strong> capturado pela vitrine<br>• ⏰ <strong>Contrato vencendo</strong> em até 7 dias<br>• 🛡 <strong>Garantia vencendo</strong> em até 15 dias<br><br>O navegador vai pedir permissão. Você pode desativar a qualquer momento nas configurações do navegador.',
+    confirmar: '🔔 Ativar',
+    cancelar: 'Agora não',
+    aviso: true,
+  });
+  if (!ok) return false;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+function notificar(titulo, corpo, opcoes = {}) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(titulo, {
+      body: corpo,
+      icon: './logo.png?v=20260514an',
+      badge: './logo.png?v=20260514an',
+      tag: opcoes.tag || 'drg-default',
+      requireInteraction: !!opcoes.requireInteraction,
+      data: opcoes.data || {},
+    });
+    if (opcoes.onClick) {
+      n.onclick = () => {
+        window.focus();
+        opcoes.onClick();
+        n.close();
+      };
+    } else {
+      n.onclick = () => { window.focus(); n.close(); };
+    }
+    return n;
+  } catch (e) {
+    console.warn('Erro ao notificar:', e);
+  }
+}
+
+async function verificarAlertasParaNotificar() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!State.tenant) return;
+
+  try {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+
+    // 1. Leads novos cadastrados nas últimas 24h
+    const ultimoCheck = (notifGetEstado()._ultimoCheckLeads) || (Date.now() - 6 * 60 * 60 * 1000);
+    const checkInicial = new Date(ultimoCheck);
+    const leadsSnap = await tenantPath().collection('leadsImoveis')
+      .where('status', '==', 'novo').get();
+    leadsSnap.docs.forEach(d => {
+      const lead = d.data();
+      const criado = lead.criadoEm?.toDate ? lead.criadoEm.toDate() : null;
+      if (!criado || criado < checkInicial) return;
+      const chave = `lead-${d.id}`;
+      if (notifJaEnviado(chave)) return;
+      notificar(
+        '📥 Novo lead capturado!',
+        `${lead.nome || 'Sem nome'} quer ${lead.finalidade === 'venda' ? 'vender' : 'alugar'} um imóvel. WhatsApp: ${lead.telefone || '—'}`,
+        { tag: chave, onClick: () => showSection('leads') }
+      );
+      notifMarcarEnviado(chave);
+    });
+    const estado = notifGetEstado();
+    estado._ultimoCheckLeads = Date.now();
+    notifSetEstado(estado);
+
+    // 2. Contratos vencendo em <=7 dias
+    const contratosSnap = await tenantPath().collection('contratos').get();
+    contratosSnap.docs.forEach(d => {
+      const c = d.data();
+      if (c.status !== 'vigente' || !c.fim) return;
+      const fimDt = new Date(c.fim + 'T00:00:00');
+      const dias = Math.floor((fimDt - hoje) / 86400000);
+      if (dias < 0 || dias > 7) return;
+      const chave = `contrato-vence-${d.id}`;
+      if (notifJaEnviado(chave)) return;
+      notificar(
+        `⏰ Contrato vence em ${dias} dia${dias === 1 ? '' : 's'}`,
+        `Tome providências: renovar, distratar ou negociar.`,
+        { tag: chave, requireInteraction: true, onClick: () => showSection('contratos') }
+      );
+      notifMarcarEnviado(chave);
+    });
+
+    // 3. Garantias vencendo em <=15 dias
+    const garantiasSnap = await tenantPath().collection('garantias').get();
+    garantiasSnap.docs.forEach(d => {
+      const g = d.data();
+      const fim = g.validadeAte || g.fim || g.vencimento;
+      if (!fim) return;
+      const fimDt = new Date(fim + 'T00:00:00');
+      const dias = Math.floor((fimDt - hoje) / 86400000);
+      if (dias < 0 || dias > 15) return;
+      const chave = `garantia-vence-${d.id}`;
+      if (notifJaEnviado(chave)) return;
+      notificar(
+        `🛡 Garantia vence em ${dias} dia${dias === 1 ? '' : 's'}`,
+        `${g.identificacao || g.tipo || 'Garantia'} — renove antes que perca cobertura.`,
+        { tag: chave, onClick: () => showSection('garantias') }
+      );
+      notifMarcarEnviado(chave);
+    });
+
+  } catch (err) {
+    console.warn('Erro ao verificar alertas pra notificar:', err);
+  }
+}
+
+// Inicialização: pede permissão 30s após o user entrar no app
+// e roda verificação a cada 15 minutos enquanto o app está aberto
+let _notifInterval = null;
+async function inicializarNotificacoes() {
+  if (!State.tenant || !State.user) return;
+  if (_notifInterval) return; // já rodando
+
+  // Se nunca foi perguntado, aguarda 30s antes de pedir
+  if ('Notification' in window && Notification.permission === 'default') {
+    setTimeout(() => {
+      // Só pede se ainda for default (user pode ter mudado em outra aba)
+      if (Notification.permission === 'default') {
+        pedirPermissaoNotificacao().then(ok => {
+          if (ok) verificarAlertasParaNotificar();
+        });
+      }
+    }, 30000);
+  }
+
+  // Verificação periódica (a cada 15 min)
+  _notifInterval = setInterval(() => {
+    verificarAlertasParaNotificar();
+  }, 15 * 60 * 1000);
+
+  // Primeira verificação imediata (se já tem permissão)
+  if ('Notification' in window && Notification.permission === 'granted') {
+    setTimeout(() => verificarAlertasParaNotificar(), 5000);
+  }
+}
+
+window.inicializarNotificacoes = inicializarNotificacoes;
+window.pedirPermissaoNotificacao = pedirPermissaoNotificacao;
 
 // =============================================================
 // Painel de alertas resumo no Dashboard (versão compacta)
@@ -4481,7 +5547,11 @@ async function refreshBalanceteContratoInfo() {
     if (!snap.exists) return;
     const c = snap.data();
     $('balancete-aluguel-base').value = (c.aluguel ?? 0).toFixed(2);
-    if (!$('balancete-taxa-adm').value) $('balancete-taxa-adm').value = c.taxaAdm ?? 10;
+    if (!$('balancete-taxa-adm').value) {
+      // Prioridade: contrato.taxaAdm > tenant.padroes.taxaAdm > 10
+      const padroes = await getPadroesTenant();
+      $('balancete-taxa-adm').value = c.taxaAdm ?? padroes.taxaAdm ?? 10;
+    }
 
     // Carrega dados do locatário + imóvel pra match no multi-comprovante
     try {
@@ -7307,7 +8377,7 @@ function renderImoveisTable() {
     return `
       <tr ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
         <td>${i + 1}</td>
-        <td><strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}</td>
+        <td><strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
         <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
         <td>${finBadge[finalidade] || finalidade}</td>
         <td>${escapeHtml(locNome)}</td>
@@ -7394,6 +8464,19 @@ async function buscarCEPImovel() {
     status.style.color = 'var(--danger)';
   }
 }
+
+// Campos do modal Imóvel pro auto-save
+const IMOVEL_CAMPOS_AUTOSAVE = [
+  'imovel-apelido', 'imovel-locador', 'imovel-status', 'imovel-tipo', 'imovel-subtipo',
+  'imovel-finalidade', 'imovel-cep', 'imovel-logradouro', 'imovel-numero',
+  'imovel-complemento', 'imovel-bairro', 'imovel-cidade', 'imovel-uf',
+  'imovel-area-util', 'imovel-area-total', 'imovel-andar',
+  'imovel-matricula', 'imovel-iptu',
+  'imovel-quartos', 'imovel-banheiros', 'imovel-vagas', 'imovel-mobiliado',
+  'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
+  'imovel-aceita-financiamento', 'imovel-permite-fgts',
+  'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url',
+];
 
 async function openImovelModal(id) {
   clearAlert('imovel-alert');
@@ -7528,7 +8611,30 @@ async function openImovelModal(id) {
     habilitarDropUploadFotos();
   }
 
+  // Tags — reset/load
+  _imovelTags = [];
+  if (id) {
+    try {
+      const snap = await tenantPath().collection('imoveis').doc(id).get();
+      if (snap.exists) {
+        const tagsCarregadas = snap.data().tags || [];
+        if (Array.isArray(tagsCarregadas)) _imovelTags = [...tagsCarregadas];
+      }
+    } catch (_) {}
+  }
+  renderImovelTags();
+  inicializarTagsInput();
+
   $('modal-imovel').style.display = 'flex';
+
+  // Auto-save: liga listeners e checa recovery (só em modo criação)
+  modalAutoSaveLigar('imovel', IMOVEL_CAMPOS_AUTOSAVE);
+  if (!id) {
+    // Aguarda o DOM render antes de checar recovery
+    setTimeout(() => {
+      modalAutoSaveCheckRecovery('imovel', IMOVEL_CAMPOS_AUTOSAVE, 'imóvel').catch(() => {});
+    }, 200);
+  }
 }
 
 function closeImovelModal() {
@@ -7610,6 +8716,7 @@ async function saveImovel() {
     videoUrl: $('imovel-video-url')?.value.trim() || null,
     tourUrl: $('imovel-tour-url')?.value.trim() || null,
     vitrineFeed: $('imovel-vitrine-feed')?.checked !== false,
+    tags: Array.isArray(_imovelTags) ? [..._imovelTags] : [],
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -7629,12 +8736,14 @@ async function saveImovel() {
       btn.disabled = false;
       btn.textContent = 'Salvar';
       invalidateImoveisCache();
+      modalAutoSaveClear('imovel'); // limpa rascunho — agora tem registro real
       await openImovelModal(docRef.id);
       showInlineStatus('imovel-acoes-status', '✅ Imóvel criado. Agora você pode anexar documentos e fotos.', 'success', 5000);
       loadImoveis();
       return;
     }
     invalidateImoveisCache();
+    modalAutoSaveClear('imovel');
     closeImovelModal();
     loadImoveis();
   } catch (err) {
@@ -12796,6 +13905,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Mostra/esconde botão de login com biometria conforme suporte
   atualizarBotaoBiometria();
 
+  // Atalhos de teclado globais
+  instalarAtalhosGlobais();
+
   // Detecta status online/offline e mostra banner
   function atualizarStatusConexao() {
     let banner = document.getElementById('offline-banner');
@@ -14320,10 +15432,32 @@ async function elabIniciar(modalidade) {
     contratoSalvoId: null,
     perguntas, // ← mescladas com override do tenant
   };
-  // Preenche defaults
+  // Preenche defaults da pergunta
   perguntas.forEach(p => {
     if (p.default !== undefined) _elabContrato.respostas[p.id] = p.default;
   });
+
+  // Sobrescreve com padrões operacionais do tenant (taxa adm, multa, índice, etc.)
+  try {
+    const padroes = await getPadroesTenant();
+    const overridesPorIdContrato = {
+      taxa_administracao: padroes.taxaAdm,
+      taxaAdm: padroes.taxaAdm,
+      multa_rescisoria: padroes.multaRescisoria,
+      multa: padroes.multaRescisoria,
+      dia_vencimento: padroes.diaVencimento,
+      vencimento: padroes.diaVencimento,
+      indice_reajuste: padroes.indiceReajuste,
+      reajuste: padroes.indiceReajuste,
+      periodicidade_reajuste: padroes.periodicidadeReajuste,
+    };
+    perguntas.forEach(p => {
+      const padraoAplicavel = overridesPorIdContrato[p.id];
+      if (padraoAplicavel !== undefined && padraoAplicavel !== null) {
+        _elabContrato.respostas[p.id] = padraoAplicavel;
+      }
+    });
+  } catch (_) {}
 
   $('elab-etapa-escolha').style.display = 'none';
   $('elab-etapa-wizard').style.display = 'block';
@@ -15637,16 +16771,17 @@ async function abrirCobrancaDebito() {
       ultimoCalculo: null,
     };
 
-    // Pré-preenche com dados do contrato
+    // Pré-preenche com dados do contrato (prioridade: contrato > padrões do tenant > defaults)
+    const padroes = await getPadroesTenant();
     const hojeISO = new Date().toISOString().slice(0, 10);
     $('cobranca-valor-base').value = c.aluguel || '';
     $('cobranca-data-vencimento').value = '';
     $('cobranca-data-calculo').value = hojeISO;
-    const indice = (c.reajusteIndice || 'ipca').toUpperCase();
+    const indice = (c.reajusteIndice || padroes.indiceReajuste || 'ipca').toUpperCase();
     $('cobranca-indice').value = BCB_SERIE[indice] ? indice : 'IPCA';
-    $('cobranca-multa-pct').value = c.multaAtrasoPct ?? '10';
-    $('cobranca-juros-pct').value = c.jurosAtrasoPct ?? '1';
-    $('cobranca-honor-pct').value = c.honorariosPct ?? '20';
+    $('cobranca-multa-pct').value = c.multaAtrasoPct ?? padroes.multaAtraso ?? 2;
+    $('cobranca-juros-pct').value = c.jurosAtrasoPct ?? padroes.jurosMora ?? 1;
+    $('cobranca-honor-pct').value = c.honorariosPct ?? padroes.honorariosCobranca ?? 10;
 
     $('cobranca-resultado').style.display = 'none';
     $('btn-cobranca-pdf').style.display = 'none';
@@ -16003,12 +17138,31 @@ async function abrirDistrato() {
       htmlGerado: null,
     };
 
-    // Defaults
+    // Defaults — calcula sugestão de multa rescisória baseada nos padrões do tenant
+    const padroes = await getPadroesTenant();
     const hojeISO = new Date().toISOString().slice(0, 10);
     $('distrato-data-efetiva').value = c.dataEntregaChaves || hojeISO;
     $('distrato-entrega-chaves').value = c.dataEntregaChaves || hojeISO;
     $('distrato-motivo').value = '';
-    $('distrato-multa').value = '';
+
+    // Cálculo proporcional da multa rescisória (Lei 8.245/91 art. 4º)
+    // multa_total = N × aluguel  →  multa_proporcional = multa_total × (meses_restantes / prazo_total)
+    let multaSugerida = 0;
+    try {
+      const aluguel = parseFloat(c.aluguel) || 0;
+      const multiplicador = padroes.multaRescisoria || 3;
+      const dataInicio = c.inicio ? new Date(c.inicio) : null;
+      const dataFim = c.fim ? new Date(c.fim) : null;
+      const dataEfetiva = new Date(hojeISO);
+      if (dataInicio && dataFim && aluguel > 0) {
+        const prazoTotalDias = Math.max(1, (dataFim - dataInicio) / 86400000);
+        const cumpridoDias = Math.max(0, (dataEfetiva - dataInicio) / 86400000);
+        const restanteDias = Math.max(0, prazoTotalDias - cumpridoDias);
+        const proporcao = restanteDias / prazoTotalDias;
+        multaSugerida = aluguel * multiplicador * proporcao;
+      }
+    } catch (_) {}
+    $('distrato-multa').value = multaSugerida > 0 ? multaSugerida.toFixed(2) : '';
     $('distrato-pendencias').value = '';
     $('distrato-obs').value = '';
 

@@ -920,6 +920,214 @@ label.required::after {
 }
 
 /* =========================================================
+   CALENDÁRIO — agrupamento de eventos por dia/mês
+   ========================================================= */
+.calendario-mes-titulo {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--primary);
+}
+.calendario-mes-titulo:first-child { margin-top: 0; }
+
+.calendario-dia-grupo {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.calendario-dia-grupo:last-child { border-bottom: none; }
+.calendario-dia-caixa {
+  flex-shrink: 0;
+  width: 64px;
+  text-align: center;
+  background: linear-gradient(180deg, var(--primary), var(--primary-dark));
+  color: white;
+  border-radius: 8px;
+  padding: 6px 4px;
+  height: fit-content;
+}
+.calendario-dia-caixa.hoje {
+  background: linear-gradient(180deg, #DC2626, #B91C1C);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.25);
+}
+.calendario-dia-caixa.passado {
+  background: linear-gradient(180deg, #6B7280, #4B5563);
+  opacity: 0.7;
+}
+.calendario-dia-num {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.calendario-dia-mes {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+.calendario-dia-semana {
+  font-size: 9.5px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+.calendario-eventos {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.calendario-evento {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.calendario-evento:hover {
+  border-color: var(--primary);
+  transform: translateX(3px);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.calendario-evento-icone {
+  font-size: 18px;
+  width: 24px;
+  flex-shrink: 0;
+  text-align: center;
+}
+.calendario-evento-body {
+  flex: 1;
+  min-width: 0;
+}
+.calendario-evento-titulo {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.calendario-evento-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.calendario-evento.tipo-critico { border-left: 4px solid #DC2626; }
+.calendario-evento.tipo-atencao { border-left: 4px solid #F59E0B; }
+.calendario-evento.tipo-info { border-left: 4px solid #3B82F6; }
+.calendario-evento.tipo-rotina { border-left: 4px solid #10B981; }
+
+/* =========================================================
+   KBD — teclas de atalho
+   ========================================================= */
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  background: linear-gradient(180deg, #F8FAFC 0%, #E2E8F0 100%);
+  border: 1px solid #94A3B8;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1E293B;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.12);
+  margin: 0 1px;
+}
+
+/* =========================================================
+   TAGS — input com chips (etiquetas customizáveis)
+   ========================================================= */
+.tags-input-wrapper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  min-height: 42px;
+}
+.tags-input-wrapper:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(71, 85, 105, 0.15);
+}
+.tags-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tags-input-wrapper input {
+  flex: 1;
+  min-width: 150px;
+  border: none;
+  outline: none;
+  padding: 4px 6px;
+  font-size: 13px;
+  background: transparent;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: linear-gradient(135deg, #DBEAFE, #BFDBFE);
+  color: #1E40AF;
+  padding: 3px 8px 3px 10px;
+  border-radius: 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: 1px solid #93C5FD;
+}
+.tag-chip-remove {
+  background: rgba(30, 64, 175, 0.15);
+  border: none;
+  color: #1E40AF;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  margin-left: 2px;
+  transition: background 0.15s;
+}
+.tag-chip-remove:hover {
+  background: #DC2626;
+  color: white;
+}
+
+/* =========================================================
+   GRÁFICOS do Dashboard (Chart.js)
+   ========================================================= */
+.graficos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+.grafico-box {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 16px 18px;
+  min-height: 240px;
+}
+.grafico-box h4 {
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+/* =========================================================
    BANNER OFFLINE (PWA — quando navigator.onLine === false)
    ========================================================= */
 .offline-banner {

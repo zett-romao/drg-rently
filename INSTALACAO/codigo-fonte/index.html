@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514an">
+  <link rel="stylesheet" href="styles.css?v=20260514ao">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -250,6 +250,7 @@
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
           <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
           <a class="nav-link" data-section="leads"><span class="nav-ico">📥</span><span>Leads (anúncios)</span></a>
+          <a class="nav-link" data-section="calendario"><span class="nav-ico">📅</span><span>Calendário</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
           <a class="nav-link" onclick="openVitrinePublica()" title="Abrir a vitrine pública dos seus imóveis em nova aba"><span class="nav-ico">📣</span><span>Anúncios</span></a>
           <a class="nav-link" id="nav-portais" data-section="portais"><span class="nav-ico">📡</span><span>Portais</span></a>
@@ -383,6 +384,35 @@
               <p class="muted" style="text-align:center; padding:14px;">Carregando alertas…</p>
             </div>
           </div>
+
+          <!-- 📊 Gráficos do Dashboard -->
+          <div class="card" id="dashboard-graficos-card">
+            <div class="section-header" style="margin-bottom: 14px;">
+              <div>
+                <h3>📊 Visão analítica</h3>
+                <p class="muted" style="font-size:12px;">Evolução nos últimos 12 meses (clique no card pra atualizar).</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadGraficosDashboard()">↻ Atualizar</button>
+            </div>
+            <div class="graficos-grid">
+              <div class="grafico-box">
+                <h4>💰 Receita mensal (R$)</h4>
+                <canvas id="grafico-receita" height="180"></canvas>
+              </div>
+              <div class="grafico-box">
+                <h4>🏘 Ocupação dos imóveis</h4>
+                <canvas id="grafico-ocupacao" height="180"></canvas>
+              </div>
+              <div class="grafico-box">
+                <h4>📥 Leads captados</h4>
+                <canvas id="grafico-leads" height="180"></canvas>
+              </div>
+              <div class="grafico-box">
+                <h4>📝 Status dos contratos</h4>
+                <canvas id="grafico-contratos" height="180"></canvas>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- Locadores -->
@@ -393,7 +423,10 @@
                 <h3>Locadores / Vendedores</h3>
                 <p class="muted">Cadastro unificado de proprietários — atuam como <strong>locadores</strong> em aluguéis e como <strong>vendedores</strong> em negociações de venda.</p>
               </div>
-              <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="exportarLocadores()" title="Baixar CSV com todos os cadastros desta lista">📥 Exportar CSV</button>
+                <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
+              </div>
             </div>
 
             <div class="papel-filtros">
@@ -489,7 +522,10 @@
                 <h3>Imóveis</h3>
                 <p class="muted">Unidades sob administração.</p>
               </div>
-              <button class="btn btn-primary" onclick="openImovelModal()">+ Novo Imóvel</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="exportarImoveis()" title="Baixar CSV com todos os imóveis">📥 Exportar CSV</button>
+                <button class="btn btn-primary" onclick="openImovelModal()">+ Novo Imóvel</button>
+              </div>
             </div>
 
             <!-- Filtros: finalidade + status (chips, similar aos Locadores/Vendedores) -->
@@ -778,7 +814,10 @@
                 <h3>📥 Leads — Anúncios captados</h3>
                 <p class="muted">Pessoas que clicaram em "📤 Anuncie seu imóvel" na sua vitrine pública e deixaram contato. Entre em contato em até 1 dia útil pra maior conversão.</p>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="loadLeads()">↻ Recarregar</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="loadLeads()">↻ Recarregar</button>
+                <button class="btn btn-secondary btn-sm" onclick="exportarLeads()" title="Baixar CSV com todos os leads">📥 Exportar CSV</button>
+              </div>
             </div>
 
             <div class="papel-filtros" id="leads-filtros">
@@ -808,6 +847,34 @@
                   <tr><td colspan="6" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 📅 Calendário de vencimentos -->
+        <section class="section" id="section-calendario" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📅 Calendário de vencimentos</h3>
+                <p class="muted">Próximos eventos da operação: vencimentos de contratos, reajustes, garantias, datas de balancete e mais.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadCalendario()">↻ Recarregar</button>
+            </div>
+
+            <div class="papel-filtros" id="calendario-filtros">
+              <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Período:</span>
+              <button type="button" class="papel-filtro-btn active" data-periodo="30" onclick="setFiltroCalendario(30)">Próx. 30 dias</button>
+              <button type="button" class="papel-filtro-btn" data-periodo="60" onclick="setFiltroCalendario(60)">60 dias</button>
+              <button type="button" class="papel-filtro-btn" data-periodo="90" onclick="setFiltroCalendario(90)">90 dias</button>
+              <button type="button" class="papel-filtro-btn" data-periodo="180" onclick="setFiltroCalendario(180)">6 meses</button>
+              <button type="button" class="papel-filtro-btn" data-periodo="365" onclick="setFiltroCalendario(365)">1 ano</button>
+            </div>
+
+            <div id="calendario-resumo" style="display:none; margin-bottom:14px; padding:12px 16px; background:linear-gradient(135deg, #DBEAFE, #BFDBFE); border-radius:8px; font-size:13px; color:#1E40AF;"></div>
+
+            <div id="calendario-lista">
+              <p class="muted" style="text-align:center; padding:24px;">Carregando eventos…</p>
             </div>
           </div>
         </section>
@@ -3904,6 +3971,16 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <h4 class="form-section-title">🏷 Tags / Etiquetas</h4>
+        <div class="form-group">
+          <label>Tags pra organizar e filtrar (separe com Enter ou vírgula)</label>
+          <div class="tags-input-wrapper" id="imovel-tags-wrapper">
+            <div class="tags-chips" id="imovel-tags-chips"></div>
+            <input type="text" id="imovel-tags-input" placeholder="Ex: pet-friendly, mobiliado, vista-mar... (Enter pra adicionar)">
+          </div>
+          <span class="muted" style="font-size:11px;">💡 Sugestões: <a onclick="adicionarTagImovel('pet-friendly')" style="cursor:pointer; color:var(--primary);">pet-friendly</a> · <a onclick="adicionarTagImovel('mobiliado')" style="cursor:pointer; color:var(--primary);">mobiliado</a> · <a onclick="adicionarTagImovel('aceita-fiador')" style="cursor:pointer; color:var(--primary);">aceita-fiador</a> · <a onclick="adicionarTagImovel('próximo-metrô')" style="cursor:pointer; color:var(--primary);">próximo-metrô</a> · <a onclick="adicionarTagImovel('reformado')" style="cursor:pointer; color:var(--primary);">reformado</a> · <a onclick="adicionarTagImovel('aceita-financiamento')" style="cursor:pointer; color:var(--primary);">aceita-financiamento</a></span>
+        </div>
+
         <h4 class="form-section-title">Observações</h4>
 
         <div class="form-group">
@@ -4605,6 +4682,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20260514an"></script>
+  <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <script src="app.js?v=20260514ao"></script>
 </body>
 </html>
