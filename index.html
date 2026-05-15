@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514ao">
+  <link rel="stylesheet" href="styles.css?v=20260514ap">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1911,6 +1911,60 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
               💡 Com ZapSign configurado, ao gerar um contrato você terá o botão <strong>✍️ Enviar pra assinatura</strong>. Os signatários (locador, locatário, fiador) recebem e-mail e assinam online. O contrato volta automaticamente assinado e com certificado digital ICP-Brasil.
             </p>
 
+            <h4 class="form-section-title">🔍 Pesquisa de Crédito (Quod + Idwall)</h4>
+            <div style="background:linear-gradient(135deg, #ecfeff, #f0f9ff); border:1px solid #67e8f9; border-radius:8px; padding:12px; margin-bottom:14px;">
+              <p style="margin:0 0 8px; color:#155e75; font-size:13px;">
+                <strong>🔎 Análise de crédito para locatários e fiadores:</strong>
+              </p>
+              <ul style="margin:0; padding-left:18px; color:var(--text); line-height:1.6; font-size:12.5px;">
+                <li><strong>Quod Score Imobiliária</strong> — score 0–1000 + recomendação de locação. <a href="https://www.quod.com.br/empresas/" target="_blank" rel="noopener">↗ contratar</a></li>
+                <li><strong>Idwall Background Check</strong> — processos, mídia adversa, listas restritivas, PEP. <a href="https://idwall.co" target="_blank" rel="noopener">↗ contratar</a></li>
+                <li>Sem contrato? Ative o <strong>Modo Teste</strong> abaixo — botões funcionam com dados fictícios.</li>
+              </ul>
+            </div>
+
+            <div class="form-group">
+              <label>URL do Worker (Bureaus proxy)</label>
+              <input type="url" id="cfg-worker-bureaus-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-bureaus.SEU-USUARIO.workers.dev">
+              <span class="muted" style="font-size:11px;">Worker stateless que proxia Quod e Idwall. Veja <code>cloudflare-worker-bureaus.js</code> no repo.</span>
+            </div>
+
+            <div class="form-group" style="display:flex; align-items:center; gap:8px; padding:10px; background:#fef3c7; border:1px solid #facc15; border-radius:6px;">
+              <input type="checkbox" id="cfg-bureaus-modo-mock" onchange="saveConfigImobiliaria()" style="width:auto; margin:0;">
+              <label for="cfg-bureaus-modo-mock" style="margin:0; cursor:pointer; font-weight:600; color:#854d0e;">🧪 Modo Teste (mock) — usa dados fictícios mesmo com credencial preenchida</label>
+            </div>
+
+            <h5 style="margin:14px 0 8px; color:var(--text); font-size:13px;">📊 Quod — Score Imobiliária</h5>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Client ID</label>
+                <input type="text" id="cfg-quod-client-id" oninput="saveConfigImobiliaria()" placeholder="Deixe vazio para mock" style="font-family:'Courier New',monospace; font-size:12px;">
+              </div>
+              <div class="form-group">
+                <label>Client Secret</label>
+                <input type="password" id="cfg-quod-client-secret" oninput="saveConfigImobiliaria()" placeholder="$ecret..." style="font-family:'Courier New',monospace; font-size:12px;">
+                <span class="muted" style="font-size:11px;">Tipo password. <strong>Cada imobiliária usa as próprias credenciais.</strong></span>
+              </div>
+              <div class="form-group">
+                <label>Ambiente</label>
+                <select id="cfg-quod-ambiente" onchange="saveConfigImobiliaria()">
+                  <option value="sandbox">Sandbox (teste)</option>
+                  <option value="producao">Produção</option>
+                </select>
+              </div>
+            </div>
+
+            <h5 style="margin:14px 0 8px; color:var(--text); font-size:13px;">🛡️ Idwall — Background Check</h5>
+            <div class="form-group">
+              <label>Token Idwall</label>
+              <input type="password" id="cfg-idwall-token" oninput="saveConfigImobiliaria()" placeholder="Deixe vazio para mock" style="font-family:'Courier New',monospace; font-size:12px;">
+              <span class="muted" style="font-size:11px;">Pegue no painel Idwall → API → Token de Acesso. <strong>Cada tenant usa o próprio token.</strong></span>
+            </div>
+
+            <p class="muted" style="font-size:12px; margin-bottom:14px; background:#eff6ff; padding:10px; border-radius:6px; border-left:3px solid var(--primary);">
+              💡 Com pelo menos um provider ativo (Quod ou Idwall), botões de consulta aparecem nas fichas de <strong>Locatários</strong> e <strong>Fiadores</strong>. O histórico de consultas fica salvo por entidade.
+            </p>
+
             <div class="form-group">
               <label>Remetente (e-mail "from")</label>
               <input type="email" id="cfg-email-from" oninput="saveConfigImobiliaria()" placeholder="onboarding@resend.dev">
@@ -2337,6 +2391,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
         <div class="form-group">
           <textarea id="locatario-obs" rows="3"></textarea>
+        </div>
+
+        <div id="locatario-credito-section" style="display:none;">
+          <h4 class="form-section-title">🔍 Pesquisa de Crédito</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Consulta bureaus de crédito com o CPF/CNPJ do locatário. Histórico fica salvo por consulta.</p>
+          <div id="locatario-credito-botoes" class="credito-botoes" style="margin-bottom:10px;"></div>
+          <div id="locatario-credito-historico" class="credito-historico"></div>
         </div>
 
         <div id="locatario-docs-section" style="display:none;">
@@ -3732,6 +3793,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <textarea id="garantia-obs" rows="3"></textarea>
         </div>
 
+        <div id="garantia-credito-section" style="display:none;">
+          <h4 class="form-section-title">🔍 Pesquisa de Crédito do Fiador</h4>
+          <p class="muted" style="font-size:12px; margin-bottom:10px;">Consulta bureaus de crédito com o CPF do fiador. Disponível apenas para garantia tipo "fiador".</p>
+          <div id="garantia-credito-botoes" class="credito-botoes" style="margin-bottom:10px;"></div>
+          <div id="garantia-credito-historico" class="credito-historico"></div>
+        </div>
+
         <div id="garantia-docs-section" style="display:none;">
           <h4 class="form-section-title">Documentos</h4>
           <p class="muted" style="font-size:12px; margin-bottom:10px;">Comprovantes da garantia: docs do fiador, escritura do imóvel caucionado, comprovante de depósito, apólice de seguro, etc.</p>
@@ -4682,8 +4750,33 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
+  <!-- ============================================ -->
+  <!-- MODAL: Resultado da consulta de crédito       -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-consulta-resultado" style="display:none;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-consulta-resultado-title">Resultado da Consulta</h3>
+        <button class="modal-close" onclick="closeConsultaResultado()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="consulta-resultado-mock-aviso" style="display:none; background:#fef3c7; border:1px solid #facc15; color:#854d0e; padding:10px 12px; border-radius:6px; margin-bottom:14px; font-size:13px;">
+          ⚠️ <strong>MODO TESTE</strong> — Resposta gerada localmente. Dados fictícios, não representam consulta real ao bureau.
+        </div>
+        <div id="consulta-resultado-conteudo"></div>
+        <details style="margin-top:18px;">
+          <summary style="cursor:pointer; font-size:12px; color:var(--muted-text);">📋 Ver JSON cru da resposta</summary>
+          <pre id="consulta-resultado-cru" style="background:#0f172a; color:#a7f3d0; padding:12px; border-radius:6px; font-size:11px; overflow:auto; max-height:300px; margin-top:8px;"></pre>
+        </details>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeConsultaResultado()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260514ao"></script>
+  <script src="app.js?v=20260514ap"></script>
 </body>
 </html>

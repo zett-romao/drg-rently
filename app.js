@@ -4528,8 +4528,11 @@ async function openLocatarioModal(id) {
     }
     $('locatario-docs-section').style.display = 'block';
     loadLocatarioDocs(id);
+    renderCreditoSection('locatario', id);
   } else {
     $('locatario-docs-section').style.display = 'none';
+    const cs = $('locatario-credito-section');
+    if (cs) cs.style.display = 'none';
   }
 
   $('modal-locatario').style.display = 'flex';
@@ -4806,6 +4809,16 @@ function onGarantiaTipoChange() {
   $('garantia-bloco-fiador').style.display = (tipo === 'fiador') ? 'block' : 'none';
   $('garantia-bloco-caucao').style.display = (tipo === 'caucao') ? 'block' : 'none';
   $('garantia-bloco-seguro').style.display = (tipo === 'seguro_fianca') ? 'block' : 'none';
+  // Credito é só pra fiador
+  const creditoSec = $('garantia-credito-section');
+  if (creditoSec) {
+    const gid = $('garantia-id').value;
+    if (tipo === 'fiador' && gid) {
+      renderCreditoSection('fiador', gid);
+    } else {
+      creditoSec.style.display = 'none';
+    }
+  }
 }
 
 function onCaucaoModalidadeChange() {
@@ -5003,8 +5016,11 @@ async function openGarantiaModal(id) {
     }
     $('garantia-docs-section').style.display = 'block';
     loadGarantiaDocs(id);
+    renderCreditoSection('fiador', id);
   } else {
     $('garantia-docs-section').style.display = 'none';
+    const cs = $('garantia-credito-section');
+    if (cs) cs.style.display = 'none';
   }
 
   $('modal-garantia').style.display = 'flex';
@@ -9338,6 +9354,19 @@ async function loadConfigImobiliaria() {
     if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
     const lgTok = $('cfg-legis-admin-token');
     if (lgTok) lgTok.value = cfg.legisAdminToken || '';
+    // Bureaus de crédito (Quod + Idwall)
+    const buUrl = $('cfg-worker-bureaus-url');
+    if (buUrl) buUrl.value = cfg.workerBureausUrl || '';
+    const buMock = $('cfg-bureaus-modo-mock');
+    if (buMock) buMock.checked = !!cfg.bureausModoMock;
+    const qId = $('cfg-quod-client-id');
+    if (qId) qId.value = cfg.quodClientId || '';
+    const qSec = $('cfg-quod-client-secret');
+    if (qSec) qSec.value = cfg.quodClientSecret || '';
+    const qAmb = $('cfg-quod-ambiente');
+    if (qAmb) qAmb.value = cfg.quodAmbiente || 'sandbox';
+    const idwTok = $('cfg-idwall-token');
+    if (idwTok) idwTok.value = cfg.idwallToken || '';
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
 
@@ -9433,6 +9462,13 @@ async function saveConfigImobiliaria() {
         zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
         workerAsaasUrl: $('cfg-worker-asaas-url')?.value.trim() || '',
         asaasTenantToken: $('cfg-asaas-tenant-token')?.value.trim() || '',
+        // Bureaus de crédito
+        workerBureausUrl: $('cfg-worker-bureaus-url')?.value.trim() || '',
+        bureausModoMock: !!$('cfg-bureaus-modo-mock')?.checked,
+        quodClientId: $('cfg-quod-client-id')?.value.trim() || '',
+        quodClientSecret: $('cfg-quod-client-secret')?.value.trim() || '',
+        quodAmbiente: $('cfg-quod-ambiente')?.value || 'sandbox',
+        idwallToken: $('cfg-idwall-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         // Padrões operacionais
@@ -17358,4 +17394,344 @@ async function elabEnviarZapSign() {
   } else {
     showAlert('elab-alert', 'Função de envio ZapSign não disponível.');
   }
+}
+
+// =============================================================
+// PESQUISA DE CRÉDITO — Quod Score Imobiliária + Idwall Background Check
+// =============================================================
+
+function _creditoCtx(entidadeTipo) {
+  // Retorna { sectionId, botoesId, historicoId, getCpf, getNome }
+  if (entidadeTipo === 'locatario') {
+    return {
+      sectionId: 'locatario-credito-section',
+      botoesId: 'locatario-credito-botoes',
+      historicoId: 'locatario-credito-historico',
+      getCpf: () => $('locatario-documento').value.replace(/\D/g, ''),
+      getNome: () => $('locatario-nome').value.trim(),
+    };
+  }
+  // fiador
+  return {
+    sectionId: 'garantia-credito-section',
+    botoesId: 'garantia-credito-botoes',
+    historicoId: 'garantia-credito-historico',
+    getCpf: () => $('garantia-fiador-cpf').value.replace(/\D/g, ''),
+    getNome: () => $('garantia-fiador-nome').value.trim(),
+  };
+}
+
+async function renderCreditoSection(entidadeTipo, entidadeId) {
+  const ctx = _creditoCtx(entidadeTipo);
+  const sec = $(ctx.sectionId);
+  if (!sec) return;
+
+  const cfg = await ensureConfigCache();
+  const workerUrl = (cfg.workerBureausUrl || '').trim();
+  const quodAtivo = !!(cfg.quodClientId || cfg.bureausModoMock);
+  const idwallAtivo = !!(cfg.idwallToken || cfg.bureausModoMock);
+
+  // Se Worker URL não configurada, mostra aviso
+  if (!workerUrl) {
+    sec.style.display = 'block';
+    $(ctx.botoesId).innerHTML = `<p class="muted" style="font-size:12px;">⚙ Configure a URL do Worker em <strong>Configurações → Pesquisa de Crédito</strong> para habilitar as consultas.</p>`;
+    $(ctx.historicoId).innerHTML = '';
+    return;
+  }
+
+  // Se nenhum provider ativo
+  if (!quodAtivo && !idwallAtivo) {
+    sec.style.display = 'block';
+    $(ctx.botoesId).innerHTML = `<p class="muted" style="font-size:12px;">⚙ Configure pelo menos um provider (Quod ou Idwall) ou ative o <strong>Modo Teste</strong> em Configurações.</p>`;
+    $(ctx.historicoId).innerHTML = '';
+    return;
+  }
+
+  sec.style.display = 'block';
+
+  const isMock = !!cfg.bureausModoMock;
+  const mockBadge = isMock ? '<span style="background:#fef3c7; color:#854d0e; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:6px;">MOCK</span>' : '';
+  const botoes = [];
+  if (quodAtivo) {
+    botoes.push(`<button class="btn btn-secondary btn-sm" onclick="consultarCredito('quod', '${entidadeTipo}', '${entidadeId}')">📊 Quod Score Imobiliária${mockBadge}</button>`);
+  }
+  if (idwallAtivo) {
+    botoes.push(`<button class="btn btn-secondary btn-sm" onclick="consultarCredito('idwall', '${entidadeTipo}', '${entidadeId}')">🛡️ Idwall Background Check${mockBadge}</button>`);
+  }
+  $(ctx.botoesId).innerHTML = botoes.join(' ');
+
+  await renderHistoricoConsultas(entidadeTipo, entidadeId);
+}
+
+async function renderHistoricoConsultas(entidadeTipo, entidadeId) {
+  const ctx = _creditoCtx(entidadeTipo);
+  const cont = $(ctx.historicoId);
+  if (!cont) return;
+  cont.innerHTML = `<p class="muted" style="font-size:12px;">Carregando histórico…</p>`;
+
+  try {
+    // Sem orderBy aqui pra evitar exigir composite index — ordenamos em JS.
+    const snap = await tenantPath().collection('consultas')
+      .where('entidadeTipo', '==', entidadeTipo)
+      .where('entidadeId', '==', entidadeId)
+      .get();
+
+    if (snap.empty) {
+      cont.innerHTML = `<p class="empty" style="font-size:12px;">Nenhuma consulta realizada ainda.</p>`;
+      return;
+    }
+
+    const docs = snap.docs.slice().sort((a, b) => {
+      const ta = a.data().criadoEm?.toMillis?.() || 0;
+      const tb = b.data().criadoEm?.toMillis?.() || 0;
+      return tb - ta;
+    }).slice(0, 10);
+
+    const rows = docs.map(d => {
+      const c = d.data();
+      const data = c.criadoEm?.toDate ? c.criadoEm.toDate().toLocaleString('pt-BR') : '—';
+      const labelProv = c.tipo === 'quod_score_imob' ? '📊 Quod' : '🛡️ Idwall';
+      const mockBadge = c.modoMock ? ' <span style="background:#fef3c7; color:#854d0e; padding:1px 5px; border-radius:3px; font-size:10px;">MOCK</span>' : '';
+      let resumo = '';
+      const p = c.parsed || {};
+      if (c.tipo === 'quod_score_imob') {
+        const cor = p.score < 400 ? '#dc2626' : p.score < 600 ? '#d97706' : '#16a34a';
+        resumo = `Score: <strong style="color:${cor}">${p.score ?? '—'}</strong> (${p.faixa || '—'})`;
+      } else {
+        const corR = p.risco === 'alto' ? '#dc2626' : p.risco === 'medio' ? '#d97706' : '#16a34a';
+        resumo = `Risco: <strong style="color:${corR}; text-transform:capitalize;">${p.risco || '—'}</strong> • ${p.numProcessos || 0} processo(s) • ${p.numRestritivas || 0} restritiva(s)`;
+      }
+      return `
+        <div class="consulta-item" style="display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border:1px solid var(--border); border-radius:6px; margin-bottom:6px; gap:8px;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:13px;">${labelProv}${mockBadge} • ${resumo}</div>
+            <div style="font-size:11px; color:var(--muted-text);">${data} ${c.criadoPorNome ? '• ' + escapeHtml(c.criadoPorNome) : ''}</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="abrirConsultaResultado('${d.id}')">Ver</button>
+        </div>`;
+    });
+    cont.innerHTML = rows.join('');
+  } catch (err) {
+    console.error('Erro ao carregar histórico de consultas:', err);
+    cont.innerHTML = `<p class="muted" style="font-size:12px;">Erro ao carregar histórico: ${err.message}</p>`;
+  }
+}
+
+async function consultarCredito(provider, entidadeTipo, entidadeId) {
+  const ctx = _creditoCtx(entidadeTipo);
+  const cpf = ctx.getCpf();
+  const nome = ctx.getNome();
+
+  if (!cpf || cpf.length !== 11) {
+    const alertId = entidadeTipo === 'locatario' ? 'locatario-alert' : 'garantia-alert';
+    showAlert(alertId, 'CPF inválido. Pesquisa de crédito disponível apenas para pessoa física com CPF de 11 dígitos.');
+    return;
+  }
+
+  const cfg = await ensureConfigCache();
+  const workerUrl = (cfg.workerBureausUrl || '').replace(/\/+$/, '');
+  if (!workerUrl) {
+    const alertId = entidadeTipo === 'locatario' ? 'locatario-alert' : 'garantia-alert';
+    showAlert(alertId, 'Configure a URL do Worker em Configurações → Pesquisa de Crédito.');
+    return;
+  }
+
+  // Loading state — desabilita botões e mostra spinner
+  const botoes = $(ctx.botoesId);
+  const htmlOriginal = botoes.innerHTML;
+  botoes.innerHTML = `<p class="muted" style="font-size:12px;">⏳ Consultando ${provider === 'quod' ? 'Quod' : 'Idwall'}… (pode levar alguns segundos)</p>`;
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (cfg.bureausModoMock) headers['X-Mock-Mode'] = 'true';
+
+    let endpoint, tipo;
+    if (provider === 'quod') {
+      endpoint = '/quod/score-imobiliaria';
+      tipo = 'quod_score_imob';
+      headers['X-Quod-Client-Id'] = cfg.quodClientId || '';
+      headers['X-Quod-Client-Secret'] = cfg.quodClientSecret || '';
+      headers['X-Quod-Ambiente'] = cfg.quodAmbiente || 'sandbox';
+    } else {
+      endpoint = '/idwall/background-check';
+      tipo = 'idwall_bgcheck';
+      headers['X-Idwall-Token'] = cfg.idwallToken || '';
+    }
+
+    const res = await fetch(workerUrl + endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ cpf, nome }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `Falha na consulta (HTTP ${res.status})`);
+    }
+
+    // Persiste em tenants/{id}/consultas/{id}
+    const docRef = await tenantPath().collection('consultas').add({
+      tipo,
+      entidadeTipo,
+      entidadeId,
+      cpf,
+      nome,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      criadoPor: State.user.uid,
+      criadoPorNome: State.userDoc?.nome || State.user.email || '',
+      modoMock: !!data.modoMock,
+      parsed: data.parsed || null,
+      cru: data.cru || null,
+      custo: null,
+    });
+
+    logAuditoria('create', 'consulta_credito', docRef.id, { provider, entidadeTipo, entidadeId, modoMock: !!data.modoMock });
+
+    botoes.innerHTML = htmlOriginal;
+    await renderHistoricoConsultas(entidadeTipo, entidadeId);
+    abrirConsultaResultado(docRef.id);
+  } catch (err) {
+    console.error('Erro consulta crédito:', err);
+    botoes.innerHTML = htmlOriginal;
+    const alertId = entidadeTipo === 'locatario' ? 'locatario-alert' : 'garantia-alert';
+    showAlert(alertId, 'Erro na consulta: ' + err.message);
+  }
+}
+
+async function abrirConsultaResultado(consultaId) {
+  try {
+    const snap = await tenantPath().collection('consultas').doc(consultaId).get();
+    if (!snap.exists) {
+      alert('Consulta não encontrada.');
+      return;
+    }
+    const c = snap.data();
+    const titleEl = $('modal-consulta-resultado-title');
+    const avisoMock = $('consulta-resultado-mock-aviso');
+    const cont = $('consulta-resultado-conteudo');
+    const cru = $('consulta-resultado-cru');
+
+    avisoMock.style.display = c.modoMock ? 'block' : 'none';
+    cru.textContent = JSON.stringify(c.cru || {}, null, 2);
+
+    if (c.tipo === 'quod_score_imob') {
+      titleEl.textContent = '📊 Quod Score Imobiliária';
+      cont.innerHTML = renderQuodResultado(c);
+    } else {
+      titleEl.textContent = '🛡️ Idwall Background Check';
+      cont.innerHTML = renderIdwallResultado(c);
+    }
+
+    $('modal-consulta-resultado').style.display = 'flex';
+  } catch (err) {
+    console.error('Erro ao abrir consulta:', err);
+    alert('Erro: ' + err.message);
+  }
+}
+
+function closeConsultaResultado() {
+  $('modal-consulta-resultado').style.display = 'none';
+}
+
+function renderQuodResultado(c) {
+  const p = c.parsed || {};
+  const score = p.score ?? 0;
+  let cor, faixaCor;
+  if (score < 400) { cor = '#dc2626'; faixaCor = '#fee2e2'; }
+  else if (score < 600) { cor = '#d97706'; faixaCor = '#fef3c7'; }
+  else if (score < 800) { cor = '#65a30d'; faixaCor = '#ecfccb'; }
+  else { cor = '#16a34a'; faixaCor = '#dcfce7'; }
+
+  const data = c.criadoEm?.toDate ? c.criadoEm.toDate().toLocaleString('pt-BR') : '';
+  const restricoes = p.restricoes || [];
+
+  return `
+    <div style="display:flex; gap:14px; align-items:stretch; margin-bottom:16px; flex-wrap:wrap;">
+      <div style="flex:1; min-width:200px; background:${faixaCor}; border:2px solid ${cor}; border-radius:12px; padding:16px; text-align:center;">
+        <div style="font-size:12px; color:${cor}; font-weight:600; margin-bottom:4px;">SCORE</div>
+        <div style="font-size:48px; font-weight:700; color:${cor}; line-height:1;">${score || '—'}</div>
+        <div style="font-size:11px; color:${cor}; margin-top:4px;">de 1000</div>
+      </div>
+      <div style="flex:2; min-width:240px;">
+        <div style="margin-bottom:10px;"><strong>Faixa:</strong> <span style="color:${cor}">${escapeHtml(p.faixa || '—')}</span></div>
+        <div style="margin-bottom:10px;"><strong>Recomendação:</strong> ${escapeHtml(p.recomendacao || '—')}</div>
+        ${p.rendaPresumida ? `<div style="margin-bottom:10px;"><strong>Renda presumida:</strong> R$ ${Number(p.rendaPresumida).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>` : ''}
+        <div style="font-size:11px; color:var(--muted-text);">Consulta: ${data} • CPF: ${maskCPF(c.cpf || '')}</div>
+      </div>
+    </div>
+
+    <h4 style="margin:18px 0 8px; font-size:14px;">Restrições${restricoes.length ? ` (${restricoes.length})` : ''}</h4>
+    ${restricoes.length === 0
+      ? '<p class="muted" style="font-size:13px;">Nenhuma restrição encontrada. ✅</p>'
+      : '<div>' + restricoes.map(r => `
+          <div style="border:1px solid #fecaca; background:#fef2f2; border-radius:6px; padding:10px; margin-bottom:6px; font-size:13px;">
+            <strong>${escapeHtml(r.tipo || 'Restrição')}</strong> — ${escapeHtml(r.origem || '—')}<br>
+            <span style="color:var(--muted-text); font-size:12px;">
+              ${r.valor != null ? 'Valor: R$ ' + Number(r.valor).toLocaleString('pt-BR', {minimumFractionDigits: 2}) + ' • ' : ''}
+              ${r.data ? 'Data: ' + r.data : ''}
+            </span>
+          </div>`).join('') + '</div>'}
+  `;
+}
+
+function renderIdwallResultado(c) {
+  const p = c.parsed || {};
+  let cor, fundoCor, labelRisco;
+  if (p.risco === 'alto') { cor = '#dc2626'; fundoCor = '#fee2e2'; labelRisco = '🔴 ALTO RISCO'; }
+  else if (p.risco === 'medio') { cor = '#d97706'; fundoCor = '#fef3c7'; labelRisco = '🟡 RISCO MODERADO'; }
+  else { cor = '#16a34a'; fundoCor = '#dcfce7'; labelRisco = '🟢 RISCO BAIXO'; }
+
+  const data = c.criadoEm?.toDate ? c.criadoEm.toDate().toLocaleString('pt-BR') : '';
+  const processos = p.processos || [];
+  const restritivas = p.listasRestritivas || [];
+
+  return `
+    <div style="background:${fundoCor}; border:2px solid ${cor}; border-radius:12px; padding:14px; text-align:center; margin-bottom:16px;">
+      <div style="font-size:22px; font-weight:700; color:${cor};">${labelRisco}</div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; margin-bottom:18px;">
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:11px; color:var(--muted-text);">Processos</div>
+        <div style="font-size:24px; font-weight:700; color:${p.numProcessos > 0 ? '#d97706' : '#16a34a'};">${p.numProcessos || 0}</div>
+      </div>
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:11px; color:var(--muted-text);">Listas restritivas</div>
+        <div style="font-size:24px; font-weight:700; color:${p.numRestritivas > 0 ? '#dc2626' : '#16a34a'};">${p.numRestritivas || 0}</div>
+      </div>
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:11px; color:var(--muted-text);">Mídia adversa</div>
+        <div style="font-size:24px; font-weight:700; color:${p.numMidiaAdversa > 0 ? '#d97706' : '#16a34a'};">${p.numMidiaAdversa || 0}</div>
+      </div>
+      <div style="background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px; text-align:center;">
+        <div style="font-size:11px; color:var(--muted-text);">PEP</div>
+        <div style="font-size:24px; font-weight:700; color:${p.isPEP ? '#dc2626' : '#16a34a'};">${p.isPEP ? 'Sim' : 'Não'}</div>
+      </div>
+    </div>
+
+    <div style="font-size:11px; color:var(--muted-text); margin-bottom:12px;">Consulta: ${data} • CPF: ${maskCPF(c.cpf || '')}</div>
+
+    ${processos.length === 0 ? '' : `
+      <h4 style="margin:18px 0 8px; font-size:14px;">Processos judiciais (${processos.length})</h4>
+      <div>${processos.map(pr => `
+        <div style="border:1px solid #fde68a; background:#fffbeb; border-radius:6px; padding:10px; margin-bottom:6px; font-size:13px;">
+          <strong>${escapeHtml(pr.numero || pr.numeroProcesso || 'Sem número')}</strong>
+          ${pr.tribunal ? ' • ' + escapeHtml(pr.tribunal) : ''}<br>
+          <span style="color:var(--text);">${escapeHtml(pr.classe || pr.classeProcessual || '')}${pr.assunto ? ' — ' + escapeHtml(pr.assunto) : ''}</span><br>
+          <span style="color:var(--muted-text); font-size:12px;">
+            ${pr.polo ? 'Polo: ' + escapeHtml(pr.polo) + ' • ' : ''}
+            ${pr.dataDistribuicao ? 'Distribuído: ' + pr.dataDistribuicao + ' • ' : ''}
+            ${pr.situacao ? 'Situação: ' + escapeHtml(pr.situacao) : ''}
+          </span>
+        </div>`).join('')}</div>`}
+
+    ${restritivas.length === 0 ? '' : `
+      <h4 style="margin:18px 0 8px; font-size:14px;">Listas restritivas (${restritivas.length})</h4>
+      <div>${restritivas.map(r => `
+        <div style="border:1px solid #fecaca; background:#fef2f2; border-radius:6px; padding:10px; margin-bottom:6px; font-size:13px;">
+          <strong>${escapeHtml(r.lista || r.nome || 'Lista')}</strong>
+          ${r.origem ? ' • ' + escapeHtml(r.origem) : ''}<br>
+          ${r.desde ? '<span style="color:var(--muted-text); font-size:12px;">Desde: ' + r.desde + '</span>' : ''}
+        </div>`).join('')}</div>`}
+  `;
 }
