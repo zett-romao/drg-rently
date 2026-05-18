@@ -86,6 +86,75 @@ function jsonResponse(data, status, origin) {
   });
 }
 
+// =============================================================
+// CAMADA 2 — Verificação de identidade (Firebase ID token)
+// O cliente manda o ID token (auth.currentUser.getIdToken()) em toda
+// chamada sensível. O back-end verifica a assinatura ANTES de executar.
+// Sem isto, um curl sem Origin passaria direto.
+// =============================================================
+const FIREBASE_PROJECT_ID = 'drg-rently';
+const FIREBASE_JWK_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+let _firebaseKeys = null;
+
+function b64urlDecode(str) {
+  let s = String(str).replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const b = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  return b;
+}
+
+async function getFirebaseKeys() {
+  if (_firebaseKeys && _firebaseKeys.exp > Date.now()) return _firebaseKeys.mapa;
+  const res = await fetch(FIREBASE_JWK_URL);
+  const data = await res.json();
+  const mapa = {};
+  for (const jwk of (data.keys || [])) {
+    mapa[jwk.kid] = await crypto.subtle.importKey(
+      'jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']
+    );
+  }
+  const m = (res.headers.get('Cache-Control') || '').match(/max-age=(\d+)/);
+  _firebaseKeys = { mapa, exp: Date.now() + (m ? +m[1] : 3600) * 1000 };
+  return mapa;
+}
+
+async function verificarIdToken(idToken) {
+  if (!idToken) throw new Error('token ausente');
+  const p = String(idToken).split('.');
+  if (p.length !== 3) throw new Error('token malformado');
+  const header = JSON.parse(new TextDecoder().decode(b64urlDecode(p[0])));
+  const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(p[1])));
+  if (header.alg !== 'RS256') throw new Error('alg invalido');
+  const key = (await getFirebaseKeys())[header.kid];
+  if (!key) throw new Error('chave nao encontrada');
+  const ok = await crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5', key, b64urlDecode(p[2]),
+    new TextEncoder().encode(p[0] + '.' + p[1])
+  );
+  if (!ok) throw new Error('assinatura invalida');
+  const agora = Math.floor(Date.now() / 1000);
+  if (payload.aud !== FIREBASE_PROJECT_ID) throw new Error('outro projeto');
+  if (payload.iss !== 'https://securetoken.google.com/' + FIREBASE_PROJECT_ID) throw new Error('emissor');
+  if (!payload.sub || !payload.exp || payload.exp <= agora) throw new Error('token invalido/expirado');
+  return { uid: payload.sub, email: payload.email || '', authTime: payload.auth_time || 0 };
+}
+
+// Extrai o idToken do request: header Authorization (GET) ou body JSON (POST).
+async function extrairIdToken(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (m) return m[1].trim();
+  if (request.method === 'POST') {
+    try {
+      const body = await request.clone().json();
+      return body.idToken || '';
+    } catch (_) {}
+  }
+  return '';
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
@@ -117,9 +186,20 @@ export default {
     const isTenant = !!tenantAsaasKey;
 
     // Endpoints /tenant/* exigem token do tenant; demais exigem admin (compat com cobrança DRG)
+    let _usuarioAutenticado = null;
     if (path.startsWith('/tenant/')) {
       if (!isTenant) {
         return jsonResponse({ error: 'Header X-Tenant-Asaas-Token obrigatório.' }, 401, origin);
+      }
+      // CAMADA 2 — verifica identidade do usuário (Firebase ID token).
+      // /tenant/health é exceção (teste de chave, ainda sem usuário logado plenamente).
+      if (path !== '/tenant/health') {
+        try {
+          const idToken = await extrairIdToken(request);
+          _usuarioAutenticado = await verificarIdToken(idToken);
+        } catch (e) {
+          return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
+        }
       }
     } else {
       if (!isAdmin) {

@@ -4101,11 +4101,24 @@ async function getCfgAsaas() {
   };
 }
 
-function asaasHeaders(token) {
-  return {
+// Pega o ID token fresco do usuário logado (Camada 2 — back-end autenticado).
+// Não força refresh por padrão; passe true quando precisar de auth_time recente.
+async function getIdTokenAtual(forceRefresh = false) {
+  if (!auth.currentUser) throw new Error('Sessão expirada. Faça login novamente.');
+  return await auth.currentUser.getIdToken(forceRefresh);
+}
+
+// Headers das chamadas ao Worker Asaas. async pq inclui o ID token verificado
+// no back-end (Camada 2). X-Tenant-Asaas-Token = chave Asaas; Authorization = identidade.
+async function asaasHeaders(token) {
+  const h = {
     'Content-Type': 'application/json',
     'X-Tenant-Asaas-Token': token,
   };
+  try {
+    h['Authorization'] = 'Bearer ' + await getIdTokenAtual();
+  } catch (_) { /* health endpoint não exige; demais vão falhar com 401 explícito */ }
+  return h;
 }
 
 async function testarAsaasTenant() {
@@ -4115,7 +4128,7 @@ async function testarAsaasTenant() {
     const { url, token } = await getCfgAsaas();
     if (!url) throw new Error('URL do Worker Asaas não configurada.');
     if (!token) throw new Error('Chave Asaas não configurada.');
-    const res = await fetch(`${url}/tenant/health`, { headers: asaasHeaders(token) });
+    const res = await fetch(`${url}/tenant/health`, { headers: await asaasHeaders(token) });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Chave inválida');
     showInlineStatus(SID, `✅ <strong>${data.account.name}</strong> (${data.ambiente}) — chave válida.`, 'success');
@@ -4130,7 +4143,7 @@ async function verSaldoAsaas() {
   try {
     const { url, token } = await getCfgAsaas();
     if (!url || !token) throw new Error('Configure URL e chave Asaas primeiro.');
-    const res = await fetch(`${url}/tenant/balance`, { headers: asaasHeaders(token) });
+    const res = await fetch(`${url}/tenant/balance`, { headers: await asaasHeaders(token) });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Erro ao consultar saldo');
     const saldo = data.balance.balance || 0;
@@ -4154,7 +4167,7 @@ async function garantirCustomerAsaas(locatarioId) {
 
   const res = await fetch(`${url}/tenant/customers`, {
     method: 'POST',
-    headers: asaasHeaders(token),
+    headers: await asaasHeaders(token),
     body: JSON.stringify({
       name: l.nome,
       email: l.email || undefined,
@@ -4212,7 +4225,7 @@ async function cobrarLocatarioAsaas() {
     const { url, token } = await getCfgAsaas();
     const res = await fetch(`${url}/tenant/payments`, {
       method: 'POST',
-      headers: asaasHeaders(token),
+      headers: await asaasHeaders(token),
       body: JSON.stringify({
         customer: customerId,
         billingType: 'PIX',
@@ -4269,7 +4282,7 @@ async function pagarLocadorAsaas() {
     if (!url || !token) throw new Error('Configure Asaas primeiro.');
     const res = await fetch(`${url}/tenant/transfers`, {
       method: 'POST',
-      headers: asaasHeaders(token),
+      headers: await asaasHeaders(token),
       body: JSON.stringify({
         value: liquido.toFixed(2),
         pixAddressKey: pix,
