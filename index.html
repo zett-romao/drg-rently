@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514ar">
+  <link rel="stylesheet" href="styles.css?v=20260514as">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -252,6 +252,7 @@
           <a class="nav-link" data-section="leads"><span class="nav-ico">📥</span><span>Leads (anúncios)</span></a>
           <a class="nav-link" data-section="calendario"><span class="nav-ico">📅</span><span>Calendário</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
+          <a class="nav-link" id="nav-aprovacoes" data-section="aprovacoes" style="display:none;" title="Repasses PIX aguardando aprovação"><span class="nav-ico">✅</span><span>Aprovações</span></a>
           <a class="nav-link" onclick="openVitrinePublica()" title="Abrir a vitrine pública dos seus imóveis em nova aba"><span class="nav-ico">📣</span><span>Anúncios</span></a>
           <a class="nav-link" id="nav-portais" data-section="portais"><span class="nav-ico">📡</span><span>Portais</span></a>
         </div>
@@ -1321,6 +1322,41 @@
             </div>
             <p class="muted" style="font-size:11px; margin-top:8px;">
               Mostrando os últimos 200 registros. Logs são imutáveis e mantidos por 5 anos para conformidade LGPD.
+            </p>
+          </div>
+        </section>
+
+        <!-- ============================================ -->
+        <!-- SECTION: Aprovações de pagamento (S4) -->
+        <!-- ============================================ -->
+        <section class="section" id="section-aprovacoes" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>✅ Aprovações de pagamento</h3>
+                <p class="muted">Repasses PIX ao locador aguardando aprovação. Aprovar exige senha + código 2FA.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAprovacoes()">🔄 Recarregar</button>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Solicitado em</th>
+                    <th>Locador</th>
+                    <th>Valor</th>
+                    <th>Solicitante</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-aprovacoes">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+              Quem solicitou um repasse não pode aprovar o próprio — outra pessoa precisa confirmar.
             </p>
           </div>
         </section>
@@ -2651,8 +2687,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
               <button class="btn btn-secondary btn-sm" type="button" onclick="cobrarLocatarioAsaas()" title="Cria boleto/PIX no Asaas com o total das entradas">
                 💳 Cobrar locatário via Asaas
               </button>
-              <button class="btn btn-primary btn-sm" type="button" onclick="pagarLocadorAsaas()" title="Transfere o líquido via PIX para o locador">
-                💸 Pagar locador (PIX)
+              <button class="btn btn-primary btn-sm" type="button" onclick="solicitarPagamentoLocador()" title="Cria uma solicitação de repasse PIX — outra pessoa aprova com senha + 2FA">
+                💸 Solicitar pagamento ao locador
               </button>
             </div>
             <!-- Status inline contextual (aparece aqui, perto dos botões, não no topo do modal) -->
@@ -2951,6 +2987,48 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeMinhaContaModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
+  <!-- MODAL: Aprovar pagamento ao locador (S4) -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-aprovar-pagamento" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>💸 Aprovar repasse ao locador</h3>
+        <button class="modal-close" onclick="closeModalAprovar()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="aprovar-status" style="display:none;"></div>
+
+        <div class="aprovar-resumo">
+          <div class="aprovar-linha"><span>Locador</span><strong id="aprovar-locador">—</strong></div>
+          <div class="aprovar-linha"><span>Chave PIX</span><strong id="aprovar-pix">—</strong></div>
+          <div class="aprovar-linha aprovar-linha-valor"><span>Valor do repasse</span><strong id="aprovar-valor">—</strong></div>
+          <div class="aprovar-linha"><span>Solicitado por</span><strong id="aprovar-solicitante">—</strong></div>
+        </div>
+
+        <p class="muted" style="font-size:11px; background:#fffbeb; border-left:3px solid #f59e0b; padding:8px 10px; margin:14px 0;">
+          ⚠️ Ao confirmar, o servidor executa a transferência PIX <strong>na hora</strong> e de forma
+          <strong>irreversível</strong>. Confira o valor e a chave acima antes de aprovar.
+        </p>
+
+        <div class="form-group">
+          <label class="required">Sua senha</label>
+          <input type="password" id="aprovar-senha" autocomplete="current-password" placeholder="Senha da sua conta DRG-Rently">
+        </div>
+        <div class="form-group">
+          <label class="required">Código 2FA (Google Authenticator)</label>
+          <input type="text" id="aprovar-totp" inputmode="numeric" maxlength="6" placeholder="000000"
+                 autocomplete="one-time-code"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarAprovacao();}">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModalAprovar()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-confirmar-aprovacao" onclick="confirmarAprovacao()">🔓 Aprovar e pagar</button>
       </div>
     </div>
   </div>
@@ -4867,6 +4945,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260514ar"></script>
+  <script src="app.js?v=20260514as"></script>
 </body>
 </html>

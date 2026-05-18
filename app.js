@@ -746,6 +746,13 @@ function userPodeVerModulo(modulo) {
   return OPERADOR_DEFAULT_MODULOS.includes(modulo);
 }
 
+// Visibilidade de SEÇÃO no menu. Igual a userPodeVerModulo, mas trata
+// "aprovacoes" — que NÃO é módulo: é gated pela AÇÃO aprovarPagamentoLocador.
+function podeVerSecao(name) {
+  if (name === 'aprovacoes') return pode('aprovarPagamentoLocador');
+  return userPodeVerModulo(name);
+}
+
 // =============================================================
 // CAMADA 1 — Perfis 2.0 (permissões customizáveis acesso+editar+ações)
 // =============================================================
@@ -893,7 +900,7 @@ async function renderApp() {
   document.querySelectorAll('.nav-link[data-section]').forEach(el => {
     const mod = el.dataset.section;
     if (mod === 'superadmin') return; // já tratado acima
-    el.style.display = userPodeVerModulo(mod) ? 'flex' : 'none';
+    el.style.display = podeVerSecao(mod) ? 'flex' : 'none';
   });
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
@@ -901,7 +908,7 @@ async function renderApp() {
   enableSidebarDnD();
 
   // Se a seção atual não é permitida, manda pro dashboard
-  if (State.currentSection && !userPodeVerModulo(State.currentSection)) {
+  if (State.currentSection && !podeVerSecao(State.currentSection)) {
     State.currentSection = 'dashboard';
   }
 
@@ -972,6 +979,7 @@ function showSection(name, _opts = {}) {
     leads: 'Leads (anúncios captados)',
     calendario: 'Calendário de vencimentos',
     balancetes: 'Balancetes Mensais',
+    aprovacoes: 'Aprovações de pagamento',
     portais: 'Portais Imobiliários',
     importacao: 'Importação em massa (CSV)',
     auditoria: 'Auditoria',
@@ -1014,6 +1022,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'leads' && State.tenant) {
     loadLeads();
+  }
+  if (name === 'aprovacoes' && State.tenant) {
+    loadAprovacoes();
   }
   if (name === 'calendario' && State.tenant) {
     loadCalendario();
@@ -4382,7 +4393,10 @@ async function cobrarLocatarioAsaas() {
   }
 }
 
-async function pagarLocadorAsaas() {
+// S4 — "Pagar locador" virou "Solicitar pagamento": cria a solicitação
+// (status AGUARDANDO_APROVACAO) e NÃO move dinheiro. A transferência só
+// acontece quando outra pessoa aprova com senha + 2FA (ver loadAprovacoes).
+async function solicitarPagamentoLocador() {
   const STATUS_ID = 'asaas-balancete-status';
   if (!_balanceteLocadorInfo) {
     showInlineStatus(STATUS_ID, 'Selecione um contrato primeiro.', 'error');
@@ -4396,10 +4410,20 @@ async function pagarLocadorAsaas() {
   }
   const locador = _balanceteLocadorInfo;
   if (!locador.pix) {
-    showInlineStatus(STATUS_ID, 'Locador sem chave PIX cadastrada. Cadastre antes de pagar.', 'error');
+    showInlineStatus(STATUS_ID, 'Locador sem chave PIX cadastrada. Cadastre antes de solicitar.', 'error');
     return;
   }
-  if (!(await confirmar({ titulo: 'Transferir PIX agora?', mensagem: `Transferir <strong>${fmtBRL(liquido)}</strong> para <strong>${escapeHtml(locador.nome)}</strong>.`, detalhe: `Chave PIX: <code>${escapeHtml(locador.pix)}</code><br><br>⚠️ Esta operação é <strong>IRREVERSÍVEL</strong>. O Asaas vai executar a transferência imediatamente.`, confirmar: '💸 Transferir agora', perigo: true }))) return;
+  const contratoId = $('balancete-contrato').value;
+  if (!contratoId) {
+    showInlineStatus(STATUS_ID, 'Selecione um contrato.', 'error');
+    return;
+  }
+  if (!(await confirmar({
+    titulo: 'Solicitar pagamento ao locador?',
+    mensagem: `Criar uma solicitação de repasse de <strong>${fmtBRL(liquido)}</strong> para <strong>${escapeHtml(locador.nome)}</strong>.`,
+    detalhe: `Chave PIX: <code>${escapeHtml(locador.pix)}</code><br><br>A solicitação fica <strong>aguardando aprovação</strong> — nenhum dinheiro é transferido agora. Outra pessoa precisa aprovar com senha + 2FA na tela <strong>✅ Aprovações</strong>.`,
+    confirmar: '📨 Solicitar',
+  }))) return;
 
   // Detecta tipo da chave PIX
   let tipo = 'EVP';
@@ -4410,28 +4434,33 @@ async function pagarLocadorAsaas() {
   else if (/^\+?\d{10,13}$/.test(pix.replace(/\D/g, ''))) tipo = 'PHONE';
 
   try {
-    showInlineStatus(STATUS_ID, '🔄 Enviando PIX…', 'loading');
-    const { url, token } = await getCfgAsaas();
-    if (!url || !token) throw new Error('Configure Asaas primeiro.');
-    const res = await fetch(`${url}/tenant/transfers`, {
-      method: 'POST',
-      headers: await asaasHeaders(token),
-      body: JSON.stringify({
-        value: liquido.toFixed(2),
-        pixAddressKey: pix,
-        pixAddressKeyType: tipo,
-        description: `Repasse aluguel — ${locador.nome}`,
-      }),
+    showInlineStatus(STATUS_ID, '🔄 Registrando solicitação…', 'loading');
+    const mes = parseInt($('balancete-mes').value, 10);
+    const ano = parseInt($('balancete-ano').value, 10);
+    const ref = await tenantPath().collection('solicitacoesPagamento').add({
+      tipo: 'pagamento_locador',
+      status: 'AGUARDANDO_APROVACAO',
+      valor: Number(liquido.toFixed(2)),
+      pixAddressKey: pix,
+      pixAddressKeyType: tipo,
+      descricao: `Repasse aluguel — ${locador.nome}`,
+      locadorNome: locador.nome || '',
+      contratoId: contratoId,
+      balanceteId: $('balancete-id').value || null,
+      balanceteRef: (mes && ano) ? fmtMesAno(mes, ano) : '',
+      solicitadoPor: State.user.uid,
+      solicitadoPorNome: State.userDoc?.nome || State.user.email || '',
+      solicitadoPorEmail: State.user.email || '',
+      solicitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || 'Erro Asaas');
+    logAuditoria('create', 'solicitacaoPagamento', ref.id, { valor: liquido, locador: locador.nome, contratoId });
     showInlineStatus(
       STATUS_ID,
-      `✅ Transferência criada: <strong>${fmtBRL(liquido)}</strong> via PIX ${tipo} → ${locador.nome}.`,
+      `✅ Solicitação enviada para aprovação (<strong>${fmtBRL(liquido)}</strong>). Um aprovador precisa confirmar em <strong>✅ Aprovações</strong>.`,
       'success'
     );
   } catch (err) {
-    console.error('Erro ao pagar locador:', err);
+    console.error('Erro ao solicitar pagamento ao locador:', err);
     showInlineStatus(STATUS_ID, `❌ ${err.message}`, 'error');
   }
 }
@@ -4439,7 +4468,169 @@ async function pagarLocadorAsaas() {
 window.testarAsaasTenant = testarAsaasTenant;
 window.verSaldoAsaas = verSaldoAsaas;
 window.cobrarLocatarioAsaas = cobrarLocatarioAsaas;
-window.pagarLocadorAsaas = pagarLocadorAsaas;
+window.solicitarPagamentoLocador = solicitarPagamentoLocador;
+
+// =============================================================
+// S4 — Camada 3: aprovações de pagamento (lançar → aprovar)
+// =============================================================
+let _aprovacoesCache = [];
+let _aprovacaoAtual = null;
+
+async function loadAprovacoes() {
+  const tbody = $('tbody-aprovacoes');
+  if (!tbody) return;
+  if (!State.tenant) { tbody.innerHTML = '<tr><td colspan="6" class="empty">—</td></tr>'; return; }
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+  try {
+    const snap = await tenantPath().collection('solicitacoesPagamento')
+      .orderBy('solicitadoEm', 'desc').limit(100).get();
+    _aprovacoesCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAprovacoes();
+  } catch (err) {
+    console.error('Erro ao carregar aprovações:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">❌ ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderAprovacoes() {
+  const tbody = $('tbody-aprovacoes');
+  if (!tbody) return;
+  if (!_aprovacoesCache.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma solicitação de pagamento.</td></tr>';
+    return;
+  }
+  const meuUid = State.user?.uid;
+  tbody.innerHTML = _aprovacoesCache.map(s => {
+    const dt = (s.solicitadoEm && s.solicitadoEm.toDate) ? s.solicitadoEm.toDate() : null;
+    const dataStr = dt ? dt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    let badge, acoes;
+    if (s.status === 'AGUARDANDO_APROVACAO') {
+      badge = '<span class="aprov-badge aprov-badge-aguardando">Aguardando</span>';
+      const ehMinha = s.solicitadoPor === meuUid;
+      acoes = `<button class="btn btn-primary btn-sm" ${ehMinha ? 'disabled title="Você não pode aprovar a própria solicitação"' : ''} onclick="abrirModalAprovar('${s.id}')">Aprovar</button> `
+            + `<button class="btn btn-secondary btn-sm" onclick="rejeitarSolicitacao('${s.id}')">Rejeitar</button>`;
+    } else if (s.status === 'APROVADO') {
+      badge = '<span class="aprov-badge aprov-badge-aprovado">Aprovado</span>';
+      acoes = `<span class="muted" style="font-size:11px;">por ${escapeHtml(s.aprovadoPorEmail || '—')}</span>`;
+    } else if (s.status === 'REJEITADO') {
+      badge = '<span class="aprov-badge aprov-badge-rejeitado">Rejeitado</span>';
+      acoes = `<span class="muted" style="font-size:11px;">por ${escapeHtml(s.rejeitadoPorNome || s.rejeitadoPorEmail || '—')}</span>`;
+    } else {
+      badge = `<span class="aprov-badge">${escapeHtml(s.status || '?')}</span>`;
+      acoes = '—';
+    }
+    return `<tr>
+      <td>${dataStr}</td>
+      <td>${escapeHtml(s.locadorNome || '—')}</td>
+      <td><strong>${fmtBRL(s.valor || 0)}</strong></td>
+      <td>${escapeHtml(s.solicitadoPorNome || s.solicitadoPorEmail || '—')}</td>
+      <td>${badge}</td>
+      <td>${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+function abrirModalAprovar(id) {
+  const s = _aprovacoesCache.find(x => x.id === id);
+  if (!s) return;
+  if (s.solicitadoPor === State.user?.uid) return; // botão já vem disabled
+  _aprovacaoAtual = s;
+  $('aprovar-locador').textContent = s.locadorNome || '—';
+  $('aprovar-pix').textContent = (s.pixAddressKeyType ? s.pixAddressKeyType + ': ' : '') + (s.pixAddressKey || '—');
+  $('aprovar-valor').textContent = fmtBRL(s.valor || 0);
+  $('aprovar-solicitante').textContent = s.solicitadoPorNome || s.solicitadoPorEmail || '—';
+  $('aprovar-senha').value = '';
+  $('aprovar-totp').value = '';
+  $('btn-confirmar-aprovacao').disabled = false;
+  clearInlineStatus('aprovar-status');
+  $('modal-aprovar-pagamento').style.display = 'flex';
+  setTimeout(() => { try { $('aprovar-senha').focus(); } catch (_) {} }, 100);
+}
+
+function closeModalAprovar() {
+  $('modal-aprovar-pagamento').style.display = 'none';
+  _aprovacaoAtual = null;
+}
+
+async function confirmarAprovacao() {
+  if (!_aprovacaoAtual) return;
+  const senha = $('aprovar-senha').value || '';
+  const totp = ($('aprovar-totp').value || '').replace(/\D/g, '');
+  if (!senha) { showInlineStatus('aprovar-status', '❌ Digite sua senha.', 'error'); return; }
+  if (totp.length !== 6) { showInlineStatus('aprovar-status', '❌ Digite os 6 dígitos do código 2FA.', 'error'); return; }
+  const btn = $('btn-confirmar-aprovacao');
+  btn.disabled = true;
+  let sucesso = false;
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Sessão expirada. Faça login novamente.');
+    // (a) reautentica com a senha → renova o auth_time do token
+    showInlineStatus('aprovar-status', '🔄 Conferindo sua senha…', 'loading');
+    const cred = firebase.auth.EmailAuthProvider.credential(user.email, senha);
+    try {
+      await user.reauthenticateWithCredential(cred);
+    } catch (e) {
+      const c = e && e.code;
+      if (c === 'auth/wrong-password' || c === 'auth/invalid-credential' || c === 'auth/invalid-login-credentials') {
+        throw new Error('Senha incorreta.');
+      }
+      if (c === 'auth/too-many-requests') throw new Error('Muitas tentativas. Aguarde alguns minutos e tente de novo.');
+      throw new Error('Falha ao confirmar a senha: ' + (e.message || c));
+    }
+    // (b) idToken FRESCO (auth_time recente) → chama o Worker
+    showInlineStatus('aprovar-status', '🔄 Aprovando e enviando o PIX…', 'loading');
+    const idToken = await user.getIdToken(true);
+    const url = await getMfaWorkerUrl();
+    const res = await fetch(`${url}/aprovar-pagamento`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+      body: JSON.stringify({ solicitacaoId: _aprovacaoAtual.id, totp }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.error || `Erro ${res.status}`);
+    sucesso = true;
+    const valorOk = data.valor || _aprovacaoAtual.valor || 0;
+    showInlineStatus('aprovar-status', `✅ Aprovado! Transferência PIX de ${fmtBRL(valorOk)} enviada.`, 'success');
+    await loadAprovacoes();
+    setTimeout(closeModalAprovar, 2800);
+  } catch (err) {
+    showInlineStatus('aprovar-status', `❌ ${err.message}`, 'error');
+  } finally {
+    if (!sucesso) btn.disabled = false;
+  }
+}
+
+async function rejeitarSolicitacao(id) {
+  const s = _aprovacoesCache.find(x => x.id === id);
+  if (!s) return;
+  if (!(await confirmar({
+    titulo: 'Rejeitar solicitação?',
+    mensagem: `Rejeitar o repasse de <strong>${fmtBRL(s.valor || 0)}</strong> para <strong>${escapeHtml(s.locadorNome || '—')}</strong>.`,
+    detalhe: 'Nenhum dinheiro é movimentado — a solicitação só fica marcada como rejeitada.',
+    confirmar: 'Rejeitar',
+    perigo: true,
+  }))) return;
+  try {
+    await tenantPath().collection('solicitacoesPagamento').doc(id).update({
+      status: 'REJEITADO',
+      rejeitadoPor: State.user.uid,
+      rejeitadoPorNome: State.userDoc?.nome || State.user.email || '',
+      rejeitadoPorEmail: State.user.email || '',
+      rejeitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    logAuditoria('update', 'solicitacaoPagamento', id, { status: 'REJEITADO' });
+    await loadAprovacoes();
+  } catch (err) {
+    console.error('Erro ao rejeitar solicitação:', err);
+    await confirmar({ titulo: '❌ Erro ao rejeitar', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+
+window.loadAprovacoes = loadAprovacoes;
+window.abrirModalAprovar = abrirModalAprovar;
+window.closeModalAprovar = closeModalAprovar;
+window.confirmarAprovacao = confirmarAprovacao;
+window.rejeitarSolicitacao = rejeitarSolicitacao;
 
 // Auto-preencher a URL do Worker Asaas (padrão do projeto)
 function autoPreencherWorkerAsaas() {

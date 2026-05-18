@@ -236,17 +236,22 @@ function firestoreToFields(obj) {
   return f;
 }
 
+function firestoreParseValue(v) {
+  if (!v || typeof v !== 'object') return null;
+  if ('stringValue' in v) return v.stringValue;
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return v.doubleValue;
+  if ('timestampValue' in v) return v.timestampValue;
+  if ('nullValue' in v) return null;
+  if ('mapValue' in v) return firestoreParseFields(v.mapValue.fields || {});
+  if ('arrayValue' in v) return (v.arrayValue.values || []).map(firestoreParseValue);
+  return null;
+}
+
 function firestoreParseFields(fields) {
   const o = {};
-  for (const k of Object.keys(fields || {})) {
-    const v = fields[k];
-    if ('stringValue' in v) o[k] = v.stringValue;
-    else if ('booleanValue' in v) o[k] = v.booleanValue;
-    else if ('integerValue' in v) o[k] = Number(v.integerValue);
-    else if ('doubleValue' in v) o[k] = v.doubleValue;
-    else if ('timestampValue' in v) o[k] = v.timestampValue;
-    else o[k] = null;
-  }
+  for (const k of Object.keys(fields || {})) o[k] = firestoreParseValue(fields[k]);
   return o;
 }
 
@@ -270,6 +275,19 @@ async function firestoreAdminMerge(env, docPath, obj) {
     body: JSON.stringify({ fields: firestoreToFields(obj) }),
   });
   if (!res.ok) throw new Error('Firestore PATCH ' + res.status);
+  return true;
+}
+
+// Cria um documento novo numa coleção (ID automático).
+async function firestoreAdminAddDoc(env, collectionPath, obj) {
+  const token = await getGoogleAccessToken(env);
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${collectionPath}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: firestoreToFields(obj) }),
+  });
+  if (!res.ok) throw new Error('Firestore POST ' + res.status);
   return true;
 }
 
@@ -366,6 +384,136 @@ async function mfaStatus(env, origin, usuario) {
   return jsonResponse({ ok: true, ativo: !!(doc && doc.ativo) }, 200, origin);
 }
 
+// =============================================================
+// S4 — Camada 3: fluxo de aprovação ("Pagar locador via PIX")
+//
+// O front SOLICITA (cria solicitacoesPagamento/{id} = AGUARDANDO_APROVACAO,
+// não move dinheiro). Outra pessoa APROVA: este endpoint faz 8 verificações
+// NESTA ORDEM e só então executa a transferência PIX no Asaas.
+// =============================================================
+
+// Roles que têm a ação aprovarPagamentoLocador no fallback fixo
+// (espelha ROLE_ACOES_PADRAO do app.js — nível 3 da resolução de perfil).
+const ROLE_APROVA_PIX = { super_admin: true, operador_drg: true, admin: true, operador: false };
+
+// Replica resolverPerfilUsuario + normalizarPerfil do front, server-side,
+// só para a ação aprovarPagamentoLocador. Fallback de 3 níveis.
+async function usuarioPodeAprovarPix(env, userDoc, tenantId) {
+  const role = userDoc.role || 'operador';
+  if (role === 'super_admin') return true; // piso anti-lockout
+  let perfil = null;
+  // Nível 1 — perfil explícito do usuário
+  if (userDoc.perfilId) {
+    perfil = await firestoreAdminGet(env, `tenants/${tenantId}/perfis/${userDoc.perfilId}`);
+  }
+  // Nível 2 — perfil seed do role
+  if (!perfil) {
+    perfil = await firestoreAdminGet(env, `tenants/${tenantId}/perfis/seed_${role}`);
+  }
+  // Modelo 2.0 — o perfil tem o mapa acoes
+  if (perfil && perfil.acoes && typeof perfil.acoes === 'object') {
+    return perfil.acoes.aprovarPagamentoLocador === true;
+  }
+  // Nível 3 — legado ({modulos:[...]}) ou sem perfil: mapa fixo do role
+  return ROLE_APROVA_PIX[role] === true;
+}
+
+async function aprovarPagamento(request, env, origin, usuario) {
+  // (1) verificarIdToken já rodou no router → usuario = {uid, email, authTime}
+
+  // (2) auth_time recente: a senha tem que ter sido confirmada há ≤ 5 min
+  const agora = Math.floor(Date.now() / 1000);
+  if (!usuario.authTime || (agora - usuario.authTime) > 300) {
+    return jsonResponse({ ok: false, error: 'Sua sessão está antiga. Confirme a senha novamente para aprovar.' }, 401, origin);
+  }
+
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+  const solicitacaoId = String(body.solicitacaoId || '').trim();
+  const totp = String(body.totp || '').replace(/\D/g, '');
+  if (!solicitacaoId) return jsonResponse({ ok: false, error: 'solicitacaoId ausente.' }, 400, origin);
+
+  // (3) usuário + tenant + permissão de aprovar
+  const userDoc = await firestoreAdminGet(env, `users/${usuario.uid}`);
+  if (!userDoc) return jsonResponse({ ok: false, error: 'Usuário não encontrado.' }, 403, origin);
+  const tenantId = userDoc.tenantId;
+  if (!tenantId) return jsonResponse({ ok: false, error: 'Usuário sem tenant — aprovação não disponível.' }, 403, origin);
+  if (!(await usuarioPodeAprovarPix(env, userDoc, tenantId))) {
+    return jsonResponse({ ok: false, error: 'Seu perfil não tem permissão para aprovar pagamentos ao locador.' }, 403, origin);
+  }
+
+  // (4) 2FA ativo + código TOTP correto
+  const mfa = await firestoreAdminGet(env, `mfa/${usuario.uid}`);
+  if (!mfa || mfa.ativo !== true || !mfa.secretBase32) {
+    return jsonResponse({ ok: false, error: 'Ative o 2FA (botão "Conta") antes de aprovar pagamentos.' }, 403, origin);
+  }
+  if (!(await verificarTotp(mfa.secretBase32, totp))) {
+    return jsonResponse({ ok: false, error: 'Código 2FA incorreto.' }, 401, origin);
+  }
+
+  // (5) solicitação existe e está AGUARDANDO_APROVACAO — VALOR LIDO DO SERVIDOR
+  const solPath = `tenants/${tenantId}/solicitacoesPagamento/${solicitacaoId}`;
+  const sol = await firestoreAdminGet(env, solPath);
+  if (!sol) return jsonResponse({ ok: false, error: 'Solicitação não encontrada.' }, 404, origin);
+  if (sol.status !== 'AGUARDANDO_APROVACAO') {
+    return jsonResponse({ ok: false, error: 'Esta solicitação não está aguardando aprovação (status: ' + sol.status + ').' }, 409, origin);
+  }
+
+  // (6) separação de funções: quem aprova ≠ quem solicitou
+  if (sol.solicitadoPor && sol.solicitadoPor === usuario.uid) {
+    return jsonResponse({ ok: false, error: 'Você não pode aprovar a própria solicitação — outra pessoa precisa aprovar.' }, 403, origin);
+  }
+
+  const valor = Number(sol.valor);
+  if (!(valor > 0)) return jsonResponse({ ok: false, error: 'Valor da solicitação inválido.' }, 400, origin);
+  if (!sol.pixAddressKey) return jsonResponse({ ok: false, error: 'Solicitação sem chave PIX.' }, 400, origin);
+
+  // (7) só AGORA executa a transferência PIX no Asaas
+  const cfg = await firestoreAdminGet(env, `tenants/${tenantId}/config/site`);
+  const asaasKey = cfg && cfg.asaasTenantToken;
+  if (!asaasKey) return jsonResponse({ ok: false, error: 'Chave Asaas do tenant não configurada.' }, 400, origin);
+
+  const transferBody = {
+    value: Number(valor.toFixed(2)),
+    pixAddressKey: sol.pixAddressKey,
+    pixAddressKeyType: sol.pixAddressKeyType || 'CPF',
+    description: sol.descricao || 'Repasse DRG-Rently',
+  };
+  const asaasRes = await asaasFetch(`${asaasBase(env)}/transfers`, env, 'POST', transferBody, asaasKey);
+  const asaasData = await asaasRes.json().catch(() => ({}));
+  if (!asaasRes.ok) {
+    return jsonResponse({ ok: false, error: 'Asaas recusou a transferência: ' + (asaasData.errors?.[0]?.description || asaasRes.status) }, 502, origin);
+  }
+
+  // (8) atualiza a solicitação + log de auditoria
+  const quando = new Date();
+  await firestoreAdminMerge(env, solPath, {
+    status: 'APROVADO',
+    aprovadoPor: usuario.uid,
+    aprovadoPorEmail: usuario.email || '',
+    aprovadoEm: quando,
+    asaasTransferId: asaasData.id || '',
+  });
+  try {
+    // grava na MESMA subcoleção que o app usa (tenants/{tid}/auditoria)
+    await firestoreAdminAddDoc(env, `tenants/${tenantId}/auditoria`, {
+      acao: 'aprovar_pagamento_locador',
+      entidade: 'solicitacaoPagamento',
+      entidadeId: solicitacaoId,
+      userId: usuario.uid,
+      userNome: userDoc.nome || '',
+      userEmail: usuario.email || '',
+      userRole: userDoc.role || '',
+      detalhe: 'Aprovou repasse de R$ ' + valor.toFixed(2) + ' para ' + (sol.locadorNome || sol.pixAddressKey)
+        + '. Solicitado por ' + (sol.solicitadoPorEmail || sol.solicitadoPor || '?')
+        + '. Asaas transfer ' + (asaasData.id || '-') + '.',
+      timestamp: quando,
+    });
+  } catch (_) { /* auditoria não bloqueia o resultado */ }
+
+  return jsonResponse({ ok: true, status: 'APROVADO', asaasTransferId: asaasData.id || '', valor: valor }, 200, origin);
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
@@ -409,6 +557,30 @@ export default {
         return jsonResponse({ error: 'Endpoint MFA não encontrado: ' + path }, 404, origin);
       } catch (e) {
         return jsonResponse({ error: 'Erro MFA: ' + e.message }, 500, origin);
+      }
+    }
+
+    // =============================================================
+    // ROTA /aprovar-pagamento — S4: aprova um repasse PIX ao locador.
+    // 8 verificações no servidor antes de mover dinheiro.
+    // =============================================================
+    if (path === '/aprovar-pagamento') {
+      if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+        return jsonResponse({ error: 'Origin not allowed' }, 403, origin);
+      }
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Use POST.' }, 405, origin);
+      }
+      let usuarioAp;
+      try {
+        usuarioAp = await verificarIdToken(await extrairIdToken(request));
+      } catch (e) {
+        return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
+      }
+      try {
+        return await aprovarPagamento(request, env, origin, usuarioAp);
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'Erro ao aprovar: ' + e.message }, 500, origin);
       }
     }
 
@@ -804,6 +976,7 @@ code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:0.9em;}
   <li><code>POST /mfa/enroll</code> — gera segredo TOTP + QR (Google Authenticator)</li>
   <li><code>POST /mfa/confirm</code> — valida o 1º código e ativa o 2FA</li>
   <li><code>GET /mfa/status</code> — informa se o usuário tem 2FA ativo</li>
+  <li><code>POST /aprovar-pagamento</code> — aprova repasse PIX ao locador (idToken + 2FA + 8 verificações)</li>
 </ul>
 <p style="margin-top:40px;font-size:12px;color:#64748b;">DRG-Rently · D.R. Global Multi Services</p>
 </body></html>`;
