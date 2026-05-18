@@ -20,11 +20,12 @@ const State = {
   navHistory: [],      // pilha de seções visitadas (pra botão Voltar)
 };
 
-// Lista de módulos disponíveis pra perfis customizados
+// Lista de módulos disponíveis pra perfis customizados.
+// somenteLeitura: true → módulo só tem nível "acesso" (sem "editar").
 const MODULOS_DISPONIVEIS = [
-  { id: 'dashboard',     label: 'Dashboard',     grupo: 'Visão Geral' },
-  { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral' },
-  { id: 'relatorios',    label: 'Relatórios',    grupo: 'Visão Geral' },
+  { id: 'dashboard',     label: 'Dashboard',     grupo: 'Visão Geral', somenteLeitura: true },
+  { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral', somenteLeitura: true },
+  { id: 'relatorios',    label: 'Relatórios',    grupo: 'Visão Geral', somenteLeitura: true },
   { id: 'locadores',     label: 'Locadores',     grupo: 'Cadastros' },
   { id: 'locatarios',    label: 'Locatários',    grupo: 'Cadastros' },
   { id: 'compradores',   label: 'Compradores',   grupo: 'Cadastros' },
@@ -33,14 +34,43 @@ const MODULOS_DISPONIVEIS = [
   { id: 'contratos',     label: 'Contratos',     grupo: 'Operação' },
   { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
   { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação' },
-  { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação' },
+  { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação', somenteLeitura: true },
   { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
-  { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação' },
+  { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação', somenteLeitura: true },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
-  { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração' },
+  { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração', somenteLeitura: true },
   { id: 'importacao',    label: 'Importação CSV', grupo: 'Administração' },
   { id: 'configuracoes', label: 'Configurações', grupo: 'Administração' },
 ];
+
+// Ações sensíveis — NÃO são módulos. Entram em perfil.acoes{}.
+// São as ações que "movem dinheiro" ou "fecham contrato" e (futuramente,
+// Fase S4) exigem fluxo de aprovação com 2FA no back-end.
+const ACOES_SENSIVEIS = [
+  { id: 'aprovarPagamentoLocador', label: '💸 Aprovar pagamento ao locador (PIX)', desc: 'Liberar transferências PIX de repasse ao locador' },
+  { id: 'aprovarCobranca',         label: '💳 Aprovar cobrança ao locatário',      desc: 'Gerar boletos/PIX de cobrança via Asaas' },
+  { id: 'gerenciarAssinaturaAsaas', label: '🔁 Gerenciar assinatura recorrente',   desc: 'Criar, reajustar e cancelar assinaturas Asaas' },
+  { id: 'fecharBalancete',         label: '📊 Fechar/consolidar balancete',        desc: 'Marcar balancete como fechado/enviado' },
+  { id: 'excluirTenant',           label: '🗑 Excluir tenant definitivo',          desc: 'Exclusão permanente de cliente (Super Admin)' },
+];
+
+// Mapa role → permissões padrão (usado pelo fallback nível 3 e pelos perfis seed).
+// Cada role recebe o conjunto de módulos que historicamente via.
+const ROLE_MODULOS_PADRAO = {
+  super_admin:  MODULOS_DISPONIVEIS.map(m => m.id),
+  operador_drg: MODULOS_DISPONIVEIS.map(m => m.id),
+  admin:        MODULOS_DISPONIVEIS.map(m => m.id),
+  operador:     ['dashboard','alertas','relatorios','locadores','locatarios',
+                 'compradores','garantias','imoveis','contratos','negociacoes',
+                 'leads','calendario','balancetes','vitrine','portais'],
+};
+// Ações sensíveis que cada role tem por padrão (no perfil seed).
+const ROLE_ACOES_PADRAO = {
+  super_admin:  ACOES_SENSIVEIS.map(a => a.id),
+  operador_drg: ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
+  admin:        ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
+  operador:     [], // operador comum NÃO aprova nada por padrão
+};
 
 // Default de operadores (sem perfil customizado)
 const OPERADOR_DEFAULT_MODULOS = [
@@ -357,7 +387,7 @@ async function loadProfileAndShow(user) {
         return;
       }
 
-      // Se o usuário tem perfil customizado, carrega os módulos
+      // Se o usuário tem perfil customizado, carrega os módulos (legado)
       State.userModulos = null;
       if (State.userDoc.perfilId) {
         try {
@@ -366,6 +396,13 @@ async function loadProfileAndShow(user) {
             State.userModulos = pSnap.data().modulos || [];
           }
         } catch (_) {}
+      }
+      // Camada 1 — resolve o perfil 2.0 com fallback de 3 níveis
+      try {
+        await resolverPerfilUsuario();
+      } catch (e) {
+        console.warn('Falha ao resolver perfil 2.0 — usando legado:', e);
+        State.perfilResolvido = null;
       }
     } else if (State.isSuperAdmin) {
       // Super-admin sem tenantId nem escolha salva: fallback automático.
@@ -392,6 +429,13 @@ async function loadProfileAndShow(user) {
       if (tenantEscolhido) {
         State.tenant = tenantEscolhido;
       }
+    }
+
+    // Camada 1 — garante perfil resolvido (super_admin/operador_drg também,
+    // já que operam como tenant). Pro super_admin pode() ignora e libera tudo.
+    if (State.tenant && !State.perfilResolvido) {
+      try { await resolverPerfilUsuario(); }
+      catch (e) { console.warn('Perfil 2.0 não resolvido:', e); State.perfilResolvido = null; }
     }
 
     renderApp();
@@ -689,13 +733,116 @@ function userPodeVerModulo(modulo) {
     if (!State.tenant.modulosHabilitados.includes(modulo)) return false;
   }
 
-  // Filtro 2: o usuário tem permissão pelo seu perfil/role?
+  // Filtro 2: Camada 1 — perfil resolvido (Perfis 2.0).
+  // Se já resolveu o perfil, usa pode(). Senão, cai no comportamento legado.
+  if (State.perfilResolvido) {
+    return pode(modulo, 'acesso');
+  }
+  // Legado (perfil ainda não resolvido)
   if (State.userDoc?.role === 'admin') return true;
   if (State.userModulos && Array.isArray(State.userModulos)) {
     return State.userModulos.includes(modulo);
   }
   return OPERADOR_DEFAULT_MODULOS.includes(modulo);
 }
+
+// =============================================================
+// CAMADA 1 — Perfis 2.0 (permissões customizáveis acesso+editar+ações)
+// =============================================================
+
+// Adapter: converte qualquer formato de perfil pro modelo 2.0 normalizado.
+// - Modelo 2.0: { permissoes:{mod:{acesso,editar}}, acoes:{acaoId:bool} }
+// - Modelo legado: { modulos:[ids] } → acesso:true + editar:true pros ids listados
+// - Sem perfil (null): deriva do ROLE_MODULOS_PADRAO + ROLE_ACOES_PADRAO
+function normalizarPerfil(perfilDoc, role) {
+  const permissoes = {};
+  const acoes = {};
+
+  if (perfilDoc && perfilDoc.permissoes && typeof perfilDoc.permissoes === 'object') {
+    // Modelo 2.0 — usa direto
+    MODULOS_DISPONIVEIS.forEach(m => {
+      const p = perfilDoc.permissoes[m.id] || {};
+      permissoes[m.id] = {
+        acesso: !!p.acesso,
+        editar: m.somenteLeitura ? false : !!p.editar,
+      };
+    });
+    ACOES_SENSIVEIS.forEach(a => {
+      acoes[a.id] = !!(perfilDoc.acoes && perfilDoc.acoes[a.id]);
+    });
+  } else if (perfilDoc && Array.isArray(perfilDoc.modulos)) {
+    // Modelo legado { modulos:[...] } — acesso+editar pros listados
+    MODULOS_DISPONIVEIS.forEach(m => {
+      const tem = perfilDoc.modulos.includes(m.id);
+      permissoes[m.id] = { acesso: tem, editar: m.somenteLeitura ? false : tem };
+    });
+    // Legado não tinha ações — deriva do role
+    const acoesRole = ROLE_ACOES_PADRAO[role] || [];
+    ACOES_SENSIVEIS.forEach(a => { acoes[a.id] = acoesRole.includes(a.id); });
+  } else {
+    // Sem perfil — deriva 100% do role (fallback nível 3)
+    const modsRole = ROLE_MODULOS_PADRAO[role] || ROLE_MODULOS_PADRAO.operador;
+    const acoesRole = ROLE_ACOES_PADRAO[role] || [];
+    MODULOS_DISPONIVEIS.forEach(m => {
+      const tem = modsRole.includes(m.id);
+      permissoes[m.id] = { acesso: tem, editar: m.somenteLeitura ? false : tem };
+    });
+    ACOES_SENSIVEIS.forEach(a => { acoes[a.id] = acoesRole.includes(a.id); });
+  }
+  return { permissoes, acoes };
+}
+
+// Resolve o perfil do usuário logado com fallback de 3 níveis:
+//   1. perfis/{userDoc.perfilId}   (perfil explícito)
+//   2. perfis/{seed_<role>}        (perfil-base do tier)
+//   3. mapa fixo ROLE_MODULOS_PADRAO (comportamento legado, sem migração)
+// Popula State.perfilResolvido = { permissoes, acoes, origem }.
+async function resolverPerfilUsuario() {
+  const role = State.userDoc?.role || 'operador';
+  let doc = null;
+  let origem = 'fallback-role';
+
+  // Nível 1 — perfil explícito
+  if (State.userDoc?.perfilId) {
+    try {
+      const snap = await tenantPath().collection('perfis').doc(State.userDoc.perfilId).get();
+      if (snap.exists) { doc = snap.data(); origem = 'perfil:' + State.userDoc.perfilId; }
+    } catch (_) {}
+  }
+  // Nível 2 — perfil seed do role
+  if (!doc) {
+    try {
+      const snap = await tenantPath().collection('perfis').doc('seed_' + role).get();
+      if (snap.exists) { doc = snap.data(); origem = 'seed_' + role; }
+    } catch (_) {}
+  }
+  // Nível 3 — normalizarPerfil(null) deriva do role
+  const norm = normalizarPerfil(doc, role);
+  State.perfilResolvido = { ...norm, origem };
+  return State.perfilResolvido;
+}
+
+// API de permissão da Camada 1.
+//   pode('contratos', 'acesso')  → pode VER o módulo
+//   pode('contratos', 'editar')  → pode CRIAR/ALTERAR/EXCLUIR no módulo
+//   pode('aprovarPagamentoLocador') → tem a ação sensível (1 argumento)
+// ⚠️ Isto é só UI/governança. A trava REAL é no Firestore + back-end (S2/S4).
+function pode(chave, nivel) {
+  // 1 argumento = consulta de AÇÃO sensível
+  if (nivel === undefined) {
+    // Piso anti-lockout: super_admin sempre pode tudo
+    if (State.userDoc?.role === 'super_admin') return true;
+    return !!(State.perfilResolvido?.acoes?.[chave]);
+  }
+  // 2 argumentos = consulta de MÓDULO
+  // Piso anti-lockout: super_admin sempre vê telas administrativas
+  if (State.userDoc?.role === 'super_admin') return true;
+  const p = State.perfilResolvido?.permissoes?.[chave];
+  if (!p) return false;
+  if (nivel === 'editar') return !!p.editar;
+  return !!p.acesso;
+}
+window.pode = pode;
 
 // Permissão pra áreas do Super Admin (equipe DRG interna)
 function userDRGPodeVerArea(area) {
@@ -11713,6 +11860,15 @@ function gerarSenhaUsuario() {
 
 // ----- Perfis customizados -----
 
+// Conta quantos módulos/ações um perfil libera (resumo pra tabela)
+function resumoPerfil(perfilDoc, role) {
+  const norm = normalizarPerfil(perfilDoc, role);
+  const mods = Object.values(norm.permissoes).filter(p => p.acesso).length;
+  const editar = Object.values(norm.permissoes).filter(p => p.editar).length;
+  const acoes = Object.values(norm.acoes).filter(Boolean).length;
+  return { mods, editar, acoes };
+}
+
 async function loadPerfis() {
   const tbody = $('tbody-perfis');
   if (!tbody) return;
@@ -11721,15 +11877,27 @@ async function loadPerfis() {
   try {
     const snap = await tenantPath().collection('perfis').get();
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil customizado. Operadores usam o padrão.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil ainda. Clique em "⚙ Criar perfis padrão" pra gerar os perfis-base.</td></tr>`;
       return;
     }
-    tbody.innerHTML = snap.docs.map(d => {
+    // Ordena: perfis de sistema primeiro, depois customizados
+    const docs = snap.docs.slice().sort((a, b) => {
+      const sa = a.data().sistema ? 0 : 1;
+      const sb = b.data().sistema ? 0 : 1;
+      return sa - sb;
+    });
+    tbody.innerHTML = docs.map(d => {
       const p = d.data();
-      const modsLabel = (p.modulos || []).map(m => MODULOS_DISPONIVEIS.find(x => x.id === m)?.label || m).join(' · ') || '—';
+      // role do seed: seed_admin → admin
+      const role = d.id.startsWith('seed_') ? d.id.slice(5) : null;
+      const r = resumoPerfil(p, role);
+      const badgeSistema = p.sistema
+        ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;">⚙ sistema</span>'
+        : '';
+      const resumoTxt = `${r.mods} módulo(s) · ${r.editar} c/ edição` + (r.acoes ? ` · <strong style="color:#b45309;">${r.acoes} ação(ões) sensível(eis)</strong>` : '');
       return `<tr>
-        <td><strong>${p.nome || '—'}</strong></td>
-        <td style="font-size:11px; color:var(--text-muted);">${modsLabel}</td>
+        <td><strong>${escapeHtml(p.nome || '—')}</strong>${badgeSistema}</td>
+        <td style="font-size:11px; color:var(--text-muted);">${resumoTxt}</td>
         <td><button class="btn btn-sm btn-secondary" onclick="openPerfilModal('${d.id}')">Editar</button></td>
       </tr>`;
     }).join('');
@@ -11738,7 +11906,56 @@ async function loadPerfis() {
   }
 }
 
-function renderPerfilModulosCheckboxes(selecionados = []) {
+// Cria perfis-base seed_<role> (idempotente — sobrescreve mantendo id fixo).
+async function criarPerfisSeed() {
+  if (!State.tenant) return;
+  const SID = 'perfis-seed-status';
+  const ok = await confirmar({
+    titulo: 'Criar perfis padrão?',
+    mensagem: 'Vamos criar os perfis-base do sistema (um por tipo de usuário).',
+    detalhe: 'São criados/atualizados: <strong>seed_admin</strong>, <strong>seed_operador</strong>, <strong>seed_operador_drg</strong>, <strong>seed_super_admin</strong>.<br><br>Operação <strong>idempotente</strong> — pode rodar quantas vezes quiser. Não apaga perfis customizados nem altera operadores já vinculados.',
+    confirmar: '⚙ Criar perfis',
+    aviso: true,
+  });
+  if (!ok) return;
+
+  showInlineStatus(SID, '🔄 Criando perfis-base…', 'loading');
+  try {
+    const roles = ['super_admin', 'operador_drg', 'admin', 'operador'];
+    const nomesRole = {
+      super_admin:  'Base — Super Admin (acesso total)',
+      operador_drg: 'Base — Operador DRG (equipe interna)',
+      admin:        'Base — Administrador do tenant',
+      operador:     'Base — Operador comum',
+    };
+    const batch = db.batch();
+    roles.forEach(role => {
+      const norm = normalizarPerfil(null, role); // deriva do ROLE_MODULOS/ACOES_PADRAO
+      const ref = tenantPath().collection('perfis').doc('seed_' + role);
+      batch.set(ref, {
+        nome: nomesRole[role],
+        permissoes: norm.permissoes,
+        acoes: norm.acoes,
+        sistema: true,
+        seedRole: role,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        criadoPor: State.user?.uid || null,
+      }, { merge: true });
+    });
+    await batch.commit();
+    logAuditoria('create', 'config', 'perfis-seed', { count: roles.length });
+    showInlineStatus(SID, '✅ 4 perfis-base criados/atualizados com sucesso.', 'success', 6000);
+    loadPerfis();
+  } catch (err) {
+    console.error('Erro ao criar perfis seed:', err);
+    showInlineStatus(SID, `❌ ${err.message}`, 'error');
+  }
+}
+window.criarPerfisSeed = criarPerfisSeed;
+
+// Renderiza a grade de permissões (módulos: acesso+editar; ações: 1 checkbox).
+function renderPerfilEditor(perfilNorm) {
+  // Módulos agrupados
   const container = $('perfil-modulos-container');
   const grupos = {};
   MODULOS_DISPONIVEIS.forEach(m => {
@@ -11748,38 +11965,94 @@ function renderPerfilModulosCheckboxes(selecionados = []) {
   container.innerHTML = Object.entries(grupos).map(([grupo, mods]) => `
     <div class="perfil-grupo">
       <div class="perfil-grupo-titulo">${grupo}</div>
-      <div class="perfil-grupo-itens">
-        ${mods.map(m => `
-          <label class="perfil-item-checkbox">
-            <input type="checkbox" data-modulo="${m.id}" ${selecionados.includes(m.id) ? 'checked' : ''}>
-            <span>${m.label}</span>
-          </label>
-        `).join('')}
+      <div class="perfil-grade">
+        ${mods.map(m => {
+          const p = perfilNorm.permissoes[m.id] || {};
+          return `
+          <div class="perfil-card-modulo" data-modulo="${m.id}">
+            <div class="perfil-card-nome">${escapeHtml(m.label)}</div>
+            <div class="perfil-card-checks">
+              <label title="Pode ver este módulo">
+                <input type="checkbox" class="chk-acesso" data-modulo="${m.id}" ${p.acesso ? 'checked' : ''}
+                  onchange="onPerfilAcessoChange('${m.id}')">
+                <span>Acesso</span>
+              </label>
+              ${m.somenteLeitura ? '<span class="perfil-card-leitura">só leitura</span>' : `
+              <label title="Pode criar / alterar / excluir">
+                <input type="checkbox" class="chk-editar" data-modulo="${m.id}" ${p.editar ? 'checked' : ''}
+                  ${p.acesso ? '' : 'disabled'}>
+                <span>Editar</span>
+              </label>`}
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
   `).join('');
+
+  // Ações sensíveis
+  const acoesContainer = $('perfil-acoes-container');
+  acoesContainer.innerHTML = `
+    <div class="perfil-grade">
+      ${ACOES_SENSIVEIS.map(a => {
+        const marcada = !!perfilNorm.acoes[a.id];
+        return `
+        <div class="perfil-card-acao">
+          <label title="${escapeHtml(a.desc)}">
+            <input type="checkbox" class="chk-acao" data-acao="${a.id}" ${marcada ? 'checked' : ''}>
+            <span>
+              <strong>${escapeHtml(a.label)}</strong>
+              <small>${escapeHtml(a.desc)}</small>
+            </span>
+          </label>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
 }
+
+// "Editar" depende de "Acesso" — quando desmarca acesso, desmarca+trava editar.
+function onPerfilAcessoChange(moduloId) {
+  const acesso = document.querySelector(`.chk-acesso[data-modulo="${moduloId}"]`);
+  const editar = document.querySelector(`.chk-editar[data-modulo="${moduloId}"]`);
+  if (!editar) return;
+  if (acesso.checked) {
+    editar.disabled = false;
+  } else {
+    editar.checked = false;
+    editar.disabled = true;
+  }
+}
+window.onPerfilAcessoChange = onPerfilAcessoChange;
 
 async function openPerfilModal(id) {
   clearAlert('perfil-alert');
   $('perfil-id').value = id || '';
   $('modal-perfil-title').textContent = id ? 'Editar perfil' : 'Novo perfil';
-  $('btn-delete-perfil').style.display = id ? 'inline-block' : 'none';
   $('perfil-nome').value = '';
 
-  let modulosSelecionados = OPERADOR_DEFAULT_MODULOS;
+  let perfilDoc = null;
+  let ehSistema = false;
+  let roleDoSeed = null;
   if (id) {
     try {
       const snap = await tenantPath().collection('perfis').doc(id).get();
       if (snap.exists) {
-        const p = snap.data();
-        $('perfil-nome').value = p.nome || '';
-        modulosSelecionados = p.modulos || [];
+        perfilDoc = snap.data();
+        $('perfil-nome').value = perfilDoc.nome || '';
+        ehSistema = !!perfilDoc.sistema;
+        roleDoSeed = id.startsWith('seed_') ? id.slice(5) : null;
       }
     } catch (_) {}
   }
 
-  renderPerfilModulosCheckboxes(modulosSelecionados);
+  // Perfil de sistema: nome travado, sem excluir, com aviso
+  $('perfil-nome').disabled = ehSistema;
+  $('btn-delete-perfil').style.display = (id && !ehSistema) ? 'inline-block' : 'none';
+  $('perfil-sistema-aviso').style.display = ehSistema ? 'block' : 'none';
+
+  const norm = normalizarPerfil(perfilDoc, roleDoSeed);
+  renderPerfilEditor(norm);
   $('modal-perfil').style.display = 'flex';
 }
 
@@ -11790,16 +12063,34 @@ async function savePerfil() {
   const id = $('perfil-id').value;
   const nome = $('perfil-nome').value.trim();
   if (!nome) { showAlert('perfil-alert', 'Nome do perfil é obrigatório.'); return; }
-  const modulos = Array.from(document.querySelectorAll('#perfil-modulos-container input[type="checkbox"]'))
-    .filter(c => c.checked).map(c => c.dataset.modulo);
+
+  // Monta o objeto permissoes{} a partir dos checkboxes
+  const permissoes = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    const acesso = document.querySelector(`.chk-acesso[data-modulo="${m.id}"]`)?.checked || false;
+    const editar = m.somenteLeitura ? false
+      : (document.querySelector(`.chk-editar[data-modulo="${m.id}"]`)?.checked || false);
+    permissoes[m.id] = { acesso, editar: acesso && editar };
+  });
+  // Monta acoes{}
+  const acoes = {};
+  ACOES_SENSIVEIS.forEach(a => {
+    acoes[a.id] = document.querySelector(`.chk-acao[data-acao="${a.id}"]`)?.checked || false;
+  });
 
   try {
     if (id) {
-      await tenantPath().collection('perfis').doc(id).update({ nome, modulos });
+      // Perfil de sistema: não muda o nome (campo está disabled mesmo)
+      const snap = await tenantPath().collection('perfis').doc(id).get();
+      const ehSistema = snap.exists && !!snap.data().sistema;
+      const payload = { permissoes, acoes, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() };
+      if (!ehSistema) payload.nome = nome;
+      await tenantPath().collection('perfis').doc(id).update(payload);
       logAuditoria('update', 'config', 'perfil:' + id, { nome });
     } else {
       const ref = await tenantPath().collection('perfis').add({
-        nome, modulos,
+        nome, permissoes, acoes,
+        sistema: false,
         criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
         criadoPor: State.user.uid,
       });
@@ -11808,6 +12099,11 @@ async function savePerfil() {
     closePerfilModal();
     loadPerfis();
     showAlert('cfg-alert', 'Perfil salvo.', 'success');
+    // Se o usuário editou o próprio perfil, re-resolve
+    if (State.userDoc?.perfilId === id) {
+      await resolverPerfilUsuario();
+      renderApp();
+    }
   } catch (err) {
     showAlert('perfil-alert', 'Erro: ' + err.message);
   }
@@ -11816,7 +12112,15 @@ async function savePerfil() {
 async function deletePerfil() {
   const id = $('perfil-id').value;
   if (!id) return;
-  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Os usuários vinculados a ele perdem o perfil e voltam ao padrão (operador básico). Você pode reatribuir manualmente depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
+  // Bloqueia exclusão de perfil de sistema
+  try {
+    const snap = await tenantPath().collection('perfis').doc(id).get();
+    if (snap.exists && snap.data().sistema) {
+      showAlert('perfil-alert', 'Perfis-base do sistema não podem ser excluídos. Você pode apenas editar as permissões.');
+      return;
+    }
+  } catch (_) {}
+  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Os usuários vinculados a ele perdem o perfil e caem no fallback (perfil-base do tier). Você pode reatribuir manualmente depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await tenantPath().collection('perfis').doc(id).delete();
     logAuditoria('delete', 'config', 'perfil:' + id);

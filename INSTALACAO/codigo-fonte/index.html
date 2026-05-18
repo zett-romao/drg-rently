@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514ao">
+  <link rel="stylesheet" href="styles.css?v=20260514ap">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1585,7 +1585,11 @@
               </table>
             </div>
 
-            <button class="btn btn-primary btn-sm" type="button" onclick="openPerfilModal()">+ Novo perfil</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" type="button" onclick="openPerfilModal()">+ Novo perfil</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="criarPerfisSeed()" title="Cria os perfis-base (um por tipo de usuário) derivados das permissões padrão. Idempotente — pode rodar várias vezes.">⚙ Criar perfis padrão</button>
+            </div>
+            <div id="perfis-seed-status" class="status-inline" style="display:none; margin-top:10px;"></div>
 
             <h4 class="form-section-title">🛠 Manutenção (administrador)</h4>
             <p class="muted" style="font-size:12px; margin-bottom:14px;">
@@ -2791,10 +2795,28 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         </div>
 
         <div class="form-group">
-          <label>Módulos permitidos</label>
-          <p class="muted" style="font-size:11px; margin-bottom:10px;">Marque os módulos que este perfil pode acessar.</p>
+          <label>Permissões de módulos</label>
+          <p class="muted" style="font-size:11px; margin-bottom:10px;">
+            <strong>Acesso</strong> = pode ver o módulo. <strong>Editar</strong> = pode criar/alterar/excluir.
+            "Editar" só fica ativo se "Acesso" estiver marcado.
+          </p>
           <div id="perfil-modulos-container"></div>
         </div>
+
+        <div class="form-group">
+          <label>🔐 Ações sensíveis (aprovações)</label>
+          <p class="muted" style="font-size:11px; margin-bottom:10px;">
+            Ações que <strong>movem dinheiro ou fecham contrato</strong>. Quem tem a ação marcada
+            pode <strong>aprovar</strong> a operação. ⚠️ A trava real é no servidor (2FA) — esta
+            marcação só controla quem vê o botão.
+          </p>
+          <div id="perfil-acoes-container"></div>
+        </div>
+
+        <p class="muted" id="perfil-sistema-aviso" style="display:none; font-size:11px; background:#fffbeb; border-left:3px solid #f59e0b; padding:8px 10px;">
+          ⚙ Este é um <strong>perfil-base do sistema</strong> (criado pelo "Criar perfis padrão").
+          Você pode editar as permissões, mas não pode excluí-lo nem renomeá-lo.
+        </p>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closePerfilModal()">Cancelar</button>
@@ -4684,6 +4706,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260514ao"></script>
+  <script src="app.js?v=20260514ap"></script>
 </body>
 </html>
