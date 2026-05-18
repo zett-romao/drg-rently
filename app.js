@@ -10904,32 +10904,79 @@ async function syncImovelStatusFromContrato(imovelId, statusNovo, statusAnterior
 async function deleteContrato() {
   const id = $('contrato-id').value;
   if (!id) return;
-  if (!(await confirmar({ titulo: 'Excluir contrato?', mensagem: 'Você está prestes a remover este contrato do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos<br>⚠️ Balancetes vinculados podem ficar órfãos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
+  if (!(await confirmar({
+    titulo: 'Excluir contrato?',
+    mensagem: 'Você está prestes a remover este contrato e <strong>tudo vinculado a ele</strong>.',
+    detalhe: '⚠️ Serão removidos junto: a <strong>garantia vinculada</strong> (se nenhum outro contrato a usar), os <strong>balancetes</strong>, as <strong>solicitações de pagamento</strong> e os <strong>documentos anexados</strong>.<br>⚠️ O imóvel volta a ficar <strong>disponível</strong>.<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>.',
+    confirmar: '🗑 Excluir tudo',
+    perigo: true,
+  }))) return;
 
   try {
-    // Liberar imóvel se contrato vigente
     const snap = await tenantPath().collection('contratos').doc(id).get();
-    if (snap.exists) {
-      const c = snap.data();
-      if (c.status === 'vigente' && c.imovelId) {
-        await tenantPath().collection('imoveis').doc(c.imovelId).update({ status: 'disponivel' });
-        invalidateImoveisCache();
+    const c = snap.exists ? snap.data() : {};
+    const removidos = [];
+
+    // 1. Libera o imóvel se o contrato estava vigente
+    if (c.status === 'vigente' && c.imovelId) {
+      await tenantPath().collection('imoveis').doc(c.imovelId).update({ status: 'disponivel' });
+      invalidateImoveisCache();
+    }
+
+    // 2. Garantia vinculada — só apaga se NENHUM outro contrato ainda a usa
+    if (c.garantiaId) {
+      const usos = await tenantPath().collection('contratos')
+        .where('garantiaId', '==', c.garantiaId).get();
+      const outrosContratos = usos.docs.filter(d => d.id !== id);
+      if (outrosContratos.length === 0) {
+        try {
+          const gFolder = storageTenantRef().child(`garantias/${c.garantiaId}`);
+          const gList = await gFolder.listAll();
+          await Promise.all(gList.items.map(item => item.delete()));
+        } catch (_) {}
+        await tenantPath().collection('garantias').doc(c.garantiaId).delete();
+        invalidateGarantiasCache();
+        logAuditoria('delete', 'garantia', c.garantiaId, { motivo: 'cascata: contrato ' + id + ' excluído' });
+        removidos.push('garantia');
       }
     }
 
-    // Apagar docs do Storage
-    const folderRef = storageTenantRef().child(`contratos/${id}`);
+    // 3. Balancetes do contrato (+ comprovantes no Storage)
+    const balSnap = await tenantPath().collection('balancetes')
+      .where('contratoId', '==', id).get();
+    for (const bDoc of balSnap.docs) {
+      try {
+        const bFolder = storageTenantRef().child(`balancetes/${bDoc.id}/comprovantes`);
+        const bList = await bFolder.listAll();
+        await Promise.all(bList.items.map(item => item.delete()));
+      } catch (_) {}
+      await bDoc.ref.delete();
+    }
+    if (balSnap.size) removidos.push(balSnap.size + ' balancete(s)');
+
+    // 4. Solicitações de pagamento do contrato (fluxo de aprovação)
+    const solSnap = await tenantPath().collection('solicitacoesPagamento')
+      .where('contratoId', '==', id).get();
+    for (const sDoc of solSnap.docs) await sDoc.ref.delete();
+    if (solSnap.size) removidos.push(solSnap.size + ' solicitação(ões) de pagamento');
+
+    // 5. Documentos do contrato no Storage
     try {
+      const folderRef = storageTenantRef().child(`contratos/${id}`);
       const list = await folderRef.listAll();
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
 
+    // 6. O contrato em si — por último: se algo acima falhar, ele não some
     await tenantPath().collection('contratos').doc(id).delete();
-    logAuditoria('delete', 'contrato', id);
+    logAuditoria('delete', 'contrato', id, {
+      numero: c.numero || null,
+      cascata: removidos.length ? removidos.join(' + ') : 'sem vínculos',
+    });
     closeContratoModal();
     loadContratos();
   } catch (err) {
-    console.error('Erro ao excluir:', err);
+    console.error('Erro ao excluir contrato:', err);
     showAlert('contrato-alert', 'Erro: ' + err.message);
   }
 }
