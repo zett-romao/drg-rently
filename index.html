@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" sizes="192x192" href="logo.png?v=20260513a">
   <link rel="apple-touch-icon" sizes="512x512" href="logo.png?v=20260513a">
 
-  <link rel="stylesheet" href="styles.css?v=20260514aq">
+  <link rel="stylesheet" href="styles.css?v=20260514ar">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -288,6 +288,7 @@
         </div>
         <div class="topbar-user">
           <span id="user-name" class="topbar-user-name">—</span>
+          <button id="btn-minha-conta" class="btn btn-secondary btn-sm" onclick="openMinhaContaModal()" title="Minha conta — segurança e 2FA">🔐 Conta</button>
           <button id="btn-logout" class="btn btn-secondary btn-sm">Sair</button>
         </div>
       </header>
@@ -2888,6 +2889,73 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- MODAL: Minha conta — segurança / 2FA -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-minha-conta" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🔐 Minha conta — Segurança</h3>
+        <button class="modal-close" onclick="closeMinhaContaModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="mfa-status" style="display:none;"></div>
+
+        <div class="mfa-bloco">
+          <div class="mfa-titulo">
+            <span>Verificação em 2 etapas (2FA)</span>
+            <span id="mfa-badge" class="mfa-badge mfa-badge-off">Carregando…</span>
+          </div>
+          <p class="muted" style="font-size:12px; margin:6px 0 14px;">
+            Um código de 6 dígitos do app <strong>Google Authenticator</strong> (ou Authy, Microsoft
+            Authenticator) passa a ser exigido para <strong>aprovar pagamentos e ações sensíveis</strong>.
+          </p>
+
+          <!-- 2FA desligado -->
+          <div id="mfa-off" style="display:none;">
+            <button class="btn btn-primary" id="btn-mfa-ativar" onclick="iniciarMfaEnroll()">Ativar 2FA</button>
+          </div>
+
+          <!-- Enroll em andamento -->
+          <div id="mfa-enroll" style="display:none;">
+            <ol class="mfa-passos">
+              <li>Abra o <strong>Google Authenticator</strong> no celular → toque em <strong>+</strong> → <strong>Ler código QR</strong>.</li>
+              <li>Aponte a câmera para o QR code abaixo.</li>
+              <li>Digite o código de 6 dígitos que o app mostrar.</li>
+            </ol>
+            <div id="mfa-qrcode" class="mfa-qrcode"></div>
+            <p class="muted mfa-secret-linha">
+              Sem câmera? Digite esta chave manualmente no app:<br>
+              <code id="mfa-secret-texto" class="mfa-secret">—</code>
+            </p>
+            <div class="form-group">
+              <label class="required">Código do app autenticador</label>
+              <input type="text" id="mfa-codigo" inputmode="numeric" maxlength="6" placeholder="000000"
+                     autocomplete="one-time-code"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();confirmarMfaCodigo();}">
+            </div>
+            <div class="mfa-acoes">
+              <button class="btn btn-secondary" onclick="cancelarMfaEnroll()">Cancelar</button>
+              <button class="btn btn-primary" id="btn-mfa-confirmar" onclick="confirmarMfaCodigo()">Confirmar e ativar</button>
+            </div>
+          </div>
+
+          <!-- 2FA ativo -->
+          <div id="mfa-on" style="display:none;">
+            <p class="mfa-ok">✅ 2FA ativo nesta conta.</p>
+            <p class="muted" style="font-size:11px;">
+              Trocou de celular? Reconfigure gerando um QR code novo — o anterior deixa de valer.
+            </p>
+            <button class="btn btn-secondary" onclick="iniciarMfaEnroll()">Reconfigurar 2FA</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeMinhaContaModal()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Novo usuário do tenant -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-usuario-tenant" style="display:none;">
@@ -4799,6 +4867,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260514aq"></script>
+  <script src="app.js?v=20260514ar"></script>
 </body>
 </html>

@@ -9,6 +9,9 @@
 #
 # Setup manual no Cloudflare (one-time):
 #   - Secrets: ASAAS_API_KEY (da DRG), WEBHOOK_TOKEN, FIREBASE_API_KEY
+#   - Secret FIREBASE_SERVICE_ACCOUNT_JSON — JSON COMPLETO da service account
+#     (a MESMA usada no Worker passkey). Necessário pro 2FA: o Worker grava o
+#     segredo TOTP na coleção mfa/{uid}, que é default-deny pro cliente.
 #   - Variables: PROJECT_ID = drg-rently, ASAAS_ENV = "production"
 #   - Webhooks no painel Asaas → URL do worker /webhook
 # =============================================================

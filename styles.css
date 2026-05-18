@@ -3093,6 +3093,85 @@ details.card > summary:hover {
   box-shadow: 0 1px 3px rgba(71, 85, 105, 0.08);
 }
 
+/* ===== S3 — Minha conta / 2FA TOTP ===== */
+.mfa-bloco {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  background: #fff;
+}
+.mfa-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mfa-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.mfa-badge-on { background: #dcfce7; color: #15803d; }
+.mfa-badge-off { background: #f1f5f9; color: #64748b; }
+.mfa-passos {
+  margin: 4px 0 14px;
+  padding-left: 20px;
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.7;
+}
+.mfa-qrcode {
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 0 auto 10px;
+  width: max-content;
+}
+.mfa-qrcode img,
+.mfa-qrcode canvas { display: block; }
+.mfa-secret-linha {
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.6;
+}
+.mfa-secret {
+  display: inline-block;
+  margin-top: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+#mfa-codigo {
+  font-size: 20px;
+  letter-spacing: 6px;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+}
+.mfa-acoes {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.mfa-ok {
+  font-size: 14px;
+  font-weight: 700;
+  color: #15803d;
+  margin: 0 0 6px;
+}
+
 /* =============================================================
    Toggle PF/PJ no signup
    ============================================================= */

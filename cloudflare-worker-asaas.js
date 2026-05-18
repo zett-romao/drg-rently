@@ -74,7 +74,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-DRG-Admin-Token, X-Tenant-Asaas-Token, asaas-access-token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-DRG-Admin-Token, X-Tenant-Asaas-Token, asaas-access-token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -155,6 +155,217 @@ async function extrairIdToken(request) {
   return '';
 }
 
+// =============================================================
+// S3 — 2FA / MFA via TOTP (Google Authenticator, RFC 6238)
+//
+// O segredo do 2FA mora na coleção Firestore `mfa/{uid}`, que NÃO tem
+// regra de acesso (default-deny): nem o cliente nem a Web API key
+// conseguem ler. Só este Worker — autenticado como service account
+// (admin, ignora as regras) — grava e lê. Daí a necessidade do secret
+// FIREBASE_SERVICE_ACCOUNT_JSON (a MESMA do Worker passkey).
+// =============================================================
+let _googleToken = null; // cache do access token OAuth2 (vale ~1h)
+
+function b64urlEncode(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let s = '';
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Troca a service account por um access token Google (escopo Firestore).
+async function getGoogleAccessToken(env) {
+  if (_googleToken && _googleToken.exp > Date.now() + 120000) return _googleToken.token;
+  if (!env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    throw new Error('Service account não configurado no Worker (FIREBASE_SERVICE_ACCOUNT_JSON).');
+  }
+  let sa;
+  try { sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT_JSON); }
+  catch (_) { throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON inválido (não é JSON).'); }
+  if (!sa.client_email || !sa.private_key) throw new Error('Service account incompleto.');
+
+  const agora = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claim = {
+    iss: sa.client_email,
+    scope: 'https://www.googleapis.com/auth/datastore',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: agora,
+    exp: agora + 3600,
+  };
+  const enc = (o) => b64urlEncode(new TextEncoder().encode(JSON.stringify(o)));
+  const unsigned = enc(header) + '.' + enc(claim);
+
+  const pem = sa.private_key
+    .replace(/-----BEGIN PRIVATE KEY-----/, '')
+    .replace(/-----END PRIVATE KEY-----/, '')
+    .replace(/\s+/g, '');
+  const pkcs8 = b64urlDecode(pem.replace(/\+/g, '-').replace(/\//g, '_'));
+  const chave = await crypto.subtle.importKey(
+    'pkcs8', pkcs8, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', chave, new TextEncoder().encode(unsigned));
+  const jwt = unsigned + '.' + b64urlEncode(sig);
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error('Falha OAuth Google: ' + (data.error_description || data.error || res.status));
+  }
+  _googleToken = { token: data.access_token, exp: Date.now() + (data.expires_in || 3600) * 1000 };
+  return data.access_token;
+}
+
+// --- Firestore REST como admin (ignora regras; usado só na coleção mfa/) ---
+function firestoreToFields(obj) {
+  const f = {};
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v === null || v === undefined) f[k] = { nullValue: null };
+    else if (typeof v === 'boolean') f[k] = { booleanValue: v };
+    else if (typeof v === 'number') f[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    else if (v instanceof Date) f[k] = { timestampValue: v.toISOString() };
+    else f[k] = { stringValue: String(v) };
+  }
+  return f;
+}
+
+function firestoreParseFields(fields) {
+  const o = {};
+  for (const k of Object.keys(fields || {})) {
+    const v = fields[k];
+    if ('stringValue' in v) o[k] = v.stringValue;
+    else if ('booleanValue' in v) o[k] = v.booleanValue;
+    else if ('integerValue' in v) o[k] = Number(v.integerValue);
+    else if ('doubleValue' in v) o[k] = v.doubleValue;
+    else if ('timestampValue' in v) o[k] = v.timestampValue;
+    else o[k] = null;
+  }
+  return o;
+}
+
+async function firestoreAdminGet(env, docPath) {
+  const token = await getGoogleAccessToken(env);
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}`;
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('Firestore GET ' + res.status);
+  const doc = await res.json();
+  return firestoreParseFields(doc.fields);
+}
+
+async function firestoreAdminMerge(env, docPath, obj) {
+  const token = await getGoogleAccessToken(env);
+  const mask = Object.keys(obj).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}?${mask}`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: firestoreToFields(obj) }),
+  });
+  if (!res.ok) throw new Error('Firestore PATCH ' + res.status);
+  return true;
+}
+
+// --- TOTP (RFC 6238) ---
+const B32_ALFA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Encode(bytes) {
+  let bits = 0, value = 0, out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    value = (value << 8) | bytes[i];
+    bits += 8;
+    while (bits >= 5) { out += B32_ALFA[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32_ALFA[(value << (5 - bits)) & 31];
+  return out;
+}
+
+function base32Decode(str) {
+  const limpo = String(str).toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0;
+  const out = [];
+  for (let i = 0; i < limpo.length; i++) {
+    value = (value << 5) | B32_ALFA.indexOf(limpo[i]);
+    bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 0xff); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+
+async function totpCodigo(secretBytes, contador) {
+  const buf = new ArrayBuffer(8);
+  const dv = new DataView(buf);
+  dv.setUint32(0, Math.floor(contador / 0x100000000));
+  dv.setUint32(4, contador >>> 0);
+  const chave = await crypto.subtle.importKey(
+    'raw', secretBytes, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+  );
+  const h = new Uint8Array(await crypto.subtle.sign('HMAC', chave, buf));
+  const off = h[h.length - 1] & 0x0f;
+  const bin = ((h[off] & 0x7f) << 24) | (h[off + 1] << 16) | (h[off + 2] << 8) | h[off + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+
+// Verifica um código TOTP com janela ±1 passo (tolera ~30s de relógio fora).
+async function verificarTotp(secretBase32, codigo) {
+  const code = String(codigo || '').replace(/\D/g, '');
+  if (code.length !== 6) return false;
+  const secret = base32Decode(secretBase32);
+  if (secret.length < 10) return false;
+  const passo = Math.floor(Date.now() / 1000 / 30);
+  for (let d = -1; d <= 1; d++) {
+    const esperado = await totpCodigo(secret, passo + d);
+    let diff = 0;
+    for (let i = 0; i < 6; i++) diff |= esperado.charCodeAt(i) ^ code.charCodeAt(i);
+    if (diff === 0) return true;
+  }
+  return false;
+}
+
+// --- Endpoints /mfa/* ---
+async function mfaEnroll(env, origin, usuario) {
+  const bytes = crypto.getRandomValues(new Uint8Array(20)); // 160 bits
+  const secretBase32 = base32Encode(bytes);
+  await firestoreAdminMerge(env, `mfa/${usuario.uid}`, {
+    secretBase32,
+    ativo: false,
+    email: usuario.email || '',
+    criadoEm: new Date(),
+  });
+  const conta = usuario.email || usuario.uid;
+  const label = encodeURIComponent('DRG-Rently:' + conta);
+  const issuer = encodeURIComponent('DRG-Rently');
+  const otpauthUri = `otpauth://totp/${label}?secret=${secretBase32}&issuer=${issuer}&algorithm=SHA1&digits=6&period=30`;
+  return jsonResponse({ ok: true, otpauthUri, secretBase32 }, 200, origin);
+}
+
+async function mfaConfirm(request, env, origin, usuario) {
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+  const codigo = String(body.codigo || body.totp || '').replace(/\D/g, '');
+  const doc = await firestoreAdminGet(env, `mfa/${usuario.uid}`);
+  if (!doc || !doc.secretBase32) {
+    return jsonResponse({ ok: false, error: 'Nenhum 2FA pendente. Gere o QR code primeiro.' }, 400, origin);
+  }
+  if (!(await verificarTotp(doc.secretBase32, codigo))) {
+    return jsonResponse({ ok: false, error: 'Código incorreto. Confira a hora do celular e digite o código atual do app.' }, 400, origin);
+  }
+  await firestoreAdminMerge(env, `mfa/${usuario.uid}`, { ativo: true, confirmadoEm: new Date() });
+  return jsonResponse({ ok: true, ativo: true }, 200, origin);
+}
+
+async function mfaStatus(env, origin, usuario) {
+  const doc = await firestoreAdminGet(env, `mfa/${usuario.uid}`);
+  return jsonResponse({ ok: true, ativo: !!(doc && doc.ativo) }, 200, origin);
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
@@ -175,6 +386,30 @@ export default {
       return new Response(htmlHelp(env), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });
+    }
+
+    // =============================================================
+    // ROTAS /mfa/* — 2FA TOTP. Exigem só identidade (Firebase ID token);
+    // não usam chave Asaas nem token administrativo.
+    // =============================================================
+    if (path.startsWith('/mfa/')) {
+      if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+        return jsonResponse({ error: 'Origin not allowed' }, 403, origin);
+      }
+      let usuarioMfa;
+      try {
+        usuarioMfa = await verificarIdToken(await extrairIdToken(request));
+      } catch (e) {
+        return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
+      }
+      try {
+        if (path === '/mfa/enroll' && request.method === 'POST') return await mfaEnroll(env, origin, usuarioMfa);
+        if (path === '/mfa/confirm' && request.method === 'POST') return await mfaConfirm(request, env, origin, usuarioMfa);
+        if (path === '/mfa/status' && request.method === 'GET') return await mfaStatus(env, origin, usuarioMfa);
+        return jsonResponse({ error: 'Endpoint MFA não encontrado: ' + path }, 404, origin);
+      } catch (e) {
+        return jsonResponse({ error: 'Erro MFA: ' + e.message }, 500, origin);
+      }
     }
 
     // Demais endpoints exigem auth — duas formas:
@@ -565,6 +800,10 @@ code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-size:0.9em;}
   <li><code>POST /tenant/transfers</code> — transfere PIX pro locador (repasse do líquido)</li>
   <li><code>GET /tenant/balance</code> — saldo disponível</li>
   <li><code>GET /tenant/health</code> — teste de chave Asaas válida</li>
+  <li><strong>Rotas 2FA</strong> (auth: header <code>Authorization: Bearer</code> com Firebase ID token):</li>
+  <li><code>POST /mfa/enroll</code> — gera segredo TOTP + QR (Google Authenticator)</li>
+  <li><code>POST /mfa/confirm</code> — valida o 1º código e ativa o 2FA</li>
+  <li><code>GET /mfa/status</code> — informa se o usuário tem 2FA ativo</li>
 </ul>
 <p style="margin-top:40px;font-size:12px;color:#64748b;">DRG-Rently · D.R. Global Multi Services</p>
 </body></html>`;

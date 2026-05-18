@@ -4121,6 +4121,139 @@ async function asaasHeaders(token) {
   return h;
 }
 
+// =============================================================
+// S3 — 2FA TOTP (Google Authenticator) — tela "Minha conta"
+// Os endpoints /mfa/* ficam no mesmo Worker Asaas. Autenticam só por
+// identidade (Firebase ID token no header Authorization Bearer).
+// =============================================================
+
+// URL do Worker (reaproveita a config Asaas do tenant).
+async function getMfaWorkerUrl() {
+  let url = '';
+  try { url = (await getCfgAsaas()).url; } catch (_) {}
+  if (!url) {
+    throw new Error('Worker Asaas não configurado. Configure a URL em Configurações → Cobrança (Asaas) primeiro.');
+  }
+  return url;
+}
+
+// fetch padrão pros endpoints /mfa/* — sempre com o ID token verificado.
+async function mfaFetch(endpoint, method, bodyObj) {
+  const url = await getMfaWorkerUrl();
+  const idToken = await getIdTokenAtual();
+  const opts = { method: method || 'GET', headers: { 'Authorization': 'Bearer ' + idToken } };
+  if (bodyObj) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(bodyObj);
+  }
+  const res = await fetch(`${url}${endpoint}`, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || `Erro ${res.status}`);
+  return data;
+}
+
+// Carrega a lib qrcodejs sob demanda (só quando o usuário abre o enroll).
+let _qrLibPromise = null;
+function carregarLibQR() {
+  if (window.QRCode) return Promise.resolve();
+  if (_qrLibPromise) return _qrLibPromise;
+  _qrLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => { _qrLibPromise = null; reject(new Error('Falha ao carregar a biblioteca de QR code. Verifique a conexão.')); };
+    document.head.appendChild(s);
+  });
+  return _qrLibPromise;
+}
+
+function openMinhaContaModal() {
+  $('modal-minha-conta').style.display = 'flex';
+  clearInlineStatus('mfa-status');
+  $('mfa-off').style.display = 'none';
+  $('mfa-enroll').style.display = 'none';
+  $('mfa-on').style.display = 'none';
+  carregarMfaStatus();
+}
+function closeMinhaContaModal() { $('modal-minha-conta').style.display = 'none'; }
+
+async function carregarMfaStatus() {
+  const badge = $('mfa-badge');
+  badge.textContent = 'Carregando…';
+  badge.className = 'mfa-badge mfa-badge-off';
+  try {
+    const data = await mfaFetch('/mfa/status', 'GET');
+    const ativo = !!data.ativo;
+    badge.textContent = ativo ? '✅ Ativo' : 'Desativado';
+    badge.className = 'mfa-badge ' + (ativo ? 'mfa-badge-on' : 'mfa-badge-off');
+    $('mfa-off').style.display = ativo ? 'none' : 'block';
+    $('mfa-on').style.display = ativo ? 'block' : 'none';
+    $('mfa-enroll').style.display = 'none';
+  } catch (err) {
+    badge.textContent = 'Erro';
+    badge.className = 'mfa-badge mfa-badge-off';
+    showInlineStatus('mfa-status', `❌ ${err.message}`, 'error');
+    $('mfa-off').style.display = 'block';
+    $('mfa-on').style.display = 'none';
+    $('mfa-enroll').style.display = 'none';
+  }
+}
+
+async function iniciarMfaEnroll() {
+  clearInlineStatus('mfa-status');
+  const btnA = $('btn-mfa-ativar');
+  if (btnA) btnA.disabled = true;
+  showInlineStatus('mfa-status', '🔄 Gerando QR code…', 'loading');
+  try {
+    const data = await mfaFetch('/mfa/enroll', 'POST', {});
+    $('mfa-off').style.display = 'none';
+    $('mfa-on').style.display = 'none';
+    $('mfa-enroll').style.display = 'block';
+    $('mfa-secret-texto').textContent = (data.secretBase32 || '').replace(/(.{4})/g, '$1 ').trim();
+    $('mfa-codigo').value = '';
+    const box = $('mfa-qrcode');
+    box.innerHTML = '';
+    // O QR é só conforto; se a lib da CDN falhar, a chave manual acima resolve.
+    try {
+      await carregarLibQR();
+      new QRCode(box, { text: data.otpauthUri, width: 188, height: 188, correctLevel: QRCode.CorrectLevel.M });
+    } catch (qrErr) {
+      box.innerHTML = '<p class="muted" style="font-size:11px; margin:0;">QR code indisponível — use a chave manual acima.</p>';
+    }
+    clearInlineStatus('mfa-status');
+    setTimeout(() => { try { $('mfa-codigo').focus(); } catch (_) {} }, 100);
+  } catch (err) {
+    showInlineStatus('mfa-status', `❌ ${err.message}`, 'error');
+  } finally {
+    if (btnA) btnA.disabled = false;
+  }
+}
+
+function cancelarMfaEnroll() {
+  clearInlineStatus('mfa-status');
+  carregarMfaStatus();
+}
+
+async function confirmarMfaCodigo() {
+  const codigo = ($('mfa-codigo').value || '').replace(/\D/g, '');
+  if (codigo.length !== 6) {
+    showInlineStatus('mfa-status', '❌ Digite os 6 dígitos do app autenticador.', 'error');
+    return;
+  }
+  const btn = $('btn-mfa-confirmar');
+  btn.disabled = true;
+  showInlineStatus('mfa-status', '🔄 Verificando…', 'loading');
+  try {
+    await mfaFetch('/mfa/confirm', 'POST', { codigo });
+    showInlineStatus('mfa-status', '✅ 2FA ativado com sucesso!', 'success', 4000);
+    await carregarMfaStatus();
+  } catch (err) {
+    showInlineStatus('mfa-status', `❌ ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function testarAsaasTenant() {
   const SID = 'asaas-tenant-status';
   showInlineStatus(SID, '🔄 Testando…', 'loading');
