@@ -1902,6 +1902,8 @@ let _dndSidebarEnabled = false;
 function enableSidebarDnD() {
   if (_dndSidebarEnabled) return;
 
+  const LONG_PRESS_MS = 450; // tempo segurando o botão pra "armar" o arraste
+
   document.querySelectorAll('.nav-group[data-nav-group]').forEach(group => {
     let dragged = null;
     let startedAt = 0;
@@ -1909,7 +1911,30 @@ function enableSidebarDnD() {
     group.querySelectorAll('.nav-link').forEach(link => {
       link.setAttribute('draggable', 'true');
 
+      let pressTimer = null;
+      let armed = false;
+
+      // Desativa o modo arraste e volta o cursor ao normal
+      const disarmDrag = () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        armed = false;
+        link.classList.remove('drag-armed');
+      };
+
+      // Só vira "mãozinha" e libera o arraste depois de clicar e segurar
+      link.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // ignora botão direito/meio
+        pressTimer = setTimeout(() => {
+          armed = true;
+          link.classList.add('drag-armed'); // o CSS troca o cursor pra grab
+        }, LONG_PRESS_MS);
+      });
+      link.addEventListener('mouseup', disarmDrag);
+      link.addEventListener('mouseleave', () => { if (!dragged) disarmDrag(); });
+
       link.addEventListener('dragstart', (e) => {
+        // Bloqueia qualquer arraste que não tenha sido precedido por segurar
+        if (!armed) { e.preventDefault(); return; }
         dragged = link;
         startedAt = Date.now();
         link.classList.add('dragging-nav');
@@ -1922,6 +1947,7 @@ function enableSidebarDnD() {
       link.addEventListener('dragend', () => {
         if (dragged) dragged.classList.remove('dragging-nav');
         dragged = null;
+        disarmDrag();
         group.querySelectorAll('.nav-link').forEach(l => l.classList.remove('drag-over-nav'));
       });
 

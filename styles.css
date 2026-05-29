@@ -301,7 +301,7 @@ label.required::after {
   box-shadow:
     0 1px 2px rgba(0,0,0,0.30),
     inset 0 1px 0 rgba(255,255,255,0.06);
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   transition: transform var(--transition), box-shadow var(--transition),
               background var(--transition), border-color var(--transition);
@@ -357,11 +357,14 @@ label.required::after {
   color: rgba(255,255,255,0.5);
 }
 
-/* Drag & drop dos itens do menu lateral */
-.nav-link[draggable="true"] {
+/* Drag & drop dos itens do menu lateral.
+   A "mãozinha" (grab) só aparece depois de clicar e segurar — ver enableSidebarDnD.
+   Sem a classe .drag-armed o cursor fica normal (definido em .nav-link). */
+.nav-link.drag-armed {
   cursor: grab;
 }
-.nav-link[draggable="true"]:active {
+.nav-link.drag-armed:active,
+.nav-link.dragging-nav {
   cursor: grabbing;
 }
 .nav-link.dragging-nav {
