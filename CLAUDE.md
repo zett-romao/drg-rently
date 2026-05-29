@@ -31,11 +31,15 @@ Versão controlada por `APP_VERSION` no topo de `app.js` (atualmente `0.1.0`).
 
 - HTML/CSS/JS puro (sem framework)
 - Firebase **10.7.1 compat** (Auth + Firestore + Storage)
-- GitHub Pages (hosting)
-- Cloudflare Worker para Gemini (Fase 3 — ainda não criado pra este projeto)
+- GitHub Pages (hosting) — **no ar**
+- Cloudflare Workers (vários, já deployados): `drg-rently-gemini` (IA Vision),
+  `drg-rently-resend` (e-mail), `drg-rently-feed` (XML portais),
+  `drg-rently-zapsign` (assinatura), `drg-rently-legis-monitor` (monitor de leis),
+  `drg-rently-passkey` (login biométrico), `drg-rently-asaas` (cobrança).
+  URLs/secrets em `MANUAL_URLS_E_CHAVES.md` (gitignored, não versionado).
 
-**Hospedagem:** `https://zett-romao.github.io/drg-rently/` (a configurar)
-**Repo:** `github.com/zett-romao/drg-rently` (a criar)
+**Hospedagem:** `https://zett-romao.github.io/drg-rently/` — **ativo**
+**Repo:** `github.com/zett-romao/drg-rently` — **criado** (deploy = `git push origin main`)
 
 ---
 
@@ -338,6 +342,18 @@ Worker `drg-rently-feed` (código em `cloudflare-worker-feed.js`) expõe endpoin
 ## Histórico de decisões
 
 - **2026-05-10**: Projeto criado. Stack mantida igual DRG-Kronos (HTML/JS + Firebase + GitHub Pages) por familiaridade do dev. Multi-tenant escolhido desde o início pra suportar modelos A+B+C com mesmo código. Paleta teal pra diferenciar visualmente do DRG-Kronos. Cobrança inicialmente manual (super-admin suspende/ativa), Stripe/MP fica pra depois. Pix (Fase 4) adiado até decisão sobre PSP.
+
+- **2026-05-29**: 🎉 **Primeira licença vendida** (mensalidade → Modelo B/SaaS, infra da DRG). Onboarding de novo tenant nesse modelo:
+  1. Cliente acessa o app e faz **"Criar conta"** → nasce tenant `plano: 'trial'`, `ativo: true` + user `role: 'admin'` (ver `doSignupTenant`).
+  2. Super_admin ajusta o **plano** (trial → basic/pro) no painel **Super Admin → Editar plano e módulos**.
+  3. Configs **por-tenant** em Configurações (preencher via "Atuar como"):
+     - **IA/Gemini** (`workerGeminiUrl`): cola URL compartilhada da DRG. Sem módulo separado — IA é embutida em balancetes/cadastros/contratos. Cota Gemini free é **compartilhada entre todos os tenants**.
+     - **Portais/Feed** (`workerFeedUrl`): URL compartilhada + módulo **Portais** habilitado no plano.
+     - **E-mail/Resend** (`workerUrl` + `emailFrom`): URL/chave compartilhadas da DRG. ⚠️ `onboarding@resend.dev` só entrega pra você; pra entregar a locadores precisa **domínio verificado** na conta Resend (pode verificar o domínio da cliente na MESMA conta — não criar conta Resend por cliente; o worker usa 1 chave só).
+     - **ZapSign** (`workerZapsignUrl` + `zapsignToken`): worker compartilhado, mas **token é da conta ZapSign DA CLIENTE** (X-ZapSign-Token por request; créditos/docs ficam na conta dela).
+     - **Monitor Legislativo** (`workerLegisUrl`): só a URL (status `/status` é público, read-only). **Não** dar o `legisAdminToken` pra cliente — é controle interno DRG (lei federal é compartilhada).
+
+- **2026-05-29**: Menu lateral — arraste pra reordenar agora exige **long-press (~450ms)**. Antes os `.nav-link` tinham `draggable="true"` + `cursor: grab` fixo (mãozinha o tempo todo). Agora cursor é normal (`default`); `mousedown` arma um timer que adiciona `.drag-armed` (cursor grab) e libera o drag; `dragstart` faz `preventDefault()` se não estiver armado. Const `LONG_PRESS_MS` em `enableSidebarDnD`. **Não reverter** pra draggable-sempre — foi pedido explícito do dono.
 
 ---
 
