@@ -291,6 +291,25 @@ async function firestoreAdminAddDoc(env, collectionPath, obj) {
   return true;
 }
 
+// --- Livro Caixa (conta pool) — grava um lançamento via service account ---
+// tipo: 'entrada' | 'saida'. data: 'YYYY-MM-DD'. valor em reais.
+async function registrarCaixa(env, tenantId, mov) {
+  const data = mov.data || new Date().toISOString().slice(0, 10);
+  const competencia = (mov.competencia || data).slice(0, 7); // YYYY-MM
+  await firestoreAdminAddDoc(env, `tenants/${tenantId}/caixaPool`, {
+    tipo: mov.tipo,                       // 'entrada' | 'saida'
+    rubrica: mov.rubrica || (mov.tipo === 'entrada' ? 'Outros' : 'Despesa'),
+    nome: mov.nome || '',
+    valor: Number(Number(mov.valor || 0).toFixed(2)),
+    data,
+    competencia,
+    origem: mov.origem || 'automatico',   // 'asaas-webhook' | 'repasse' | 'manual'
+    refId: mov.refId || '',
+    criadoEm: new Date(),
+    criadoPor: mov.criadoPor || 'sistema',
+  });
+}
+
 // --- TOTP (RFC 6238) ---
 const B32_ALFA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
@@ -510,6 +529,16 @@ async function aprovarPagamento(request, env, origin, usuario) {
       timestamp: quando,
     });
   } catch (_) { /* auditoria não bloqueia o resultado */ }
+
+  // Livro Caixa (pool) — registra a SAÍDA do repasse
+  try {
+    await registrarCaixa(env, tenantId, {
+      tipo: 'saida', rubrica: 'Repasse ao locador',
+      nome: sol.locadorNome || sol.pixAddressKey || '',
+      valor, data: quando.toISOString().slice(0, 10),
+      origem: 'repasse', refId: solicitacaoId, criadoPor: usuario.uid,
+    });
+  } catch (_) { /* caixa não bloqueia o repasse já efetuado */ }
 
   return jsonResponse({ ok: true, status: 'APROVADO', asaasTransferId: asaasData.id || '', valor: valor }, 200, origin);
 }
@@ -869,19 +898,52 @@ async function handleWebhook(request, env, origin) {
     const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${env.PROJECT_ID || 'drg-rently'}/databases/(default)/documents`;
 
     if ((eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') && payment) {
-      // Pagamento confirmado: identifica o tenant pelo externalReference
-      const tenantId = payment.externalReference;
-      if (tenantId) {
-        // Atualiza vencimento: próximo vencimento = data atual + 30 dias (ou usa subscription.nextDueDate)
+      const ref = payment.externalReference || '';
+      const dataPg = payment.paymentDate || payment.confirmedDate || new Date().toISOString().slice(0, 10);
+
+      // (a) Cobrança da POOL (livro caixa): externalReference = "caixa:<tid>:<contratoId>:<comp>"
+      const mCaixa = String(ref).match(/^caixa:([^:]+):([^:]*):?(.*)$/);
+      if (mCaixa) {
+        const tid = mCaixa[1];
+        const contratoId = mCaixa[2];
+        const comp = mCaixa[3] || dataPg.slice(0, 7);
+        // Resolve o nome do pagador (locatário) pelo contrato, se possível
+        let nome = '';
+        try {
+          if (contratoId) {
+            const contrato = await firestoreAdminGet(env, `tenants/${tid}/contratos/${contratoId}`);
+            if (contrato && contrato.locatarioId) {
+              const loc = await firestoreAdminGet(env, `tenants/${tid}/locatarios/${contrato.locatarioId}`);
+              nome = (loc && loc.nome) || '';
+            }
+          }
+        } catch (_) {}
+        const valor = Number(payment.value || 0);
+        const liquido = Number(payment.netValue != null ? payment.netValue : valor);
+        // Entrada pelo valor BRUTO
+        await registrarCaixa(env, tid, {
+          tipo: 'entrada', rubrica: 'Aluguel recebido', nome: nome || 'Locatário',
+          valor, data: dataPg, competencia: comp, origem: 'asaas-webhook', refId: payment.id || '',
+        });
+        // Tarifa do Asaas como SAÍDA (bruto - líquido), quando houver
+        const tarifa = Number((valor - liquido).toFixed(2));
+        if (tarifa > 0) {
+          await registrarCaixa(env, tid, {
+            tipo: 'saida', rubrica: 'Tarifa Asaas', nome: 'Asaas',
+            valor: tarifa, data: dataPg, competencia: comp, origem: 'asaas-webhook', refId: payment.id || '',
+          });
+        }
+      } else if (ref) {
+        // (b) Mensalidade do SaaS (externalReference = tenantId): reativa o tenant
+        const tenantId = ref;
         const nextDue = calcularProximoVencimento();
         await atualizarFirestore(FIRESTORE, env, `tenants/${tenantId}`, {
           proximoVencimento: { stringValue: nextDue },
           ativo: { booleanValue: true },
         });
-        // Registra pagamento na subcoleção
         await adicionarPagamentoFirestore(FIRESTORE, env, tenantId, {
           asaasPaymentId: payment.id,
-          data: (payment.paymentDate || payment.confirmedDate || new Date().toISOString().slice(0, 10)),
+          data: dataPg,
           valor: payment.value,
           metodo: (payment.billingType || 'pix').toLowerCase(),
           obs: `Asaas - ${payment.description || 'mensalidade'}`,

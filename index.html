@@ -252,6 +252,7 @@
           <a class="nav-link" data-section="leads"><span class="nav-ico">📥</span><span>Leads (anúncios)</span></a>
           <a class="nav-link" data-section="calendario"><span class="nav-ico">📅</span><span>Calendário</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
+          <a class="nav-link" data-section="caixa"><span class="nav-ico">📒</span><span>Livro Caixa</span></a>
           <a class="nav-link" id="nav-aprovacoes" data-section="aprovacoes" style="display:none;" title="Repasses PIX aguardando aprovação"><span class="nav-ico">✅</span><span>Aprovações</span></a>
           <a class="nav-link" onclick="openVitrinePublica()" title="Abrir a vitrine pública dos seus imóveis em nova aba"><span class="nav-ico">📣</span><span>Anúncios</span></a>
           <a class="nav-link" id="nav-portais" data-section="portais"><span class="nav-ico">📡</span><span>Portais</span></a>
@@ -1328,6 +1329,120 @@
 
         <!-- ============================================ -->
         <!-- SECTION: Aprovações de pagamento (S4) -->
+        <!-- ============================================ -->
+        <!-- SECTION: Livro Caixa (Conta Pool) -->
+        <!-- ============================================ -->
+        <section class="section" id="section-caixa" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📒 Livro Caixa — Conta Pool</h3>
+                <p class="muted">Tudo que entra e sai da conta pool, por competência (mês). Entradas (cobranças pagas), tarifas e repasses entram sozinhos; ajustes podem ser lançados à mão.</p>
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <button class="btn btn-secondary btn-sm" onclick="exportarCaixaXlsx()">⬇️ Exportar Excel</button>
+                <button class="btn btn-secondary btn-sm" id="btn-caixa-fechar">🔒 Fechar competência</button>
+                <button class="btn btn-primary btn-sm" id="btn-caixa-novo" onclick="abrirLancamentoCaixa()">+ Lançamento manual</button>
+              </div>
+            </div>
+
+            <div id="caixa-alert" class="alert" style="display:none;"></div>
+
+            <!-- Navegação de competência -->
+            <div style="display:flex; align-items:center; justify-content:center; gap:14px; margin:6px 0 16px;">
+              <button class="btn btn-secondary btn-sm" onclick="mudarCompetenciaCaixa(-1)">◀ Mês anterior</button>
+              <div style="text-align:center; min-width:200px;">
+                <strong id="caixa-competencia-label" style="font-size:15px; text-transform:capitalize;">—</strong>
+                <div id="caixa-status" style="margin-top:4px;"></div>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="mudarCompetenciaCaixa(1)">Próximo mês ▶</button>
+            </div>
+
+            <!-- Totais -->
+            <div class="dashboard-grid" style="margin-bottom:16px;">
+              <div class="stat-card">
+                <div class="stat-card-icon stat-icon-green">⬆️</div>
+                <div class="stat-card-body"><div class="stat-card-value" id="caixa-total-entradas" style="color:var(--success);">R$ 0,00</div><div class="stat-card-label">Entradas</div></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-card-icon stat-icon-amber">⬇️</div>
+                <div class="stat-card-body"><div class="stat-card-value" id="caixa-total-saidas" style="color:var(--danger);">R$ 0,00</div><div class="stat-card-label">Saídas</div></div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-card-icon stat-icon-blue">💰</div>
+                <div class="stat-card-body"><div class="stat-card-value" id="caixa-saldo-residual">R$ 0,00</div><div class="stat-card-label">Saldo residual</div></div>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Nome</th>
+                    <th>Rubrica</th>
+                    <th>Tipo</th>
+                    <th style="text-align:right;">Valor</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-caixa">
+                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="muted" style="font-size:11px; margin-top:8px;">
+              ⚙️ auto = lançado pelo sistema (cobrança paga, tarifa, repasse). ✍️ manual = lançado à mão.
+              A taxa de administração retida fica embutida no saldo residual.
+            </p>
+          </div>
+        </section>
+
+        <!-- Modal: lançamento manual no livro caixa -->
+        <div class="modal" id="modal-lanc-caixa" style="display:none;">
+          <div class="modal-content" style="max-width:480px;">
+            <div class="modal-header">
+              <h3>Lançamento manual</h3>
+              <button class="modal-close" onclick="fecharModalLancCaixa()">✕</button>
+            </div>
+            <div class="modal-body">
+              <div id="lanc-caixa-alert" class="alert" style="display:none;"></div>
+              <input type="hidden" id="lanc-caixa-id">
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Tipo</label>
+                  <select id="lanc-caixa-tipo" onchange="atualizarRubricasCaixa()">
+                    <option value="entrada">Entrada</option>
+                    <option value="saida">Saída</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Data</label>
+                  <input type="date" id="lanc-caixa-data">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Nome (de quem / para quem)</label>
+                <input type="text" id="lanc-caixa-nome" placeholder="Ex: João da Silva">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Rubrica</label>
+                  <select id="lanc-caixa-rubrica"></select>
+                </div>
+                <div class="form-group">
+                  <label>Valor (R$)</label>
+                  <input type="number" id="lanc-caixa-valor" min="0" step="0.01" placeholder="0,00">
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" onclick="fecharModalLancCaixa()">Cancelar</button>
+              <button class="btn btn-primary" id="btn-salvar-lanc-caixa" onclick="salvarLancamentoCaixa()">Salvar</button>
+            </div>
+          </div>
+        </div>
+
         <!-- ============================================ -->
         <section class="section" id="section-aprovacoes" style="display:none;">
           <div class="card">
@@ -4945,6 +5060,6 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260528a"></script>
+  <script src="app.js?v=20260601a"></script>
 </body>
 </html>

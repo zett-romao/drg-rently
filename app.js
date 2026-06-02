@@ -36,6 +36,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação' },
   { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação', somenteLeitura: true },
   { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
+  { id: 'caixa',         label: 'Livro Caixa (conta pool)', grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação', somenteLeitura: true },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
   { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração', somenteLeitura: true },
@@ -979,6 +980,7 @@ function showSection(name, _opts = {}) {
     leads: 'Leads (anúncios captados)',
     calendario: 'Calendário de vencimentos',
     balancetes: 'Balancetes Mensais',
+    caixa: 'Livro Caixa — Conta Pool',
     aprovacoes: 'Aprovações de pagamento',
     portais: 'Portais Imobiliários',
     importacao: 'Importação em massa (CSV)',
@@ -1041,6 +1043,9 @@ function showSection(name, _opts = {}) {
   if (name === 'balancetes' && State.tenant) {
     initBalanceteFiltros();
     loadBalancetes();
+  }
+  if (name === 'caixa' && State.tenant) {
+    initCaixa();
   }
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
@@ -4402,7 +4407,9 @@ async function cobrarLocatarioAsaas() {
         value: totalEntradas.toFixed(2),
         dueDate,
         description: `Aluguel + encargos — ${fmtMesAno(mes, ano)}`,
-        externalReference: `balancete:${$('balancete-id').value || `${ano}-${mes}-${contratoId}`}`,
+        // externalReference roteia o webhook pro Livro Caixa (pool):
+        // "caixa:<tenantId>:<contratoId>:<competência AAAA-MM>"
+        externalReference: `caixa:${State.tenant.id}:${contratoId}:${ano}-${String(mes).padStart(2, '0')}`,
       }),
     });
     const data = await res.json();
@@ -4657,6 +4664,332 @@ window.abrirModalAprovar = abrirModalAprovar;
 window.closeModalAprovar = closeModalAprovar;
 window.confirmarAprovacao = confirmarAprovacao;
 window.rejeitarSolicitacao = rejeitarSolicitacao;
+
+// =============================================================
+// LIVRO CAIXA — Conta Pool (entradas/saídas/saldo residual por competência)
+// Alimentado automaticamente pelo Worker Asaas (webhook = entradas + tarifa;
+// repasse aprovado = saídas) e por lançamentos manuais. Uma competência = mês.
+// =============================================================
+let _caixaComp = null;            // 'YYYY-MM' da competência exibida
+let _caixaLancamentos = [];       // lançamentos da competência
+let _caixaFechamento = null;      // doc caixaPoolFechamento/{ano}_{mes} (ou null)
+
+// Rubricas sugeridas (editáveis na hora do lançamento manual).
+const CAIXA_RUBRICAS = {
+  entrada: ['Aluguel recebido', 'Encargos do locatário', 'Outros recebimentos'],
+  saida:   ['Repasse ao locador', 'Tarifa Asaas', 'Despesa', 'Estorno'],
+};
+
+function compAtualYYYYMM() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function compLabel(comp) {
+  const [a, m] = comp.split('-').map(Number);
+  const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+  return `${meses[m - 1]} de ${a}`;
+}
+function compShift(comp, delta) {
+  let [a, m] = comp.split('-').map(Number);
+  m += delta;
+  while (m < 1) { m += 12; a--; }
+  while (m > 12) { m -= 12; a++; }
+  return `${a}-${String(m).padStart(2, '0')}`;
+}
+function caixaPodeFechar() {
+  const role = State.userDoc?.role;
+  return State.isSuperAdmin || role === 'admin' || role === 'operador_drg';
+}
+
+function initCaixa() {
+  if (!_caixaComp) _caixaComp = compAtualYYYYMM();
+  loadCaixa();
+}
+window.initCaixa = initCaixa;
+
+function mudarCompetenciaCaixa(delta) {
+  _caixaComp = compShift(_caixaComp || compAtualYYYYMM(), delta);
+  loadCaixa();
+}
+window.mudarCompetenciaCaixa = mudarCompetenciaCaixa;
+
+async function loadCaixa() {
+  const tbody = $('tbody-caixa');
+  if (!tbody || !State.tenant) return;
+  $('caixa-competencia-label').textContent = compLabel(_caixaComp);
+  tbody.innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+  try {
+    // Filtra só por competência e ordena no cliente (evita índice composto).
+    const snap = await tenantPath().collection('caixaPool')
+      .where('competencia', '==', _caixaComp).get();
+    _caixaLancamentos = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+
+    const [ano, mes] = _caixaComp.split('-');
+    const fSnap = await tenantPath().collection('caixaPoolFechamento').doc(`${ano}_${mes}`).get();
+    _caixaFechamento = fSnap.exists ? fSnap.data() : null;
+
+    renderCaixa();
+  } catch (err) {
+    console.error('Erro ao carregar livro caixa:', err);
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">❌ ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+window.loadCaixa = loadCaixa;
+
+function caixaTotais() {
+  let entradas = 0, saidas = 0;
+  for (const l of _caixaLancamentos) {
+    const v = Number(l.valor) || 0;
+    if (l.tipo === 'entrada') entradas += v; else saidas += v;
+  }
+  return { entradas, saidas, residual: entradas - saidas };
+}
+
+function renderCaixa() {
+  const tbody = $('tbody-caixa');
+  if (!tbody) return;
+  const fechado = !!(_caixaFechamento && _caixaFechamento.fechado);
+
+  // Badge de status + botões de ação
+  const statusEl = $('caixa-status');
+  if (statusEl) {
+    statusEl.innerHTML = fechado
+      ? `<span class="aprov-badge aprov-badge-aprovado">🔒 Fechada</span> <span class="muted" style="font-size:11px;">por ${escapeHtml(_caixaFechamento.fechadoPorNome || _caixaFechamento.fechadoPorEmail || '—')}</span>`
+      : `<span class="aprov-badge aprov-badge-aguardando">Aberta</span>`;
+  }
+  const btnNovo = $('btn-caixa-novo');
+  if (btnNovo) btnNovo.style.display = fechado ? 'none' : '';
+  const btnFechar = $('btn-caixa-fechar');
+  if (btnFechar) {
+    btnFechar.style.display = caixaPodeFechar() ? '' : 'none';
+    btnFechar.textContent = fechado ? '🔓 Reabrir competência' : '🔒 Fechar competência';
+    btnFechar.onclick = fechado ? reabrirCompetenciaCaixa : fecharCompetenciaCaixa;
+  }
+
+  if (!_caixaLancamentos.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Nenhum lançamento nesta competência.</td></tr>';
+  } else {
+    tbody.innerHTML = _caixaLancamentos.map(l => {
+      const ent = l.tipo === 'entrada';
+      const sinal = ent ? '+' : '−';
+      const cor = ent ? 'var(--success)' : 'var(--danger)';
+      const origemTag = l.origem === 'manual'
+        ? '<span class="muted" style="font-size:10px;">✍️ manual</span>'
+        : '<span class="muted" style="font-size:10px;">⚙️ auto</span>';
+      const acoes = (l.origem === 'manual' && !fechado)
+        ? `<button class="btn btn-secondary btn-sm" onclick="abrirLancamentoCaixa('${l.id}')">✏️</button> `
+          + `<button class="btn btn-secondary btn-sm" onclick="excluirLancamentoCaixa('${l.id}')">🗑</button>`
+        : '—';
+      return `<tr>
+        <td>${escapeHtml(l.data || '—')}</td>
+        <td>${escapeHtml(l.nome || '—')}</td>
+        <td>${escapeHtml(l.rubrica || '—')} ${origemTag}</td>
+        <td>${ent ? 'Entrada' : 'Saída'}</td>
+        <td style="text-align:right; color:${cor}; font-weight:600;">${sinal} ${fmtBRL(Number(l.valor) || 0)}</td>
+        <td>${acoes}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const t = caixaTotais();
+  $('caixa-total-entradas').textContent = fmtBRL(t.entradas);
+  $('caixa-total-saidas').textContent = fmtBRL(t.saidas);
+  $('caixa-saldo-residual').textContent = fmtBRL(t.residual);
+  $('caixa-saldo-residual').style.color = t.residual >= 0 ? 'var(--success)' : 'var(--danger)';
+}
+
+// ---------- Lançamento manual ----------
+function abrirLancamentoCaixa(id) {
+  if (_caixaFechamento && _caixaFechamento.fechado) {
+    showAlert('caixa-alert', 'Competência fechada. Reabra antes de lançar.');
+    return;
+  }
+  const l = id ? _caixaLancamentos.find(x => x.id === id) : null;
+  $('lanc-caixa-id').value = id || '';
+  $('lanc-caixa-tipo').value = l ? l.tipo : 'entrada';
+  // Data default: hoje se estiver na competência, senão dia 1 da competência
+  const hoje = new Date().toISOString().slice(0, 10);
+  $('lanc-caixa-data').value = l ? (l.data || hoje) : (hoje.startsWith(_caixaComp) ? hoje : `${_caixaComp}-01`);
+  $('lanc-caixa-nome').value = l ? (l.nome || '') : '';
+  $('lanc-caixa-valor').value = l ? (l.valor || '') : '';
+  atualizarRubricasCaixa();
+  if (l) $('lanc-caixa-rubrica').value = l.rubrica || '';
+  clearAlert('lanc-caixa-alert');
+  $('modal-lanc-caixa').style.display = 'flex';
+}
+window.abrirLancamentoCaixa = abrirLancamentoCaixa;
+
+function fecharModalLancCaixa() { $('modal-lanc-caixa').style.display = 'none'; }
+window.fecharModalLancCaixa = fecharModalLancCaixa;
+
+function atualizarRubricasCaixa() {
+  const tipo = $('lanc-caixa-tipo').value;
+  const sel = $('lanc-caixa-rubrica');
+  const lista = CAIXA_RUBRICAS[tipo] || [];
+  sel.innerHTML = lista.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+}
+window.atualizarRubricasCaixa = atualizarRubricasCaixa;
+
+async function salvarLancamentoCaixa() {
+  const id = $('lanc-caixa-id').value;
+  const tipo = $('lanc-caixa-tipo').value;
+  const data = $('lanc-caixa-data').value;
+  const nome = $('lanc-caixa-nome').value.trim();
+  const rubrica = $('lanc-caixa-rubrica').value;
+  const valor = parseFloat($('lanc-caixa-valor').value);
+  if (!data) { showAlert('lanc-caixa-alert', 'Informe a data.'); return; }
+  if (!nome) { showAlert('lanc-caixa-alert', 'Informe o nome.'); return; }
+  if (!(valor > 0)) { showAlert('lanc-caixa-alert', 'Informe um valor maior que zero.'); return; }
+
+  const competencia = data.slice(0, 7);
+  const payload = {
+    tipo, data, nome, rubrica,
+    valor: Number(valor.toFixed(2)),
+    competencia,
+    origem: 'manual',
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    atualizadoPor: State.user.uid,
+  };
+  const btn = $('btn-salvar-lanc-caixa');
+  btn.disabled = true;
+  try {
+    if (id) {
+      await tenantPath().collection('caixaPool').doc(id).update(payload);
+      logAuditoria('update', 'caixaPool', id, { tipo, valor, rubrica });
+    } else {
+      payload.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
+      payload.criadoPor = State.user.uid;
+      const ref = await tenantPath().collection('caixaPool').add(payload);
+      logAuditoria('create', 'caixaPool', ref.id, { tipo, valor, rubrica });
+    }
+    fecharModalLancCaixa();
+    // Se o lançamento caiu noutra competência, vai pra ela
+    if (competencia !== _caixaComp) _caixaComp = competencia;
+    await loadCaixa();
+  } catch (err) {
+    showAlert('lanc-caixa-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.salvarLancamentoCaixa = salvarLancamentoCaixa;
+
+async function excluirLancamentoCaixa(id) {
+  const l = _caixaLancamentos.find(x => x.id === id);
+  if (!l) return;
+  if (!(await confirmar({
+    titulo: 'Excluir lançamento?',
+    mensagem: `Remover ${l.tipo === 'entrada' ? 'a entrada' : 'a saída'} de <strong>${fmtBRL(l.valor || 0)}</strong> (${escapeHtml(l.rubrica || '')}).`,
+    detalhe: 'Só lançamentos manuais podem ser excluídos. Esta ação não pode ser desfeita.',
+    confirmar: '🗑 Excluir', perigo: true,
+  }))) return;
+  try {
+    await tenantPath().collection('caixaPool').doc(id).delete();
+    logAuditoria('delete', 'caixaPool', id, { tipo: l.tipo, valor: l.valor });
+    await loadCaixa();
+  } catch (err) {
+    await confirmar({ titulo: '❌ Erro', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+window.excluirLancamentoCaixa = excluirLancamentoCaixa;
+
+// ---------- Fechamento de competência ----------
+async function fecharCompetenciaCaixa() {
+  if (!caixaPodeFechar()) return;
+  const t = caixaTotais();
+  if (!(await confirmar({
+    titulo: 'Fechar competência?',
+    mensagem: `Fechar <strong>${compLabel(_caixaComp)}</strong> com saldo residual de <strong>${fmtBRL(t.residual)}</strong>.`,
+    detalhe: `Entradas ${fmtBRL(t.entradas)} · Saídas ${fmtBRL(t.saidas)}.<br>Depois de fechada, novos lançamentos manuais ficam bloqueados (dá pra reabrir).`,
+    confirmar: '🔒 Fechar',
+  }))) return;
+  const [ano, mes] = _caixaComp.split('-');
+  try {
+    await tenantPath().collection('caixaPoolFechamento').doc(`${ano}_${mes}`).set({
+      fechado: true,
+      competencia: _caixaComp,
+      totalEntradas: Number(t.entradas.toFixed(2)),
+      totalSaidas: Number(t.saidas.toFixed(2)),
+      saldoResidual: Number(t.residual.toFixed(2)),
+      fechadoPor: State.user.uid,
+      fechadoPorNome: State.userDoc?.nome || State.user.email || '',
+      fechadoPorEmail: State.user.email || '',
+      fechadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    logAuditoria('update', 'caixaPoolFechamento', `${ano}_${mes}`, { saldoResidual: t.residual });
+    await loadCaixa();
+  } catch (err) {
+    await confirmar({ titulo: '❌ Erro ao fechar', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+window.fecharCompetenciaCaixa = fecharCompetenciaCaixa;
+
+async function reabrirCompetenciaCaixa() {
+  if (!caixaPodeFechar()) return;
+  if (!(await confirmar({
+    titulo: 'Reabrir competência?',
+    mensagem: `Reabrir <strong>${compLabel(_caixaComp)}</strong> para novos lançamentos.`,
+    confirmar: '🔓 Reabrir',
+  }))) return;
+  const [ano, mes] = _caixaComp.split('-');
+  try {
+    await tenantPath().collection('caixaPoolFechamento').doc(`${ano}_${mes}`).set({
+      fechado: false,
+      reabertoPor: State.user.uid,
+      reabertoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    logAuditoria('update', 'caixaPoolFechamento', `${ano}_${mes}`, { reaberto: true });
+    await loadCaixa();
+  } catch (err) {
+    await confirmar({ titulo: '❌ Erro', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+window.reabrirCompetenciaCaixa = reabrirCompetenciaCaixa;
+
+// ---------- Export .xlsx (SheetJS lazy-load) ----------
+let _xlsxLibPromise = null;
+function carregarLibXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  if (_xlsxLibPromise) return _xlsxLibPromise;
+  _xlsxLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => { _xlsxLibPromise = null; reject(new Error('Falha ao carregar a biblioteca de Excel. Verifique a conexão.')); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLibPromise;
+}
+
+async function exportarCaixaXlsx() {
+  try {
+    await carregarLibXLSX();
+    const t = caixaTotais();
+    const linhas = _caixaLancamentos.map(l => ({
+      Data: l.data || '',
+      Nome: l.nome || '',
+      Rubrica: l.rubrica || '',
+      Tipo: l.tipo === 'entrada' ? 'Entrada' : 'Saída',
+      Entrada: l.tipo === 'entrada' ? Number(l.valor) || 0 : '',
+      Saída: l.tipo === 'saida' ? Number(l.valor) || 0 : '',
+      Origem: l.origem || '',
+    }));
+    // Linhas de totais
+    linhas.push({});
+    linhas.push({ Rubrica: 'TOTAL ENTRADAS', Entrada: Number(t.entradas.toFixed(2)) });
+    linhas.push({ Rubrica: 'TOTAL SAÍDAS', Saída: Number(t.saidas.toFixed(2)) });
+    linhas.push({ Rubrica: 'SALDO RESIDUAL', Entrada: Number(t.residual.toFixed(2)) });
+
+    const ws = XLSX.utils.json_to_sheet(linhas, { header: ['Data', 'Nome', 'Rubrica', 'Tipo', 'Entrada', 'Saída', 'Origem'] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, _caixaComp);
+    XLSX.writeFile(wb, `LivroCaixa_${_caixaComp}.xlsx`);
+  } catch (err) {
+    await confirmar({ titulo: '❌ Erro ao exportar', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+window.exportarCaixaXlsx = exportarCaixaXlsx;
 
 // Auto-preencher a URL do Worker Asaas (padrão do projeto)
 function autoPreencherWorkerAsaas() {

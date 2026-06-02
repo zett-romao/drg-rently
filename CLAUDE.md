@@ -339,7 +339,45 @@ Worker `drg-rently-feed` (código em `cloudflare-worker-feed.js`) expõe endpoin
 
 ---
 
+## Livro Caixa — Conta Pool (módulo `caixa`)
+
+Adicionado em 2026-06-01. Controla **tudo que entra e sai da conta pool** (a conta
+Asaas usada como pool), **por competência mensal** (dia 1 → último dia). Cada
+lançamento tem `data`, `nome`, `rubrica`, `tipo` ('entrada'|'saida'), `valor`,
+`competencia` (AAAA-MM) e `origem`. **É por tenant** (isolado), não uma pool única da DRG.
+
+**Coleções Firestore (por tenant):**
+- `tenants/{tid}/caixaPool/{id}` — lançamentos (cobertos pela regra genérica de subcoleção).
+- `tenants/{tid}/caixaPoolFechamento/{ano}_{mes}` — fechamento (saldo residual, totais, quem/quando).
+
+**Alimentação automática (Worker Asaas):**
+- **Entrada** + **Tarifa Asaas** (saída) → gravadas no webhook quando uma cobrança é
+  paga. Pra rotear, a cobrança do locatário manda `externalReference =
+  "caixa:<tenantId>:<contratoId>:<AAAA-MM>"`; o webhook parseia, resolve o nome do
+  locatário pelo contrato e grava via service account. Entrada = valor BRUTO;
+  tarifa = bruto − `netValue`.
+- **Saída** (Repasse ao locador) → gravada no `/aprovar-pagamento` após a transferência.
+- Tudo isso usa `registrarCaixa()` no worker (service account, ignora regras com segurança).
+
+**⚠️ Pré-requisito do automático:** as cobranças precisam passar pela **conta que tem o
+webhook** (a conta pool da DRG). Pra Modelo A, basta o tenant usar a chave Asaas dessa
+conta. Cobranças por contas de outros tenants (chave própria) não disparam este webhook.
+
+**App:** módulo `caixa` no menu (grupo Operação, só admin/super/operador_drg). Tela com
+navegação por mês, totais (entradas/saídas/**saldo residual** = entradas − saídas),
+lançamentos manuais (add/editar/excluir), **fechar/reabrir competência** e **export .xlsx**
+(SheetJS via CDN, lazy-load). Rubrica padrão editável; **taxa de adm retida fica no saldo
+residual** (não é saída).
+
+**Google Sheets (ETAPA 2 — pendente):** espelhar cada competência numa aba do Google
+Sheets, atualizada sozinha. Exige: planilha criada + compartilhada com uma service account
++ Sheets API; um endpoint no worker que faz `append` das linhas no mesmo ponto em que
+grava no `caixaPool`. Fazer depois que o fluxo acima estiver testado em produção. Por ora,
+o **export .xlsx** já entrega uma planilha real por mês.
+
 ## Histórico de decisões
+
+- **2026-06-01**: Conta Asaas vira **conta pool** + módulo **Livro Caixa** (ver seção acima). Cora foi cogitado e **descartado** (API cobrada, mTLS, sem recorrência, repasse TED com aprovação no app). Decisão: ficar 100% no Asaas e ter um livro caixa por competência alimentado pelo webhook (entradas/tarifa) e pelo repasse (saídas), com export .xlsx; Google Sheets espelhado fica pra etapa 2.
 
 - **2026-05-10**: Projeto criado. Stack mantida igual DRG-Kronos (HTML/JS + Firebase + GitHub Pages) por familiaridade do dev. Multi-tenant escolhido desde o início pra suportar modelos A+B+C com mesmo código. Paleta teal pra diferenciar visualmente do DRG-Kronos. Cobrança inicialmente manual (super-admin suspende/ativa), Stripe/MP fica pra depois. Pix (Fase 4) adiado até decisão sobre PSP.
 
