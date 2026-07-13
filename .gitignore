@@ -27,6 +27,10 @@ MANUAL_URLS_E_CHAVES.md
 secrets-*.json
 **/service-account-*.json
 firebase-admin-*.json
+# A regra acima só pegava .md/.json: o manual em PDF (9,4 MB) ficava de FORA e
+# entraria num commit "git add ." sem ninguém ver. Se um manual precisar ir pro
+# repo um dia, tire-o daqui de propósito — depois de conferir que não tem chave.
+Manuais_pdf/
 
 # 🚨 Firebase service account JSON (admin SDK — chave privada RSA!)
 *firebase-adminsdk*.json
