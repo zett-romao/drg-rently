@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v3-20260731a-icone-marca';
+const CACHE_VERSION = 'drg-rently-v4-20260801a-logo-propria';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
