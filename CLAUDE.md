@@ -431,8 +431,38 @@ pro modelo antigo só enquanto a vitrine estiver vazia). Feed não manda mais `o
 **Limpeza feita (2026-10-11):** a leitura pública de `imoveis`
 foi removida; Worker do feed já lê `vitrine`.
 
+## 🔒 Regras travadas
+
+Rently está no LOCK GERAL de 07/08/2026: vale o comportamento que o código já tem. Só o
+dono destrava, com `DESTRAVAR:` ou `ALTERAR: <assunto>`. Regra alterada não se apaga: o
+texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
+
+### Repasse — para quem vai o dinheiro do aluguel
+
+- **Original (comportamento travado em 07/08/2026):** o repasse vai sempre para a chave Pix
+  (ou conta) do **proprietário** (`locador.pix`). Sem Pix do proprietário, não há solicitação.
+- 🔓 **ALTERADA 12/10/2026** (o dono: *"O repasse deve ir para quem for cadastrado e tivermos a
+  autorização expressa para fazer"*; aprovou o desenho com "siga por este caminho"):
+  1. **Padrão continua o proprietário.** O representante (imobiliária/procurador da seção
+     "Imóveis administrados por terceiros") só recebe se a opção **"Repassar os aluguéis ao
+     representante"** estiver ligada no cadastro do proprietário.
+  2. **Autorização expressa = 4 condições, todas obrigatórias:** instrumento com **poderes para
+     receber e dar quitação** (`representante.instrumento.poderesReceber`), **PDF assinado
+     anexado** (`instrumento.arquivo`, Storage `locadores/{id}/instrumento-representacao/`),
+     **validade em dia** (vazia = indeterminada) e CPF/CNPJ válido.
+  3. **Chave Pix = CPF/CNPJ do próprio representante** — nunca chave de terceiro.
+  4. **Faltou autorização → BLOQUEIA**, com alerta clicável para o cadastro. Não cai para o
+     proprietário em silêncio.
+  5. **O servidor confere de novo na aprovação** (`destinoRepasseServidor` no worker Asaas):
+     relê o proprietário, recalcula o destino e recusa se a autorização caiu ou se o destino
+     mudou depois da solicitação. Espelho de `destinoRepasse()` no `app.js` — mudou um, muda o outro.
+  6. Solicitação, Aprovações, auditoria e Livro Caixa mostram o favorecido e o instrumento.
+
 ## Histórico de decisões
 
+- **2026-10-12 (tarde)**: 🔓 regra do **repasse** alterada — repasse ao representante com
+  autorização expressa (ver "🔒 Regras travadas"). De quebra, "💸 Solicitar repasse" passou a
+  travar no clique (antes um clique duplo criava duas solicitações) via helper `drgSubmit()`.
 - **2026-10-12**: **"+ Novo cliente"** no Super Admin (`saveNovoCliente`): cadastra tenant PJ ou
   PF + login do admin via REST sem deslogar o super_admin (regra `users` (e): equipe DRG cria
   admin/operador/corretor em qualquer tenant). Autocadastro pela tela de login continua (`?signup=1`).

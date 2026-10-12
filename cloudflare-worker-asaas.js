@@ -437,6 +437,27 @@ async function usuarioPodeAprovarPix(env, userDoc, tenantId) {
   return ROLE_APROVA_PIX[role] === true;
 }
 
+// 🔓 ALTERADA 12/10/2026 (regra "repasse"): o repasse vai para QUEM ESTIVER
+// CADASTRADO E TIVER AUTORIZAÇÃO EXPRESSA. Espelho de destinoRepasse() do
+// app.js — mudou lá, muda aqui. Representante só recebe com: repasse ativo +
+// poderes para receber e dar quitação + PDF do instrumento anexado +
+// instrumento dentro da validade; chave = CPF/CNPJ do próprio representante.
+function destinoRepasseServidor(loc) {
+  const r = loc && loc.administradoTerceiros ? loc.representante : null;
+  if (!r || !r.repasse || r.repasse.ativo !== true) {
+    return { para: 'locador', pix: String((loc && loc.pix) || '').trim(), pendencias: [] };
+  }
+  const instr = r.instrumento || {};
+  const hoje = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  const doc = String(r.documento || '').replace(/\D/g, '');
+  const pendencias = [];
+  if (instr.poderesReceber !== true) pendencias.push('instrumento sem poderes para receber e dar quitação');
+  if (!instr.arquivo || !instr.arquivo.path) pendencias.push('instrumento assinado (PDF) não anexado');
+  if (instr.validade && instr.validade < hoje) pendencias.push('instrumento vencido em ' + instr.validade.split('-').reverse().join('/'));
+  if (doc.length !== (r.tipo === 'PF' ? 11 : 14)) pendencias.push('CPF/CNPJ do representante inválido');
+  return { para: 'representante', pix: doc, nome: r.nome || '', pendencias };
+}
+
 async function aprovarPagamento(request, env, origin, usuario) {
   // (1) verificarIdToken já rodou no router → usuario = {uid, email, authTime}
 
@@ -487,6 +508,29 @@ async function aprovarPagamento(request, env, origin, usuario) {
   if (!(valor > 0)) return jsonResponse({ ok: false, error: 'Valor da solicitação inválido.' }, 400, origin);
   if (!sol.pixAddressKey) return jsonResponse({ ok: false, error: 'Solicitação sem chave PIX.' }, 400, origin);
 
+  // (6b) destino do repasse refeito AGORA a partir do cadastro (não confia no
+  // que o navegador gravou): autorização do representante precisa estar em dia
+  // e a chave precisa ser a mesma da solicitação. Solicitações antigas, sem
+  // locadorId, seguem o fluxo anterior (só podem ser ao locador).
+  if (sol.locadorId) {
+    const loc = await firestoreAdminGet(env, `tenants/${tenantId}/locadores/${sol.locadorId}`);
+    if (!loc) return jsonResponse({ ok: false, error: 'Proprietário da solicitação não encontrado.' }, 404, origin);
+    const dest = destinoRepasseServidor(loc);
+    if (dest.para === 'representante' && dest.pendencias.length) {
+      return jsonResponse({ ok: false, error: 'Repasse ao representante bloqueado — falta autorização expressa: ' + dest.pendencias.join('; ') + '. Corrija o cadastro do proprietário e solicite de novo.' }, 409, origin);
+    }
+    const norm = (k) => String(k || '').trim().toLowerCase();
+    const mesmoDestino = dest.para === (sol.destinatario || 'locador')
+      && (dest.para === 'representante'
+        ? dest.pix === String(sol.pixAddressKey).replace(/\D/g, '')
+        : norm(dest.pix) === norm(sol.pixAddressKey));
+    if (!mesmoDestino) {
+      return jsonResponse({ ok: false, error: 'O destino do repasse mudou no cadastro depois desta solicitação. Rejeite-a e solicite de novo.' }, 409, origin);
+    }
+  } else if (sol.destinatario === 'representante') {
+    return jsonResponse({ ok: false, error: 'Solicitação ao representante sem proprietário vinculado. Rejeite e solicite de novo.' }, 400, origin);
+  }
+
   // (7) só AGORA executa a transferência PIX no Asaas
   const cfg = await firestoreAdminGet(env, `tenants/${tenantId}/config/site`);
   const asaasKey = cfg && cfg.asaasTenantToken;
@@ -524,6 +568,7 @@ async function aprovarPagamento(request, env, origin, usuario) {
       userEmail: usuario.email || '',
       userRole: userDoc.role || '',
       detalhe: 'Aprovou repasse de R$ ' + valor.toFixed(2) + ' para ' + (sol.locadorNome || sol.pixAddressKey)
+        + (sol.destinatario === 'representante' ? ' via representante ' + (sol.favorecidoNome || '') + ' (chave ' + sol.pixAddressKey + ')' : '')
         + '. Solicitado por ' + (sol.solicitadoPorEmail || sol.solicitadoPor || '?')
         + '. Asaas transfer ' + (asaasData.id || '-') + '.',
       timestamp: quando,
@@ -534,7 +579,9 @@ async function aprovarPagamento(request, env, origin, usuario) {
   try {
     await registrarCaixa(env, tenantId, {
       tipo: 'saida', rubrica: 'Repasse ao locador',
-      nome: sol.locadorNome || sol.pixAddressKey || '',
+      nome: sol.destinatario === 'representante'
+        ? (sol.favorecidoNome || '') + ' p/ ' + (sol.locadorNome || '')
+        : (sol.locadorNome || sol.pixAddressKey || ''),
       valor, data: quando.toISOString().slice(0, 10),
       origem: 'repasse', refId: solicitacaoId, criadoPor: usuario.uid,
     });

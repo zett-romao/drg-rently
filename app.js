@@ -4028,6 +4028,12 @@ function limparRepresentanteLocador() {
   $('locador-rep-estado-civil').value = '';
   $('locador-rep-nacionalidade').value = 'Brasileira';
   $('locador-rep-instrumento').value = 'contrato_administracao';
+  $('locador-rep-poderes-receber').checked = false;
+  $('locador-rep-repasse-ativo').checked = false;
+  _repInstrArquivo = null;
+  _locadorRepasseOriginal = null;
+  renderInstrumentoArquivoRepresentante();
+  atualizarRepasseRepresentanteUI();
   $('locador-rep-cep-status').style.display = 'none';
   onLocadorRepTipoChange();
   onLocadorAdmTerceirosChange();
@@ -4067,8 +4073,14 @@ function preencherRepresentanteLocador(l) {
   $('locador-rep-instrumento').value = instr.tipo || 'contrato_administracao';
   $('locador-rep-instr-data').value = instr.data || '';
   $('locador-rep-instr-validade').value = instr.validade || '';
+  $('locador-rep-poderes-receber').checked = instr.poderesReceber === true;
+  $('locador-rep-repasse-ativo').checked = !!(r.repasse && r.repasse.ativo === true);
+  _repInstrArquivo = instr.arquivo || null;
+  _locadorRepasseOriginal = r.repasse || null;
+  renderInstrumentoArquivoRepresentante();
   onLocadorRepTipoChange();
   onLocadorAdmTerceirosChange();
+  atualizarRepasseRepresentanteUI();
 }
 
 // Lê e valida a seção. Retorna { erro } ou { representante } (null se desmarcado).
@@ -4087,6 +4099,27 @@ function lerRepresentanteLocador() {
   if (v('telefone').replace(/\D/g, '').length < 10) return { erro: 'Representante: telefone com DDD é obrigatório.', foco: 'telefone' };
   const instrData = v('instr-data'), instrValidade = v('instr-validade');
   if (instrData && instrValidade && instrValidade < instrData) return { erro: 'Representante: a validade do instrumento é anterior à data de assinatura.', foco: 'instr-validade' };
+
+  const poderesReceber = $('locador-rep-poderes-receber').checked;
+  const repasseAtivo = $('locador-rep-repasse-ativo').checked;
+  if (repasseAtivo) {
+    const pend = pendenciasAutorizacaoRepasse({
+      tipo: isPJ ? 'PJ' : 'PF', documento: doc,
+      instrumento: { validade: instrValidade || null, poderesReceber, arquivo: _repInstrArquivo },
+    });
+    if (pend.length) {
+      return {
+        erro: `Repasse ao representante sem autorização expressa: ${pend.join('; ')}. Desmarque "Repassar os aluguéis ao representante" ou complete o que falta.`,
+        foco: !poderesReceber ? 'poderes-receber' : 'repasse-ativo',
+      };
+    }
+  }
+  // Guarda quem ligou e quando (preserva o registro original se já estava ligado)
+  const repasseAnterior = _locadorRepasseOriginal;
+  const repasse = repasseAtivo
+    ? ((repasseAnterior && repasseAnterior.ativo) ? repasseAnterior
+       : { ativo: true, ativadoEm: new Date().toISOString(), ativadoPor: State.user.uid, ativadoPorNome: State.userDoc?.nome || State.user.email || '' })
+    : null;
 
   return {
     representante: {
@@ -4117,7 +4150,10 @@ function lerRepresentanteLocador() {
         tipo: $('locador-rep-instrumento').value,
         data: instrData || null,
         validade: instrValidade || null,
+        poderesReceber,
+        arquivo: _repInstrArquivo || null,
       },
+      repasse,
     },
   };
 }
@@ -4135,6 +4171,150 @@ function qualificacaoRepresentante(r) {
   return `${r.nome}, inscrita no CNPJ sob o nº ${maskCNPJ(r.documento)}${creci}${end ? `, com sede em ${end}` : ''}${resp}, na forma de ${instr}`;
 }
 
+// ---------- Destino do repasse ----------
+// 🔓 ALTERADA 12/10/2026 (regra "repasse"): o repasse vai para QUEM ESTIVER
+// CADASTRADO E TIVER AUTORIZAÇÃO EXPRESSA. Padrão continua o proprietário
+// (locador.pix). O representante só recebe com as 4 condições abaixo, e a
+// chave Pix é o CPF/CNPJ do PRÓPRIO representante. O worker Asaas
+// (destinoRepasseServidor, /aprovar-pagamento) refaz esta conta antes de
+// transferir — mudou aqui, muda lá.
+function hojeISOSaoPaulo() {
+  return new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+}
+
+function pendenciasAutorizacaoRepasse(r) {
+  const p = [];
+  const instr = (r && r.instrumento) || {};
+  if (instr.poderesReceber !== true) p.push('o instrumento precisa dar poderes para receber e dar quitação');
+  if (!instr.arquivo || !instr.arquivo.path) p.push('anexe o instrumento assinado (PDF)');
+  if (instr.validade && instr.validade < hojeISOSaoPaulo()) p.push(`o instrumento venceu em ${fmtDataBR(instr.validade)}`);
+  const doc = String((r && r.documento) || '').replace(/\D/g, '');
+  if (!(r && r.tipo === 'PF' ? isCPFValid(doc) : isCNPJValid(doc))) p.push('CPF/CNPJ do representante inválido');
+  return p;
+}
+
+// → { para: 'locador'|'representante', nome, pix, pixTipo, banco, pendencias[] }
+function destinoRepasse(loc) {
+  const r = loc && loc.administradoTerceiros ? loc.representante : null;
+  if (!r || !r.repasse || r.repasse.ativo !== true) {
+    return { para: 'locador', nome: (loc && loc.nome) || '', pix: (loc && loc.pix) || null, pixTipo: null, banco: (loc && loc.banco) || null, pendencias: [] };
+  }
+  return {
+    para: 'representante',
+    nome: r.nome || '',
+    pix: String(r.documento || '').replace(/\D/g, ''),
+    pixTipo: r.tipo === 'PF' ? 'CPF' : 'CNPJ',
+    banco: null,
+    locadorNome: (loc && loc.nome) || '',
+    instrumento: r.instrumento || {},
+    pendencias: pendenciasAutorizacaoRepasse(r),
+  };
+}
+
+function descreverInstrumento(instr) {
+  const tipo = { contrato_administracao: 'contrato de administração', procuracao: 'procuração' }[instr && instr.tipo] || 'instrumento de representação';
+  return tipo + (instr && instr.data ? ` de ${fmtDataBR(instr.data)}` : '');
+}
+
+// Regra nº 1 (botão nunca é mudo): trava ANTES do await, mostra o "aguarde"
+// e destrava no erro. No sucesso só destrava com opts.destravar (quando a
+// tela não troca). Erros sobem para o chamador mostrar a mensagem.
+async function drgSubmit(btn, aguarde, fn, opts = {}) {
+  if (btn && btn.disabled) return;
+  if (!btn) return await fn();
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = aguarde || '⏳ Enviando... aguarde';
+  let ok = false;
+  try {
+    const r = await fn();
+    ok = true;
+    return r;
+  } finally {
+    if (!ok || opts.destravar) { btn.disabled = false; btn.innerHTML = original; }
+  }
+}
+
+// Arquivo do instrumento no formulário: { path, nome, enviadoEm, enviadoPor } | null.
+// Só vai pro banco no Salvar, junto com o resto do representante.
+let _repInstrArquivo = null;
+// repasse como veio do banco ao abrir o cadastro (preserva quem ligou e quando)
+let _locadorRepasseOriginal = null;
+
+async function renderInstrumentoArquivoRepresentante() {
+  const info = $('locador-rep-instr-arquivo-info');
+  const a = _repInstrArquivo;
+  if (!a || !a.path) { info.textContent = 'Nenhum instrumento anexado.'; return; }
+  const quando = a.enviadoEm ? ` · ${new Date(a.enviadoEm).toLocaleDateString('pt-BR')}` : '';
+  info.innerHTML = `📄 <strong>${escapeHtml(a.nome || 'instrumento.pdf')}</strong>${quando} <a href="#" id="locador-rep-instr-link" target="_blank" rel="noopener" style="display:none;">👁 abrir</a>`;
+  try {
+    const url = await storage.ref(a.path).getDownloadURL();
+    const link = $('locador-rep-instr-link');
+    if (link) { link.href = url; link.style.display = 'inline'; }
+  } catch (_) { /* sem link: o nome do arquivo já basta */ }
+}
+
+async function anexarInstrumentoRepresentante() {
+  const input = $('locador-rep-instr-file');
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  clearAlert('locador-alert');
+  const locadorId = $('locador-id').value;
+  if (!locadorId) {
+    showAlert('locador-alert', 'Salve o cadastro do proprietário primeiro; depois anexe o instrumento assinado.');
+    return;
+  }
+  const ehPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!ehPdf) { showAlert('locador-alert', 'O instrumento precisa ser um PDF.'); return; }
+  if (file.size > 10 * 1024 * 1024) { showAlert('locador-alert', `"${file.name}" passa de 10MB.`); return; }
+
+  try {
+    await drgSubmit($('btn-rep-instr-anexar'), '⏳ Enviando PDF... aguarde', async () => {
+      const nomeSeguro = file.name.replace(/[^\w.\-]+/g, '_');
+      const ref = storageTenantRef().child(`locadores/${locadorId}/instrumento-representacao/${Date.now()}_${nomeSeguro}`);
+      await ref.put(file, { contentType: 'application/pdf', customMetadata: { uploadedBy: State.user.uid } });
+      _repInstrArquivo = { path: ref.fullPath, nome: file.name, enviadoEm: new Date().toISOString(), enviadoPor: State.user.uid };
+    }, { destravar: true });
+    renderInstrumentoArquivoRepresentante();
+    atualizarRepasseRepresentanteUI();
+    showAlert('locador-alert', '✓ Instrumento anexado. Clique em Salvar para gravar no cadastro.', 'success');
+  } catch (err) {
+    console.error('Erro ao anexar instrumento:', err);
+    showAlert('locador-alert', 'Erro ao anexar o instrumento: ' + err.message);
+  }
+}
+
+// Lê o que está no formulário (sem validar o resto) só pra mostrar o aviso.
+function atualizarRepasseRepresentanteUI() {
+  const box = $('locador-rep-repasse-info');
+  if (!box) return;
+  if (!$('locador-rep-repasse-ativo').checked) { box.style.display = 'none'; return; }
+  const isPJ = $('locador-rep-tipo').value === 'PJ';
+  const r = {
+    tipo: isPJ ? 'PJ' : 'PF',
+    nome: $('locador-rep-nome').value.trim(),
+    documento: $('locador-rep-documento').value.replace(/\D/g, ''),
+    instrumento: {
+      validade: $('locador-rep-instr-validade').value || null,
+      poderesReceber: $('locador-rep-poderes-receber').checked,
+      arquivo: _repInstrArquivo,
+    },
+  };
+  const pend = pendenciasAutorizacaoRepasse(r);
+  box.style.display = 'block';
+  if (pend.length) {
+    box.className = 'rep-repasse-info pendente';
+    box.innerHTML = `⚠ Sem autorização expressa completa — o repasse fica <strong>bloqueado</strong> até resolver: ${pend.map(escapeHtml).join('; ')}.`;
+  } else {
+    const chave = isPJ ? maskCNPJ(r.documento) : maskCPF(r.documento);
+    box.className = 'rep-repasse-info ok';
+    box.innerHTML = `✓ O repasse irá para <strong>${escapeHtml(r.nome || 'o representante')}</strong>, pela chave Pix ${isPJ ? 'CNPJ' : 'CPF'} <strong>${escapeHtml(chave)}</strong> (do próprio representante). O Pix e a conta do proprietário abaixo deixam de ser usados no repasse.`;
+  }
+}
+
+window.anexarInstrumentoRepresentante = anexarInstrumentoRepresentante;
+window.atualizarRepasseRepresentanteUI = atualizarRepasseRepresentanteUI;
 window.onLocadorAdmTerceirosChange = onLocadorAdmTerceirosChange;
 window.onLocadorRepTipoChange = onLocadorRepTipoChange;
 window.buscarCEPRepresentante = buscarCEPRepresentante;
@@ -4953,54 +5133,81 @@ async function solicitarPagamentoLocador() {
     return;
   }
   const locador = _balanceteLocadorInfo;
+  const dest = locador.destino || destinoRepasse(locador);
+  // Representante sem autorização expressa completa: BLOQUEIA (não cai pro proprietário em silêncio)
+  if (dest.para === 'representante' && dest.pendencias.length) {
+    showInlineStatus(STATUS_ID, `Repasse ao representante <strong>${escapeHtml(dest.nome)}</strong> bloqueado — falta: ${dest.pendencias.map(escapeHtml).join('; ')}. <a href="#" onclick="abrirLocadorDoRepasse(event)">Abrir cadastro →</a>`, 'error');
+    return;
+  }
   if (!locador.pix) {
     showInlineStatus(STATUS_ID, 'Locador sem chave PIX cadastrada. Cadastre antes de solicitar.', 'error');
     return;
   }
+  const paraRep = dest.para === 'representante';
+  const favorecido = paraRep ? dest.nome : locador.nome;
   const contratoId = $('balancete-contrato').value;
   if (!contratoId) {
     showInlineStatus(STATUS_ID, 'Selecione um contrato.', 'error');
     return;
   }
+  const chaveFmt = paraRep ? (dest.pixTipo === 'CPF' ? maskCPF(dest.pix) : maskCNPJ(dest.pix)) : locador.pix;
   if (!(await confirmar({
-    titulo: 'Solicitar pagamento ao locador?',
-    mensagem: `Criar uma solicitação de repasse de <strong>${fmtBRL(liquido)}</strong> para <strong>${escapeHtml(locador.nome)}</strong>.`,
-    detalhe: `Chave PIX: <code>${escapeHtml(locador.pix)}</code><br><br>A solicitação fica <strong>aguardando aprovação</strong> — nenhum dinheiro é transferido agora. Outra pessoa precisa aprovar com senha + 2FA na tela <strong>✅ Aprovações</strong>.`,
+    titulo: paraRep ? 'Solicitar repasse ao representante?' : 'Solicitar pagamento ao locador?',
+    mensagem: `Criar uma solicitação de repasse de <strong>${fmtBRL(liquido)}</strong> para <strong>${escapeHtml(favorecido)}</strong>`
+      + (paraRep ? `, representante de <strong>${escapeHtml(locador.nome)}</strong>, conforme ${escapeHtml(descreverInstrumento(dest.instrumento))}.` : '.'),
+    detalhe: `Chave PIX: <code>${escapeHtml(chaveFmt)}</code><br><br>A solicitação fica <strong>aguardando aprovação</strong> — nenhum dinheiro é transferido agora. Outra pessoa precisa aprovar com senha + 2FA na tela <strong>✅ Aprovações</strong>.`,
     confirmar: '📨 Solicitar',
   }))) return;
 
-  // Detecta tipo da chave PIX
+  // Tipo da chave PIX: representante é sempre CPF/CNPJ dele; locador → detecta
   let tipo = 'EVP';
-  const pix = locador.pix.trim();
-  if (/^\d{11}$/.test(pix.replace(/\D/g, ''))) tipo = 'CPF';
+  const pix = String(locador.pix).trim();
+  if (paraRep) tipo = dest.pixTipo;
+  else if (/^\d{11}$/.test(pix.replace(/\D/g, ''))) tipo = 'CPF';
   else if (/^\d{14}$/.test(pix.replace(/\D/g, ''))) tipo = 'CNPJ';
   else if (pix.includes('@')) tipo = 'EMAIL';
   else if (/^\+?\d{10,13}$/.test(pix.replace(/\D/g, ''))) tipo = 'PHONE';
 
+  const btn = $('btn-solicitar-repasse');
   try {
-    showInlineStatus(STATUS_ID, '🔄 Registrando solicitação…', 'loading');
-    const mes = parseInt($('balancete-mes').value, 10);
-    const ano = parseInt($('balancete-ano').value, 10);
-    const ref = await tenantPath().collection('solicitacoesPagamento').add({
-      tipo: 'pagamento_locador',
-      status: 'AGUARDANDO_APROVACAO',
-      valor: Number(liquido.toFixed(2)),
-      pixAddressKey: pix,
-      pixAddressKeyType: tipo,
-      descricao: `Repasse aluguel — ${locador.nome}`,
-      locadorNome: locador.nome || '',
-      contratoId: contratoId,
-      balanceteId: $('balancete-id').value || null,
-      balanceteRef: (mes && ano) ? fmtMesAno(mes, ano) : '',
-      solicitadoPor: State.user.uid,
-      solicitadoPorNome: State.userDoc?.nome || State.user.email || '',
-      solicitadoPorEmail: State.user.email || '',
-      solicitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    await drgSubmit(btn, '⏳ Enviando... aguarde', async () => {
+      showInlineStatus(STATUS_ID, '🔄 Registrando solicitação…', 'loading');
+      const mes = parseInt($('balancete-mes').value, 10);
+      const ano = parseInt($('balancete-ano').value, 10);
+      const ref = await tenantPath().collection('solicitacoesPagamento').add({
+        tipo: 'pagamento_locador',
+        status: 'AGUARDANDO_APROVACAO',
+        valor: Number(liquido.toFixed(2)),
+        pixAddressKey: pix,
+        pixAddressKeyType: tipo,
+        descricao: paraRep ? `Repasse aluguel — ${locador.nome} (via ${favorecido})` : `Repasse aluguel — ${locador.nome}`,
+        locadorId: locador.locadorId || null,
+        locadorNome: locador.nome || '',
+        // Destino: o worker refaz a conta no momento da aprovação e confere com isto
+        destinatario: paraRep ? 'representante' : 'locador',
+        favorecidoNome: favorecido || '',
+        favorecidoDocumento: paraRep ? dest.pix : null,
+        instrumento: paraRep ? {
+          tipo: dest.instrumento.tipo || null,
+          data: dest.instrumento.data || null,
+          validade: dest.instrumento.validade || null,
+          arquivoPath: (dest.instrumento.arquivo && dest.instrumento.arquivo.path) || null,
+        } : null,
+        contratoId: contratoId,
+        balanceteId: $('balancete-id').value || null,
+        balanceteRef: (mes && ano) ? fmtMesAno(mes, ano) : '',
+        solicitadoPor: State.user.uid,
+        solicitadoPorNome: State.userDoc?.nome || State.user.email || '',
+        solicitadoPorEmail: State.user.email || '',
+        solicitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      logAuditoria('create', 'solicitacaoPagamento', ref.id, { valor: liquido, locador: locador.nome, favorecido, destinatario: paraRep ? 'representante' : 'locador', contratoId });
     });
-    logAuditoria('create', 'solicitacaoPagamento', ref.id, { valor: liquido, locador: locador.nome, contratoId });
+    // Sucesso: botão segue travado (evita 2ª solicitação igual) até trocar de contrato/balancete
+    if (btn) btn.innerHTML = '✓ Solicitado';
     showInlineStatus(
       STATUS_ID,
-      `✅ Solicitação enviada para aprovação (<strong>${fmtBRL(liquido)}</strong>). Um aprovador precisa confirmar em <strong>✅ Aprovações</strong>.`,
+      `✓ Solicitação enviada para aprovação (<strong>${fmtBRL(liquido)}</strong> para ${escapeHtml(favorecido)}). Um aprovador precisa confirmar em <strong>✅ Aprovações</strong>.`,
       'success'
     );
   } catch (err) {
@@ -5065,7 +5272,7 @@ function renderAprovacoes() {
     }
     return `<tr>
       <td>${dataStr}</td>
-      <td>${escapeHtml(s.locadorNome || '—')}</td>
+      <td>${escapeHtml(s.locadorNome || '—')}${s.destinatario === 'representante' ? `<br><span class="muted" style="font-size:11px;">→ ao representante ${escapeHtml(s.favorecidoNome || '')}</span>` : ''}</td>
       <td><strong>${fmtBRL(s.valor || 0)}</strong></td>
       <td>${escapeHtml(s.solicitadoPorNome || s.solicitadoPorEmail || '—')}</td>
       <td>${badge}</td>
@@ -5080,6 +5287,12 @@ function abrirModalAprovar(id) {
   if (s.solicitadoPor === State.user?.uid) return; // botão já vem disabled
   _aprovacaoAtual = s;
   $('aprovar-locador').textContent = s.locadorNome || '—';
+  const paraRep = s.destinatario === 'representante';
+  $('aprovar-linha-favorecido').style.display = paraRep ? 'flex' : 'none';
+  if (paraRep) {
+    const i = s.instrumento || {};
+    $('aprovar-favorecido').textContent = `${s.favorecidoNome || '—'} (representante, conforme ${descreverInstrumento(i)})`;
+  }
   $('aprovar-pix').textContent = (s.pixAddressKeyType ? s.pixAddressKeyType + ': ' : '') + (s.pixAddressKey || '—');
   $('aprovar-valor').textContent = fmtBRL(s.valor || 0);
   $('aprovar-solicitante').textContent = s.solicitadoPorNome || s.solicitadoPorEmail || '—';
@@ -6826,6 +7039,8 @@ async function refreshBalancetePixInfo() {
   pixBox.style.display = 'none';
   avisoBox.style.display = 'none';
   _balanceteLocadorInfo = null;
+  const btnRep = $('btn-solicitar-repasse');
+  if (btnRep) { btnRep.disabled = false; btnRep.innerHTML = '💸 Solicitar repasse'; }
   if (!contratoId) return;
 
   try {
@@ -6838,16 +7053,29 @@ async function refreshBalancetePixInfo() {
     if (!locSnap.exists) return;
     const loc = locSnap.data();
 
+    // Destino do repasse: proprietário ou representante autorizado (🔓 12/10/2026)
+    const dest = destinoRepasse(loc);
     _balanceteLocadorInfo = {
+      locadorId: c.locadorId,
       nome: loc.nome || '',
-      pix: loc.pix || null,
-      banco: loc.banco || null,
+      pix: dest.pix,
+      pixTipo: dest.pixTipo,
+      banco: dest.banco,
+      destino: dest,
     };
 
-    if (loc.pix) {
-      $('resumo-pix-chave').textContent = loc.pix;
+    $('resumo-pix-label').textContent = dest.para === 'representante' ? 'Chave Pix do representante' : 'Chave Pix do locador';
+    if (dest.para === 'representante' && dest.pendencias.length) {
+      avisoBox.innerHTML = `⚠ Repasse configurado para o representante <strong>${escapeHtml(dest.nome)}</strong>, mas falta autorização expressa: ${dest.pendencias.map(escapeHtml).join('; ')}. <a href="#" onclick="abrirLocadorDoRepasse(event)">Abrir cadastro do proprietário →</a>`;
+      avisoBox.style.display = 'block';
+    } else if (dest.pix) {
+      const chave = dest.para === 'representante' ? (dest.pixTipo === 'CPF' ? maskCPF(dest.pix) : maskCNPJ(dest.pix)) : dest.pix;
+      $('resumo-pix-chave').innerHTML = escapeHtml(chave) + (dest.para === 'representante'
+        ? `<span class="resumo-pix-rep">${escapeHtml(dest.nome)} — representante de ${escapeHtml(dest.locadorNome)}, conforme ${escapeHtml(descreverInstrumento(dest.instrumento))}</span>`
+        : '');
       pixBox.style.display = 'flex';
     } else {
+      avisoBox.innerHTML = AVISO_SEM_PIX_LOCADOR;
       avisoBox.style.display = 'block';
     }
   } catch (err) {
@@ -6855,9 +7083,24 @@ async function refreshBalancetePixInfo() {
   }
 }
 
+const AVISO_SEM_PIX_LOCADOR = '⚠ Locador sem chave Pix cadastrada. Cadastre em <strong>🏠 Locadores</strong> para habilitar este atalho.';
+
+// Alerta clicável → abre o cadastro do proprietário onde está a pendência
+function abrirLocadorDoRepasse(ev) {
+  if (ev) ev.preventDefault();
+  const id = _balanceteLocadorInfo && _balanceteLocadorInfo.locadorId;
+  if (id) openLocadorModal(id);
+}
+window.abrirLocadorDoRepasse = abrirLocadorDoRepasse;
+
 function copiarPixLocador() {
   if (!_balanceteLocadorInfo || !_balanceteLocadorInfo.pix) {
     showAlert('balancete-alert', 'Locador não tem chave Pix cadastrada.');
+    return;
+  }
+  const dest = _balanceteLocadorInfo.destino || {};
+  if (dest.para === 'representante' && dest.pendencias.length) {
+    showAlert('balancete-alert', 'Repasse ao representante sem autorização expressa completa: ' + dest.pendencias.join('; ') + '.');
     return;
   }
 
@@ -6872,6 +7115,7 @@ function copiarPixLocador() {
     `Pagamento — Balancete ${fmtMesAno(mes, ano)}`,
     `Imóvel: ${imovelApelido}`,
     `Locador: ${_balanceteLocadorInfo.nome}`,
+    dest.para === 'representante' ? `Favorecido: ${dest.nome} (representante, conforme ${descreverInstrumento(dest.instrumento)})` : '',
     `Valor: ${liquidoText}`,
     `Chave Pix: ${_balanceteLocadorInfo.pix}`,
     _balanceteLocadorInfo.banco ? `Banco/Agência/Conta: ${_balanceteLocadorInfo.banco}` : '',
