@@ -3785,7 +3785,8 @@ async function openLocadorModal(id) {
    'locador-profissao', 'locador-email', 'locador-telefone',
    'locador-cep', 'locador-logradouro', 'locador-numero', 'locador-complemento',
    'locador-bairro', 'locador-cidade', 'locador-uf',
-   'locador-pix', 'locador-banco', 'locador-obs'].forEach(f => $(f).value = '');
+   'locador-pix', 'locador-banco-nome', 'locador-agencia', 'locador-conta', 'locador-obs'].forEach(f => $(f).value = '');
+  $('locador-tipo-conta').value = 'corrente';
   $('locador-tipo').value = 'PF';
   $('locador-estado-civil').value = '';
   $('locador-nacionalidade').value = 'Brasileira';
@@ -3821,7 +3822,16 @@ async function openLocadorModal(id) {
         $('locador-cidade').value = end.cidade || '';
         $('locador-uf').value = end.uf || '';
         $('locador-pix').value = l.pix || '';
-        $('locador-banco').value = l.banco || '';
+        // Conta bancária: campos separados (dadosBancarios); cadastros antigos
+        // só têm o texto livre "banco" ("341 / 1234 / 56789-0") → tenta separar
+        const db_ = l.dadosBancarios || (() => {
+          const p = String(l.banco || '').split('/').map(s => s.trim());
+          return { banco: p[0] || '', agencia: p[1] || '', conta: p.slice(2).join(' / ') };
+        })();
+        $('locador-banco-nome').value = db_.banco || '';
+        $('locador-agencia').value = db_.agencia || '';
+        $('locador-conta').value = db_.conta || '';
+        $('locador-tipo-conta').value = db_.tipoConta || 'corrente';
         $('locador-obs').value = l.obs || '';
         // Papéis (compatibilidade com cadastros antigos sem o campo: assume ambos true)
         const papeis = l.papeis || { locador: true, vendedor: true };
@@ -3843,6 +3853,22 @@ async function openLocadorModal(id) {
 
 function closeLocadorModal() {
   $('modal-locador').style.display = 'none';
+}
+
+// Conta bancária do locador: campos separados em dadosBancarios + o texto
+// "banco" montado (balancete, "copiar dados para pagamento" e import CSV leem ele).
+function lerDadosBancariosLocador() {
+  const banco = $('locador-banco-nome').value.trim();
+  const agencia = $('locador-agencia').value.trim();
+  const conta = $('locador-conta').value.trim();
+  const tipoConta = $('locador-tipo-conta').value;
+  if (!banco && !agencia && !conta) return { banco: null, dadosBancarios: null };
+  const tipoLabel = { corrente: 'C/C', poupanca: 'Poupança', pagamento: 'Conta pagamento' }[tipoConta] || '';
+  return {
+    banco: [banco && `Banco ${banco}`, agencia && `Ag. ${agencia}`, conta && `${tipoLabel} ${conta}`.trim()]
+      .filter(Boolean).join(' · '),
+    dadosBancarios: { banco: banco || null, agencia: agencia || null, conta: conta || null, tipoConta },
+  };
 }
 
 async function saveLocador() {
@@ -3889,7 +3915,7 @@ async function saveLocador() {
       uf: $('locador-uf').value.trim().toUpperCase() || null,
     },
     pix: $('locador-pix').value.trim() || null,
-    banco: $('locador-banco').value.trim() || null,
+    ...lerDadosBancariosLocador(),
     obs: $('locador-obs').value.trim() || null,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };

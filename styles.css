@@ -4035,3 +4035,9 @@ details.card > summary:hover {
   padding: 1px 7px;
   line-height: 16px;
 }
+
+/* Conta bancária do locador: banco mais largo, agência estreita */
+.form-row-banco,
+.modal-body .form-row-banco {
+  grid-template-columns: 2fr 1fr 1.4fr 1.3fr;
+}
