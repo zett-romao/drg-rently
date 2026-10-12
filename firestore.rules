@@ -54,11 +54,19 @@ service cloud.firestore {
 
     // Perfis 3.0 — quem tem "👥 Gerenciar usuários e perfis" (✅ Pode) no perfil
     // atribuído. Admin continua coberto pelas regras de role 'admin'.
+    // Mesmo critério do app: perfil atribuído (perfilId) ou, sem ele, o perfil-base do tipo (seed_<role>).
+    function perfilConcedeGerenciar(tenantId, perfilDocId) {
+      return exists(/databases/$(database)/documents/tenants/$(tenantId)/perfis/$(perfilDocId))
+             && get(/databases/$(database)/documents/tenants/$(tenantId)/perfis/$(perfilDocId)).data
+                  .get('acoes', {}).get('gerenciarUsuariosPerfis', false) == 'sim';
+    }
     function delegadoGerenciar(tenantId) {
       return belongsToTenant(tenantId)
-             && userDoc().get('perfilId', null) is string
-             && get(/databases/$(database)/documents/tenants/$(tenantId)/perfis/$(userDoc().perfilId)).data
-                  .get('acoes', {}).get('gerenciarUsuariosPerfis', false) in ['sim', true];
+             && userDoc().get('ativo', true) == true
+             && ((userDoc().get('perfilId', null) is string
+                  && perfilConcedeGerenciar(tenantId, userDoc().perfilId))
+                 || (!(userDoc().get('perfilId', null) is string)
+                     && perfilConcedeGerenciar(tenantId, 'seed_' + userDoc().role)));
     }
 
     // Campos que o próprio usuário NUNCA pode alterar no seu doc
@@ -167,9 +175,15 @@ service cloud.firestore {
       // Perfis 3.0 — fila "Com aprovação": corretor cria pedido em nome próprio
       // e acompanha só os seus. Decidir (aprovar/rejeitar) é da equipe interna.
       match /alteracoesPendentes/{pedidoId} {
+        // Só imóveis/proprietários, módulo = coleção, e editar/excluir só do que ELE captou
         allow create: if isCorretorOf(tenantId)
                       && request.resource.data.solicitadoPor == request.auth.uid
-                      && request.resource.data.status == 'PENDENTE';
+                      && request.resource.data.status == 'PENDENTE'
+                      && request.resource.data.colecao in ['imoveis', 'locadores']
+                      && request.resource.data.modulo == request.resource.data.colecao
+                      && request.resource.data.op in ['criar', 'editar', 'excluir']
+                      && (request.resource.data.op == 'criar'
+                          || get(/databases/$(database)/documents/tenants/$(tenantId)/$(request.resource.data.colecao)/$(request.resource.data.docId)).data.criadoPor == request.auth.uid);
         allow read: if isCorretorOf(tenantId)
                     && resource.data.solicitadoPor == request.auth.uid;
       }

@@ -75,6 +75,26 @@ function rankNivel(n) { const i = NIVEIS_PERMISSAO.indexOf(n); return i < 0 ? 0 
 const POS_APROVACAO = {};
 // Exclusões que não são um simples delete (ex.: contrato apaga em cascata).
 const EXCLUSAO_CUSTOM = {};
+// Módulo → coleção que a fila pode gravar. Pedido fora desta lista é recusado na aprovação.
+const MODULO_COLECAO = {
+  locadores: 'locadores', locatarios: 'locatarios', garantias: 'garantias', compradores: 'compradores',
+  negociacoes: 'negociacoes', imoveis: 'imoveis', contratos: 'contratos', balancetes: 'balancetes',
+  leads: 'leadsImoveis', caixa: 'caixaPool',
+};
+
+// Comparação estável (Firestore devolve mapas com chaves em ordem diferente do formulário)
+function jsonEstavel(v) {
+  if (v === undefined) v = null;
+  if (v && typeof v.toMillis === 'function') return 'ts:' + v.toMillis();
+  if (v instanceof Date) return 'ts:' + v.getTime();
+  if (Array.isArray(v)) return '[' + v.map(jsonEstavel).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().filter(k => v[k] !== undefined && v[k] !== null)
+      .map(k => JSON.stringify(k) + ':' + jsonEstavel(v[k])).join(',') + '}';
+  }
+  return JSON.stringify(v);
+}
+function iguais(a, b) { return jsonEstavel(a) === jsonEstavel(b); }
 
 // Mapa role → permissões padrão (usado pelo fallback nível 3 e pelos perfis seed).
 // Cada role recebe o conjunto de módulos que historicamente via.
@@ -868,8 +888,9 @@ function normalizarPerfil(perfilDoc, role) {
   const acoesSim = ROLE_ACOES_PADRAO[role] || [];
   const acoesApr = ROLE_ACOES_APROVACAO[role] || [];
   const herdada = {
-    gerenciarUsuariosPerfis: () => (permissoes.configuracoes.editar === 'sim' ? 'sim' : 'nao'),
-    aprovarAlteracoes:       () => (permissoes.configuracoes.editar === 'sim' ? 'sim' : 'nao'),
+    // Poderes novos não vêm de herança (antes só o admin criava usuário): ficam ⛔ até alguém conceder
+    gerenciarUsuariosPerfis: () => 'nao',
+    aprovarAlteracoes:       () => 'nao',
     solicitarRepasse:        () => (permissoes.balancetes.editar === 'sim' ? 'sim' : 'nao'),
     alterarDadosRepasse:     () => permissoes.locadores.editar,
     repasseRepresentante:    () => permissoes.locadores.editar,
@@ -882,6 +903,8 @@ function normalizarPerfil(perfilDoc, role) {
     if (!a.tresNiveis && n === 'aprovacao') n = 'nao';
     acoes[a.id] = n;
   });
+  // Piso do Administrador: sempre gerencia a equipe e aprova (o servidor já o trata assim)
+  if (role === 'admin') { acoes.gerenciarUsuariosPerfis = 'sim'; acoes.aprovarAlteracoes = 'sim'; }
   return { permissoes, acoes };
 }
 
@@ -4311,8 +4334,10 @@ function descreverInstrumento(instr) {
 // Regra nº 1 (botão nunca é mudo): trava ANTES do await, mostra o "aguarde"
 // e destrava no erro. No sucesso só destrava com opts.destravar (quando a
 // tela não troca). Erros sobem para o chamador mostrar a mensagem.
+// Devolvido quando o botão já estava em andamento (nada foi executado): quem chama para ali.
+const DRG_IGNORADO = Symbol('drgSubmit-ignorado');
 async function drgSubmit(btn, aguarde, fn, opts = {}) {
-  if (btn && btn.disabled) return;
+  if (btn && btn.disabled) return DRG_IGNORADO;
   if (!btn) return await fn();
   const original = btn.innerHTML;
   btn.disabled = true;
@@ -4363,12 +4388,13 @@ async function anexarInstrumentoRepresentante() {
   if (file.size > 10 * 1024 * 1024) { showAlert('locador-alert', `"${file.name}" passa de 10MB.`); return; }
 
   try {
-    await drgSubmit($('btn-rep-instr-anexar'), '⏳ Enviando PDF... aguarde', async () => {
+    const rAnexo = await drgSubmit($('btn-rep-instr-anexar'), '⏳ Enviando PDF... aguarde', async () => {
       const nomeSeguro = file.name.replace(/[^\w.\-]+/g, '_');
       const ref = storageTenantRef().child(`locadores/${locadorId}/instrumento-representacao/${Date.now()}_${nomeSeguro}`);
       await ref.put(file, { contentType: 'application/pdf', customMetadata: { uploadedBy: State.user.uid } });
       _repInstrArquivo = { path: ref.fullPath, nome: file.name, enviadoEm: new Date().toISOString(), enviadoPor: State.user.uid };
     }, { destravar: true });
+    if (rAnexo === DRG_IGNORADO) return;
     renderInstrumentoArquivoRepresentante();
     atualizarRepasseRepresentanteUI();
     showAlert('locador-alert', '✓ Instrumento anexado. Clique em Salvar para gravar no cadastro.', 'success');
@@ -4515,7 +4541,7 @@ function lerDadosBancariosLocador() {
 // Ações delicadas que este salvamento toca (Perfis 3.0): mudar para onde vai o
 // dinheiro exige a ação própria, além de "Editar" em Locadores.
 function acoesDelicadasLocador(antes, depois) {
-  const j = (v) => JSON.stringify(v === undefined ? null : v);
+  const j = jsonEstavel;
   const acoes = [];
   const pixMudou = (antes.pix || null) !== (depois.pix || null);
   const contaMudou = j(antes.dadosBancarios || null) !== j(depois.dadosBancarios || null);
@@ -4529,14 +4555,7 @@ function acoesDelicadasLocador(antes, depois) {
 }
 
 // Exclusão aprovada da fila: apaga também os arquivos do proprietário
-POS_APROVACAO.locadores = async ({ id, op }) => {
-  if (op !== 'excluir') { invalidateLocadoresCache(); return; }
-  try {
-    const list = await storageTenantRef().child(`locadores/${id}`).listAll();
-    await Promise.all(list.items.map(item => item.delete()));
-  } catch (_) { /* pasta pode não existir */ }
-  invalidateLocadoresCache();
-};
+POS_APROVACAO.locadores = apagarPastaAoExcluir('locadores', async () => invalidateLocadoresCache());
 
 async function saveLocador() {
   clearAlert('locador-alert');
@@ -5308,7 +5327,7 @@ async function solicitarPagamentoLocador() {
 
   const btn = $('btn-solicitar-repasse');
   try {
-    await drgSubmit(btn, '⏳ Enviando... aguarde', async () => {
+    const rSol = await drgSubmit(btn, '⏳ Enviando... aguarde', async () => {
       showInlineStatus(STATUS_ID, '🔄 Registrando solicitação…', 'loading');
       const mes = parseInt($('balancete-mes').value, 10);
       const ano = parseInt($('balancete-ano').value, 10);
@@ -5341,6 +5360,7 @@ async function solicitarPagamentoLocador() {
       });
       logAuditoria('create', 'solicitacaoPagamento', ref.id, { valor: liquido, locador: locador.nome, favorecido, destinatario: paraRep ? 'representante' : 'locador', contratoId });
     });
+    if (rSol === DRG_IGNORADO) return;
     // Sucesso: botão segue travado (evita 2ª solicitação igual) até trocar de contrato/balancete
     if (btn) btn.innerHTML = '✓ Solicitado';
     showInlineStatus(
@@ -5465,17 +5485,32 @@ async function lerAntes(colecao, id) {
   const s = await tenantPath().collection(colecao).doc(id).get();
   return s.exists ? s.data() : null;
 }
-// Mostra "🕓 enviado para aprovação" e fecha o modal (regra nº 1: responde e sai)
+// Botão Salvar de cada modal (para travar no "🕓 enviado para aprovação")
+const BTN_SALVAR_DO_ALERTA = {
+  'locatario-alert': 'btn-save-locatario', 'garantia-alert': 'btn-save-garantia',
+  'comprador-alert': 'btn-save-comprador', 'negociacao-alert': 'btn-save-negociacao',
+  'contrato-alert': 'btn-save-contrato', 'balancete-alert': 'btn-save-balancete',
+  'lanc-caixa-alert': 'btn-salvar-lanc-caixa',
+};
+// Mostra "🕓 enviado para aprovação", mantém o Salvar travado e fecha o modal
+// (regra nº 1: responde, não deixa clicar de novo e sai)
 function avisarPendente(alertId, fechar) {
   showAlert(alertId, msgGravacao({ pendente: true }), 'success');
-  if (fechar) setTimeout(fechar, 1800);
+  const btn = $(BTN_SALVAR_DO_ALERTA[alertId]);
+  let original = null;
+  // O finally do salvar destrava o botão logo após o return — trava de novo no ciclo seguinte
+  if (btn) setTimeout(() => { original = btn.innerHTML; btn.disabled = true; btn.innerHTML = '🕓 Enviado para aprovação'; }, 0);
+  setTimeout(() => {
+    if (fechar) fechar();
+    if (btn) { btn.disabled = false; if (original !== null) btn.innerHTML = original; }
+  }, 1800);
 }
 // Pós-aprovação de exclusão: apaga a pasta de anexos do registro no Storage
-function apagarPastaAoExcluir(pasta, extra) {
+function apagarPastaAoExcluir(pasta, extra, subpasta = '') {
   return async ({ id, op }) => {
     if (op === 'excluir') {
       try {
-        const list = await storageTenantRef().child(`${pasta}/${id}`).listAll();
+        const list = await storageTenantRef().child(`${pasta}/${id}${subpasta}`).listAll();
         await Promise.all(list.items.map(item => item.delete()));
       } catch (_) { /* pasta pode não existir */ }
     }
@@ -5511,10 +5546,29 @@ function podeAprovarAlgumaAlteracao() {
 }
 
 // Esta pessoa pode aprovar ESTE pedido? (mesmos itens com ✅ Pode)
+// Pedido coerente? (quem pede escreve o pedido — não dá para confiar em módulo/coleção/op)
+function pedidoCoerente(p) {
+  return MODULO_COLECAO[p.modulo] === p.colecao && OPS_MODULO.includes(p.op)
+    && (p.op === 'criar' || !!p.docId);
+}
+
 function podeAprovarPedido(p) {
   if (!pode('aprovarAlteracoes')) return false;
   if (p.solicitadoPor === State.user?.uid) return false;
+  if (!pedidoCoerente(p)) return false;
   return nivelEfetivo(p.modulo, p.op, p.acoesEnvolvidas || p.acoes || []) === 'sim';
+}
+
+// Ações delicadas que o pedido envolve, recalculadas sobre o registro atual
+// (soma com as que o pedido declarou — nunca diminui)
+function acoesDoPedido(p, atual) {
+  const set = new Set(p.acoesEnvolvidas || []);
+  const depois = { ...(atual || {}), ...(p.dados || {}) };
+  if (p.colecao === 'locadores' && p.op !== 'excluir') acoesDelicadasLocador(atual || {}, depois).forEach(a => set.add(a));
+  if (p.colecao === 'balancetes' && p.op !== 'excluir') {
+    if ((depois.status || 'aberto') !== 'aberto' && ((atual && atual.status) || 'aberto') === 'aberto') set.add('fecharBalancete');
+  }
+  return [...set];
 }
 
 let _alteracoesCache = [];
@@ -5553,7 +5607,7 @@ function diffPedidoHtml(p) {
   const d = p.dados || {};
   const a = p.antes || {};
   const linhas = Object.keys(d)
-    .filter(k => p.op === 'criar' || JSON.stringify(d[k]) !== JSON.stringify(a[k]))
+    .filter(k => p.op === 'criar' || !iguais(d[k], a[k]))
     .map(k => `<tr><td><strong>${escapeHtml(k)}</strong></td>${p.op === 'criar' ? '' : `<td>${fmtValorDiff(a[k])}</td>`}<td>${fmtValorDiff(d[k])}</td></tr>`);
   if (!linhas.length) return '<em class="muted">Nenhum campo diferente do que já está gravado.</em>';
   return `<table class="table diff-table"><thead><tr><th>Campo</th>${p.op === 'criar' ? '' : '<th>Hoje</th>'}<th>${p.op === 'criar' ? 'Valor' : 'Passa a ser'}</th></tr></thead><tbody>${linhas.join('')}</tbody></table>`;
@@ -5573,11 +5627,16 @@ function renderAlteracoesPendentes() {
     let acoes;
     if (p.status === 'PENDENTE') {
       const posso = podeAprovarPedido(p);
-      const motivo = p.solicitadoPor === State.user?.uid ? 'Você não aprova o próprio pedido' : 'Você não tem ✅ Pode neste item';
+      const motivo = p.solicitadoPor === State.user?.uid ? 'Você não aprova o próprio pedido'
+        : (!pedidoCoerente(p) ? '⚠️ Pedido inconsistente — rejeite' : 'Você não tem ✅ Pode neste item');
+      const podeRejeitar = pode('aprovarAlteracoes') && p.solicitadoPor !== State.user?.uid;
       acoes = posso
         ? `<button class="btn btn-primary btn-sm" id="btn-aprovar-alt-${p.id}" onclick="decidirAlteracao('${p.id}', true)">Aprovar</button>
            <button class="btn btn-secondary btn-sm" id="btn-rejeitar-alt-${p.id}" onclick="decidirAlteracao('${p.id}', false)">Rejeitar</button>`
-        : `<span class="muted" style="font-size:11px;">${escapeHtml(motivo)}</span>`;
+        : `<span class="muted" style="font-size:11px;">${escapeHtml(motivo)}</span>`
+          + (podeRejeitar ? ` <button class="btn btn-secondary btn-sm" id="btn-rejeitar-alt-${p.id}" onclick="decidirAlteracao('${p.id}', false)">Rejeitar</button>` : '');
+    } else if (p.status === 'EM_DECISAO') {
+      acoes = '<span class="aprov-badge aprov-badge-aguardando">⏳ Em decisão</span>';
     } else {
       acoes = `<span class="aprov-badge ${p.status === 'APROVADA' ? 'aprov-badge-aprovado' : 'aprov-badge-rejeitado'}">${p.status === 'APROVADA' ? 'Aprovada' : 'Rejeitada'}</span>
         <br><span class="muted" style="font-size:11px;">por ${escapeHtml(p.decididoPorNome || '—')}${p.motivo ? ' — ' + escapeHtml(p.motivo) : ''}</span>`;
@@ -5598,31 +5657,69 @@ function renderAlteracoesPendentes() {
 async function decidirAlteracao(pedidoId, aprovar) {
   const p = _alteracoesCache.find(x => x.id === pedidoId);
   if (!p) return;
-  if (!podeAprovarPedido(p)) { showInlineStatus('alteracoes-status', '❌ Você não pode decidir este pedido.', 'error'); return; }
+  const podeDecidir = aprovar ? podeAprovarPedido(p) : (pode('aprovarAlteracoes') && p.solicitadoPor !== State.user?.uid);
+  if (!podeDecidir) { showInlineStatus('alteracoes-status', '❌ Você não pode decidir este pedido.', 'error'); return; }
+  const col = aprovar ? tenantPath().collection(p.colecao) : null;
   let motivo = '';
+  let atual = null;
+  let campos = null; // editar: só os campos que o pedido de fato muda
   if (aprovar) {
-    if (!(await confirmar({ titulo: 'Aprovar alteração?', mensagem: `${escapeHtml(p.solicitadoPorNome || '')} pediu para <strong>${OP_VERBO[p.op]}</strong>: ${escapeHtml(p.titulo || '')}.`, detalhe: 'A alteração é gravada agora, em seu nome como aprovador.', confirmar: '✔ Aprovar' }))) return;
+    try {
+      // Registro como está AGORA (o pedido pode ter sido feito há dias)
+      if (p.docId) { const s = await col.doc(p.docId).get(); atual = s.exists ? s.data() : null; }
+      if ((p.op === 'editar' || p.op === 'excluir') && !atual) throw new Error('O registro deste pedido não existe mais. Rejeite o pedido.');
+      // Ações delicadas recalculadas sobre o registro atual — não confia no que o pedido declarou
+      const acoes = acoesDoPedido(p, atual);
+      if (nivelEfetivo(p.modulo, p.op, acoes) !== 'sim') {
+        const falta = acoes.filter(a => nivelPermissao(a) !== 'sim').map(a => (ACOES_SENSIVEIS.find(x => x.id === a) || {}).label || a);
+        throw new Error('Para aprovar este pedido é preciso ✅ Pode também em: ' + (falta.join(', ') || 'este item') + '.');
+      }
+    } catch (err) {
+      showInlineStatus('alteracoes-status', `❌ ${escapeHtml(err.message)}`, 'error');
+      return;
+    }
+    let aviso = '';
+    if (p.op === 'editar') {
+      const antes = p.antes || {};
+      campos = Object.keys(p.dados || {}).filter(k => !iguais(p.dados[k], antes[k]));
+      const conflitos = campos.filter(k => !iguais(atual[k], antes[k]));
+      if (!campos.length) aviso = '<br><br>⚠️ O pedido não muda nenhum campo em relação ao que havia quando foi feito.';
+      if (conflitos.length) aviso += `<br><br>⚠️ <strong>Estes campos foram alterados por outra pessoa depois do pedido</strong> e serão sobrescritos: ${escapeHtml(conflitos.join(', '))}.`;
+    }
+    if (!(await confirmar({
+      titulo: 'Aprovar alteração?',
+      mensagem: `${escapeHtml(p.solicitadoPorNome || '')} pediu para <strong>${OP_VERBO[p.op]}</strong>: ${escapeHtml(p.titulo || '')}.`,
+      detalhe: 'A alteração é gravada agora, em seu nome como aprovador.' + (campos ? ` Campos: ${escapeHtml(campos.join(', ') || '—')}.` : '') + aviso,
+      confirmar: '✔ Aprovar', aviso: !!aviso,
+    }))) return;
   } else {
     const r = await pedirTexto({ titulo: 'Rejeitar alteração', mensagem: 'Motivo (aparece para quem pediu):', confirmar: 'Rejeitar' });
     if (r === null) return;
     motivo = r;
   }
   const btn = $(aprovar ? `btn-aprovar-alt-${pedidoId}` : `btn-rejeitar-alt-${pedidoId}`);
+  const ref = tenantPath().collection('alteracoesPendentes').doc(pedidoId);
+  let reservado = false;
   try {
-    await drgSubmit(btn, aprovar ? '⏳ Aprovando... aguarde' : '⏳ Rejeitando... aguarde', async () => {
-      const ref = tenantPath().collection('alteracoesPendentes').doc(pedidoId);
-      const atual = await ref.get();
-      if (!atual.exists || atual.data().status !== 'PENDENTE') throw new Error('Este pedido já foi decidido por outra pessoa.');
+    const r = await drgSubmit(btn, aprovar ? '⏳ Aprovando... aguarde' : '⏳ Rejeitando... aguarde', async () => {
+      // Reserva o pedido numa transação: dois aprovadores ao mesmo tempo não gravam em dobro
+      await db.runTransaction(async (tx) => {
+        const s = await tx.get(ref);
+        if (!s.exists || s.data().status !== 'PENDENTE') throw new Error('Este pedido já foi decidido por outra pessoa.');
+        tx.update(ref, { status: 'EM_DECISAO', decididoPor: State.user.uid });
+      });
+      reservado = true;
       let docId = p.docId;
       if (aprovar) {
-        const col = tenantPath().collection(p.colecao);
         const agora = firebase.firestore.FieldValue.serverTimestamp();
         if (p.op === 'criar') {
           const novo = { ...p.dados, criadoEm: agora, criadoPor: p.solicitadoPor, aprovadoPor: State.user.uid };
           if (p.docId) await col.doc(p.docId).set(novo, { merge: true });
           else docId = (await col.add(novo)).id;
         } else if (p.op === 'editar') {
-          await col.doc(p.docId).update({ ...p.dados, atualizadoEm: agora, aprovadoPor: State.user.uid });
+          const mudancas = {};
+          campos.forEach(k => { mudancas[k] = p.dados[k]; });
+          await col.doc(p.docId).update({ ...mudancas, atualizadoEm: agora, aprovadoPor: State.user.uid });
         } else if (p.op === 'excluir') {
           if (EXCLUSAO_CUSTOM[p.colecao]) await EXCLUSAO_CUSTOM[p.colecao](p.docId);
           else await col.doc(p.docId).delete();
@@ -5639,12 +5736,16 @@ async function decidirAlteracao(pedidoId, aprovar) {
         decididoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
       logAuditoria(aprovar ? 'aprovar_alteracao' : 'rejeitar_alteracao', p.colecao, docId || pedidoId,
-        { pedido: pedidoId, op: p.op, solicitadoPor: p.solicitadoPorNome, motivo: motivo || null });
+        { pedido: pedidoId, op: p.op, solicitadoPor: p.solicitadoPorNome, campos: campos || null, motivo: motivo || null });
+      return true;
     });
+    if (r === DRG_IGNORADO) return; // botão já estava em andamento
     showInlineStatus('alteracoes-status', aprovar ? `✓ Aprovada e gravada: ${escapeHtml(p.titulo || '')}.` : '✓ Pedido rejeitado.', 'success', 6000);
     loadAlteracoesPendentes();
   } catch (err) {
     console.error('Erro ao decidir alteração:', err);
+    // Falhou depois de reservar: devolve o pedido para a fila
+    if (reservado) { try { await ref.update({ status: 'PENDENTE', decididoPor: null }); } catch (_) {} }
     showInlineStatus('alteracoes-status', `❌ ${escapeHtml(err.message)}`, 'error');
   }
 }
@@ -5655,13 +5756,7 @@ POS_APROVACAO.locatarios = apagarPastaAoExcluir('locatarios', async () => invali
 POS_APROVACAO.garantias = apagarPastaAoExcluir('garantias', async () => invalidateGarantiasCache());
 POS_APROVACAO.compradores = apagarPastaAoExcluir('compradores', async () => invalidateCompradoresCache());
 EXCLUSAO_CUSTOM.contratos = (id) => excluirContratoCascata(id);
-POS_APROVACAO.balancetes = async ({ id, op }) => {
-  if (op !== 'excluir') return;
-  try {
-    const list = await storageTenantRef().child(`balancetes/${id}/comprovantes`).listAll();
-    await Promise.all(list.items.map(item => item.delete()));
-  } catch (_) {}
-};
+POS_APROVACAO.balancetes = apagarPastaAoExcluir('balancetes', null, '/comprovantes');
 // Contrato aprovado: imóvel acompanha (alugado / disponível), como no salvar direto
 POS_APROVACAO.contratos = async ({ op, dados, antes }) => {
   if (op === 'excluir' || !dados || !dados.imovelId) return;
@@ -6239,6 +6334,7 @@ async function deleteLocador() {
     const r = await drgSubmit($('btn-delete-locador'), '⏳ Excluindo... aguarde', () => gravar({
       modulo: 'locadores', colecao: 'locadores', op: 'excluir', id, titulo: `Proprietário ${nome}`,
     }), { destravar: true });
+    if (r === DRG_IGNORADO) return;
     if (r.pendente) {
       showAlert('locador-alert', msgGravacao(r), 'success');
       setTimeout(closeLocadorModal, 1800);
@@ -14191,7 +14287,8 @@ async function carregarPerfisCache() {
   _perfisCache = {};
   snap.docs.forEach(d => {
     const doc = d.data();
-    _perfisCache[d.id] = { doc, norm: normalizarPerfil(doc, roleDoPerfilId(d.id) || doc.seedRole || null) };
+    const norm = normalizarPerfil(doc, roleDoPerfilId(d.id) || doc.seedRole || null);
+    _perfisCache[d.id] = { doc, norm, acima: excessosSobreMeuPerfil(norm).length > 0 };
   });
   return snap;
 }
@@ -14252,7 +14349,7 @@ async function criarPerfisSeed() {
   try {
     let criados = 0;
     const pulados = [];
-    await drgSubmit(btn, '⏳ Criando perfis... aguarde', async () => {
+    const rSeed = await drgSubmit(btn, '⏳ Criando perfis... aguarde', async () => {
       await carregarPerfisCache();
       const roles = ['super_admin', 'operador_drg', 'admin', 'operador', 'corretor'];
       const nomesRole = {
@@ -14285,6 +14382,7 @@ async function criarPerfisSeed() {
       });
       await batch.commit();
     }, { destravar: true });
+    if (rSeed === DRG_IGNORADO) return;
     logAuditoria('create', 'config', 'perfis-seed', { criados, pulados });
     showInlineStatus(SID, `✓ ${criados} perfil(is) criado(s)/atualizado(s).` + (pulados.length ? ` Pulados (acima do seu limite): ${escapeHtml(pulados.join(', '))}.` : ''), 'success', 8000);
     loadEquipe();
@@ -14444,7 +14542,7 @@ async function savePerfil() {
   }
 
   try {
-    await drgSubmit($('btn-save-perfil'), '⏳ Salvando... aguarde', async () => {
+    const rPerfil = await drgSubmit($('btn-save-perfil'), '⏳ Salvando... aguarde', async () => {
       const payload = { permissoes: norm.permissoes, acoes: norm.acoes, versao: 3,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPor: State.user.uid };
       if (id) {
@@ -14467,6 +14565,7 @@ async function savePerfil() {
         logAuditoria('create', 'config', 'perfil:' + ref.id, { nome });
       }
     });
+    if (rPerfil === DRG_IGNORADO) return;
     $('btn-save-perfil').innerHTML = '✓ Salvo';
     showAlert('perfil-alert', '✓ Perfil salvo. Vale no próximo acesso de quem usa este perfil.', 'success');
     loadEquipe();
@@ -14488,10 +14587,11 @@ async function deletePerfil() {
   } catch (_) {}
   if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Operador, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    await drgSubmit($('btn-delete-perfil'), '⏳ Excluindo... aguarde', async () => {
+    const rDel = await drgSubmit($('btn-delete-perfil'), '⏳ Excluindo... aguarde', async () => {
       await tenantPath().collection('perfis').doc(id).delete();
       logAuditoria('delete', 'config', 'perfil:' + id);
     }, { destravar: true });
+    if (rDel === DRG_IGNORADO) return;
     closePerfilModal();
     showAlert('equipe-alert', '✓ Perfil excluído.', 'success');
     loadEquipe();
@@ -14509,7 +14609,7 @@ function opcoesPerfilUsuario(role, selecionado) {
     .filter(([pid]) => !pid.startsWith('seed_'))
     .sort((a, b) => String(a[1].doc.nome).localeCompare(String(b[1].doc.nome)))
     .forEach(([pid, c]) => {
-      const acima = excessosSobreMeuPerfil(c.norm).length > 0;
+      const acima = c.acima;
       html += `<option value="${pid}" ${pid === selecionado ? 'selected' : ''} ${acima ? 'disabled' : ''}>${escapeHtml(c.doc.nome || pid)}${acima ? ' (acima do seu limite)' : ''}</option>`;
     });
   return html;

@@ -510,9 +510,12 @@ async function aprovarPagamento(request, env, origin, usuario) {
 
   // (6b) destino do repasse refeito AGORA a partir do cadastro (não confia no
   // que o navegador gravou): autorização do representante precisa estar em dia
-  // e a chave precisa ser a mesma da solicitação. Solicitações antigas, sem
-  // locadorId, seguem o fluxo anterior (só podem ser ao locador).
-  if (sol.locadorId) {
+  // e a chave precisa ser a mesma da solicitação. Sem locadorId não há como
+  // conferir → recusa (quem grava a solicitação poderia omitir o campo de propósito).
+  if (!sol.locadorId) {
+    return jsonResponse({ ok: false, error: 'Solicitação sem proprietário vinculado (formato antigo ou incompleto). Rejeite e solicite de novo pelo balancete.' }, 400, origin);
+  }
+  {
     const loc = await firestoreAdminGet(env, `tenants/${tenantId}/locadores/${sol.locadorId}`);
     if (!loc) return jsonResponse({ ok: false, error: 'Proprietário da solicitação não encontrado.' }, 404, origin);
     const dest = destinoRepasseServidor(loc);
@@ -527,8 +530,6 @@ async function aprovarPagamento(request, env, origin, usuario) {
     if (!mesmoDestino) {
       return jsonResponse({ ok: false, error: 'O destino do repasse mudou no cadastro depois desta solicitação. Rejeite-a e solicite de novo.' }, 409, origin);
     }
-  } else if (sol.destinatario === 'representante') {
-    return jsonResponse({ ok: false, error: 'Solicitação ao representante sem proprietário vinculado. Rejeite e solicite de novo.' }, 400, origin);
   }
 
   // (7) só AGORA executa a transferência PIX no Asaas

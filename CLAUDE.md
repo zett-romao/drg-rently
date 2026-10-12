@@ -496,6 +496,16 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
 
 ## Histórico de decisões
 
+- **2026-10-12 (revisão)**: correções da revisão do Perfis 3.0 — 20 linhas `$g` soltas (sobra de
+  `sed`) quebravam todo upload/exclusão de arquivo (hotfix `dff7a7a`); aprovação da fila confere
+  módulo×coleção (`MODULO_COLECAO`), recalcula ações delicadas sobre o registro atual, reserva o
+  pedido em transação (`EM_DECISAO`) e grava só os campos alterados, avisando conflito;
+  comparação de mapas estável (`jsonEstavel`); worker exige `locadorId` em todo repasse;
+  "gerenciar usuários"/"aprovar alterações" não vêm mais por herança (só admin tem piso);
+  regras: delegação também pelo `seed_<role>` e pedido do corretor só em imóvel/proprietário dele.
+  🔎 Lição: depois de inserir linhas por script, rodar ESLint `no-undef` comparando com a versão
+  anterior — `node --check` não pega identificador indefinido.
+
 - **2026-10-12 (noite)**: 🔓 **Perfis 3.0** (ver "Permissões" acima): seção nova
   "👥 Equipe e permissões" (saiu de Configurações), perfis-modelo Gerente/Gestor/Corretor/
   Aux. Administrativo/Financeiro/Cobrança, fila "🕓 Alterações aguardando aprovação" na tela
