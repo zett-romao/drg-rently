@@ -1754,6 +1754,116 @@ async function deletePagamento(tenantId, pagId) {
   }
 }
 
+// ----- Super Admin: cadastrar cliente (imobiliária PJ ou corretor autônomo PF) -----
+// Faz o mesmo que o "Criar conta" da tela de login, mas sem deslogar quem opera:
+// login do responsável via REST + tenant + users/{uid} (role admin) num batch.
+let _tipoNovoCliente = 'PJ';
+
+function setTipoNovoCliente(tipo) {
+  _tipoNovoCliente = tipo === 'PF' ? 'PF' : 'PJ';
+  document.querySelectorAll('[data-nc-tipo]').forEach(b => b.classList.toggle('active', b.dataset.ncTipo === _tipoNovoCliente));
+  const pf = _tipoNovoCliente === 'PF';
+  $('nc-label-nome').textContent = pf ? 'Nome completo do corretor' : 'Razão social';
+  $('nc-label-doc').textContent = pf ? 'CPF' : 'CNPJ';
+  $('nc-doc').placeholder = pf ? '000.000.000-00' : '00.000.000/0000-00';
+}
+
+function onPlanoNovoCliente() {
+  const ilimitado = $('nc-plano').value === 'ilimitado';
+  ['nc-valor', 'nc-vencimento'].forEach(id => { $(id).disabled = ilimitado; if (ilimitado) $(id).value = ''; });
+}
+
+function openNovoClienteModal() {
+  if (!State.isSuperAdmin) return;
+  clearAlert('novo-cliente-alert');
+  ['nc-nome', 'nc-doc', 'nc-creci', 'nc-telefone', 'nc-admin-nome', 'nc-admin-email', 'nc-valor', 'nc-vencimento']
+    .forEach(id => { $(id).value = ''; });
+  $('nc-senha').value = gerarSenhaAleatoria(10);
+  $('nc-plano').value = 'trial';
+  setTipoNovoCliente('PJ');
+  onPlanoNovoCliente();
+  $('modal-novo-cliente').style.display = 'flex';
+}
+
+function closeNovoClienteModal() {
+  $('modal-novo-cliente').style.display = 'none';
+}
+
+async function saveNovoCliente() {
+  clearAlert('novo-cliente-alert');
+  const pf = _tipoNovoCliente === 'PF';
+  const nome = $('nc-nome').value.trim();
+  const docDigits = $('nc-doc').value.replace(/\D/g, '');
+  const creci = $('nc-creci').value.trim() || null;
+  const telefone = $('nc-telefone').value.replace(/\D/g, '') || null;
+  const adminNome = $('nc-admin-nome').value.trim();
+  const email = $('nc-admin-email').value.trim().toLowerCase();
+  const senha = $('nc-senha').value;
+  const plano = $('nc-plano').value;
+  const ilimitado = plano === 'ilimitado';
+
+  const erro = !nome ? `${pf ? 'Nome do corretor' : 'Razão social'} é obrigatório.`
+    : (pf ? !validaCPF(docDigits) : !validaCNPJ(docDigits)) ? `${pf ? 'CPF' : 'CNPJ'} inválido. Confira os números.`
+    : !adminNome ? 'Nome do responsável é obrigatório.'
+    : !email ? 'E-mail do responsável é obrigatório.'
+    : senha.length < 6 ? 'Senha deve ter no mínimo 6 caracteres.'
+    : null;
+  if (erro) { showAlert('novo-cliente-alert', erro); return; }
+
+  const btn = $('btn-save-novo-cliente');
+  btn.disabled = true; btn.textContent = 'Cadastrando…';
+  let conta = null;
+  try {
+    conta = await criarOuRecuperarContaAuth(email, senha); // rede.js
+    const tenantRef = db.collection('tenants').doc();
+    const agora = firebase.firestore.FieldValue.serverTimestamp();
+    const tenantData = {
+      nome, tipoPessoa: _tipoNovoCliente, creci, telefone,
+      plano, ativo: true,
+      valorMensalidade: ilimitado ? null : (parseFloat($('nc-valor').value) || null),
+      proximoVencimento: ilimitado ? null : ($('nc-vencimento').value || null),
+      criadoEm: agora,
+      criadoPor: State.user.uid,
+      cadastradoPeloSuperAdmin: true,
+    };
+    if (pf) tenantData.cpf = formataCPF(docDigits); else tenantData.cnpj = formataCNPJ(docDigits);
+    if (ilimitado) { tenantData.pacote = 'ilimitado'; tenantData.modulosHabilitados = null; }
+
+    const batch = db.batch();
+    batch.set(tenantRef, tenantData);
+    batch.set(db.collection('users').doc(conta.uid), {
+      nome: adminNome, email, tenantId: tenantRef.id, role: 'admin', ativo: true,
+      criadoEm: agora, criadoPor: State.user.uid,
+    });
+    await batch.commit();
+
+    logAuditoria('create', 'tenant', tenantRef.id, { nome, tipoPessoa: _tipoNovoCliente, plano, admin: email });
+    closeNovoClienteModal();
+    loadTenantsTable();
+    const acesso = `Acesso ao DRG-Rently\nLink: https://zett-romao.github.io/drg-rently/\nE-mail: ${email}\nSenha inicial: ${senha}`;
+    const copiar = await confirmar({
+      titulo: '✅ Cliente cadastrado',
+      mensagem: `<strong>${escapeHtml(nome)}</strong> já pode entrar no sistema.`,
+      detalhe: `Link: https://zett-romao.github.io/drg-rently/<br>E-mail: <strong>${escapeHtml(email)}</strong><br>Senha inicial: <strong>${escapeHtml(senha)}</strong><br><br>Envie esses dados ao cliente e peça para trocar a senha no primeiro acesso ("Esqueci minha senha").`,
+      confirmar: '📋 Copiar dados de acesso',
+      cancelar: 'Fechar',
+    });
+    if (copiar) { try { await navigator.clipboard.writeText(acesso); } catch (_) {} }
+  } catch (err) {
+    console.error('Erro ao cadastrar cliente:', err);
+    if (conta?.nova) await apagarContaAuth(conta.idToken); // não deixa login órfão
+    showAlert('novo-cliente-alert', 'Erro: ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Cadastrar cliente';
+  }
+}
+
+window.openNovoClienteModal = openNovoClienteModal;
+window.closeNovoClienteModal = closeNovoClienteModal;
+window.saveNovoCliente = saveNovoCliente;
+window.setTipoNovoCliente = setTipoNovoCliente;
+window.onPlanoNovoCliente = onPlanoNovoCliente;
+
 async function saveTenantManagement() {
   const tenantId = $('tenant-id').value;
   if (!tenantId) return;

@@ -1051,7 +1051,10 @@
                 <h3>Imobiliárias clientes</h3>
                 <p class="muted">Gerencie todos os tenants do SaaS.</p>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="loadTenantsTable()">🔄 Recarregar</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="loadTenantsTable()">🔄 Recarregar</button>
+                <button class="btn btn-primary btn-sm" id="btn-novo-cliente" onclick="openNovoClienteModal()">+ Novo cliente</button>
+              </div>
             </div>
 
             <div class="form-row" style="max-width:700px; margin-bottom:14px;">
@@ -5262,6 +5265,61 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+  <div class="modal-overlay" id="modal-novo-cliente" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Novo cliente</h3>
+        <button class="modal-close" onclick="closeNovoClienteModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="novo-cliente-alert" class="alert alert-error" style="display:none;"></div>
+        <div class="form-group">
+          <label>Tipo de cliente</label>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="papel-filtro-btn active" data-nc-tipo="PJ" onclick="setTipoNovoCliente('PJ')">🏢 Imobiliária (PJ)</button>
+            <button type="button" class="papel-filtro-btn" data-nc-tipo="PF" onclick="setTipoNovoCliente('PF')">👤 Corretor autônomo (PF)</button>
+          </div>
+        </div>
+        <div class="form-group"><label class="required" id="nc-label-nome">Razão social</label><input type="text" id="nc-nome"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="required" id="nc-label-doc">CNPJ</label><input type="text" id="nc-doc" inputmode="numeric"></div>
+          <div class="form-group"><label>CRECI</label><input type="text" id="nc-creci"></div>
+        </div>
+        <div class="form-group"><label>Telefone / WhatsApp</label><input type="tel" id="nc-telefone"></div>
+
+        <h4 class="form-section-title">Acesso do responsável (administrador)</h4>
+        <div class="form-group"><label class="required">Nome do responsável</label><input type="text" id="nc-admin-nome"></div>
+        <div class="form-group"><label class="required">E-mail (será o login)</label><input type="email" id="nc-admin-email"></div>
+        <div class="form-group">
+          <label class="required">Senha inicial</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="nc-senha" style="flex:1; font-family:'Courier New', monospace;">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="$('nc-senha').value = gerarSenhaAleatoria(10)">🎲 Gerar</button>
+          </div>
+        </div>
+
+        <h4 class="form-section-title">Plano</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Plano</label>
+            <select id="nc-plano" onchange="onPlanoNovoCliente()">
+              <option value="trial">Trial (gratuito)</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+              <option value="ilimitado">♾️ Ilimitado (cortesia)</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Mensalidade (R$)</label><input type="number" id="nc-valor" min="0" step="0.01" placeholder="0,00"></div>
+          <div class="form-group"><label>Próximo vencimento</label><input type="date" id="nc-vencimento"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeNovoClienteModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-novo-cliente" onclick="saveNovoCliente()">Cadastrar cliente</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-corretor" style="display:none;">
     <div class="modal">
       <div class="modal-header">
@@ -5319,7 +5377,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261011i-portais"></script>
+  <script src="app.js?v=20261012a-novocliente"></script>
   <script src="rede.js?v=20261011i-portais"></script>
 </body>
 </html>
