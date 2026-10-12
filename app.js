@@ -1650,6 +1650,13 @@ window.onTenantPlanoChange = onTenantPlanoChange;
 
 function onTenantPacoteChange() {
   const pacote = $('tenant-pacote').value;
+  // Pacote Ilimitado = plano Ilimitado (cortesia): troca o plano junto, senão o
+  // vencimento antigo continua valendo e o tenant aparece como inadimplente
+  if (pacote === 'ilimitado') {
+    $('tenant-plano').value = 'ilimitado';
+    onTenantPlanoChange();
+    return;
+  }
   // Lê o estado atual de marcados antes de redesenhar (pra preservar em custom)
   const marcadosAtuais = Array.from(document.querySelectorAll('input[name="tenant-mod"]:checked')).map(c => c.value);
   renderTenantModulos(pacote, marcadosAtuais);
