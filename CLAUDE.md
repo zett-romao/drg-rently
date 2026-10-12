@@ -438,7 +438,7 @@ foi removida; Worker do feed já lê `vitrine`.
   admin/operador/corretor em qualquer tenant). Autocadastro pela tela de login continua (`?signup=1`).
 - **2026-10-11 (tarde)**: plano **♾️ Ilimitado** (cortesia: `modulosHabilitados=null` = todos os
   módulos, inclusive futuros; sem mensalidade/vencimento; nunca inadimplente; pacote e plano
-  andam juntos). D.R. Global = tenant `K52yZ4nqu7Z7DJfVegYo` (sem slug ainda).
+  andam juntos). D.R. Global = tenant `K52yZ4nqu7Z7DJfVegYo`.
   **Equipe DRG**: abas Equipe/Arquivo/Lixeira (`users.situacao`) + exclusão definitiva só da
   lixeira (apaga `users/{uid}`; o login no Auth continua existindo — apagar exigiria Worker com
   service account). **Telefone** exibido como `+55 11 99734-7272` (`maskTelefone` aceita com/sem
