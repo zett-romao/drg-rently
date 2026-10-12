@@ -433,6 +433,23 @@ foi removida; Worker do feed já lê `vitrine`.
 
 ## Histórico de decisões
 
+- **2026-10-12**: **"+ Novo cliente"** no Super Admin (`saveNovoCliente`): cadastra tenant PJ ou
+  PF + login do admin via REST sem deslogar o super_admin (regra `users` (e): equipe DRG cria
+  admin/operador/corretor em qualquer tenant). Autocadastro pela tela de login continua (`?signup=1`).
+- **2026-10-11 (tarde)**: plano **♾️ Ilimitado** (cortesia: `modulosHabilitados=null` = todos os
+  módulos, inclusive futuros; sem mensalidade/vencimento; nunca inadimplente; pacote e plano
+  andam juntos). D.R. Global = tenant `K52yZ4nqu7Z7DJfVegYo` (sem slug ainda).
+  **Equipe DRG**: abas Equipe/Arquivo/Lixeira (`users.situacao`) + exclusão definitiva só da
+  lixeira (apaga `users/{uid}`; o login no Auth continua existindo — apagar exigiria Worker com
+  service account). **Telefone** exibido como `+55 11 99734-7272` (`maskTelefone` aceita com/sem
+  55; `telefoneWhatsApp` não duplica o 55). **Locador**: Pix no topo + banco/agência/conta/tipo
+  separados em `dadosBancarios` (o texto `banco` continua gravado pro balancete).
+  **Portais**: +10 cards (Facebook/Instagram, CRECI-SP, Lopes, Dream Casa, Moving, Homer,
+  Casafy, Buskaza, Portais Imobiliários, Vale do Paraíba). Quase todos usam o feed `zap` (VRSync).
+  Formato novo `format=facebook` (catálogo Meta Home Listing) — exige lat/long: `vitrine.geo`
+  vem do CEP via BrasilAPI (bairro oculto = sem geo). CRECI-SP não publica layout: card manda
+  o feed zap e orienta confirmar. Guia de Imóveis e Local do Imóvel ficaram de fora (site não achado).
+  Dono prefere receber Worker/regras **completos** colados no chat (não "trocas" manuais).
 - **2026-10-11**: **Rede de corretores** (ver seção acima) + **blindagem de `users`**: antes,
   qualquer usuário podia editar o próprio doc e se promover a `super_admin`, e qualquer um
   podia criar `users/{uid}` apontando pra tenant alheio como admin. Agora: self-update não
