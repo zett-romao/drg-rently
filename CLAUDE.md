@@ -428,8 +428,8 @@ publicado (gerada em `sincronizarVitrine()`, junto com a ficha da rede). Sem pro
 número/complemento, matrícula, IPTU, observações; respeita os toggles `publicacao`.
 `imoveis.html`/`imovel.html` e o Worker `drg-rently-feed` leem `vitrine` (com fallback
 pro modelo antigo só enquanto a vitrine estiver vazia). Feed não manda mais `obs` aos portais.
-**Pendente de limpeza:** apagar a linha `allow read: if resource.data.linkPublico == true`
-de `imoveis` nas regras **depois** de redeployar o Worker do feed.
+**Limpeza feita (2026-10-11):** a leitura pública de `imoveis`
+foi removida; Worker do feed já lê `vitrine`.
 
 ## Histórico de decisões
 

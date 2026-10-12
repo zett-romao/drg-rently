@@ -202,10 +202,7 @@ service cloud.firestore {
 
       // Imóveis
       match /imoveis/{imovelId} {
-        // TRANSIÇÃO: leitura pública do imóvel inteiro. Site e feed agora leem
-        // a coleção "vitrine". APAGAR esta linha depois que o Worker drg-rently-feed
-        // for atualizado (cloudflare-worker-feed.js lendo "vitrine").
-        allow read: if resource.data.linkPublico == true;
+        // (sem leitura pública: site e feed leem a coleção "vitrine")
         allow read, write: if isEquipeTenant(tenantId);
         allow read, write: if isDRGTeam();
         // Corretor: só os que ele captou
