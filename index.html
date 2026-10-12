@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261012b-repasse-rep">
+  <link rel="stylesheet" href="styles.css?v=20261012c-perfis3">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -270,6 +270,7 @@
           <div class="nav-group-title">Administração</div>
           <div class="drag-hint">↕ arraste para reordenar</div>
           <a class="nav-link" id="nav-importacao" data-section="importacao"><span class="nav-ico">📥</span><span>Importação CSV</span></a>
+          <a class="nav-link" id="nav-equipe" data-section="equipe" title="Usuários, perfis e delegação de permissões"><span class="nav-ico">👥</span><span>Equipe e permissões</span></a>
           <a class="nav-link" id="nav-auditoria" data-section="auditoria"><span class="nav-ico">📜</span><span>Auditoria</span></a>
           <a class="nav-link" id="nav-superadmin" data-section="superadmin" style="display:none;"><span class="nav-ico">👑</span><span>Super Admin</span></a>
           <a class="nav-link" id="nav-configuracoes" data-section="configuracoes"><span class="nav-ico">⚙️</span><span>Configurações</span></a>
@@ -436,7 +437,7 @@
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" onclick="exportarLocadores()" title="Baixar CSV com todos os cadastros desta lista">📥 Exportar CSV</button>
-                <button class="btn btn-primary" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
+                <button class="btn btn-primary" data-perm="locadores:criar" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
               </div>
             </div>
 
@@ -473,7 +474,7 @@
                 <h3>Locatários</h3>
                 <p class="muted">Inquilinos e ficha sócio-econômica.</p>
               </div>
-              <button class="btn btn-primary" onclick="openLocatarioModal()">+ Novo Locatário</button>
+              <button class="btn btn-primary" data-perm="locatarios:criar" onclick="openLocatarioModal()">+ Novo Locatário</button>
             </div>
 
             <div class="table-wrap">
@@ -503,7 +504,7 @@
                 <h3>Garantias</h3>
                 <p class="muted">Fiador, caução ou seguro fiança.</p>
               </div>
-              <button class="btn btn-primary" onclick="openGarantiaModal()">+ Nova Garantia</button>
+              <button class="btn btn-primary" data-perm="garantias:criar" onclick="openGarantiaModal()">+ Nova Garantia</button>
             </div>
 
             <div class="table-wrap">
@@ -534,7 +535,7 @@
                 <p class="muted">Fichas compartilhadas pelos corretores. Você vê só os campos que a imobiliária liberou; a ficha completa aparece quando o captador libera pra você.</p>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                <button class="btn btn-primary" onclick="openImovelModal()">+ Cadastrar imóvel captado</button>
+                <button class="btn btn-primary" data-perm="imoveis:criar" onclick="openImovelModal()">+ Cadastrar imóvel captado</button>
               </div>
             </div>
             <div class="papel-filtros" id="rede-filtros">
@@ -658,7 +659,7 @@
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" onclick="exportarImoveis()" title="Baixar CSV com todos os imóveis">📥 Exportar CSV</button>
-                <button class="btn btn-primary" onclick="openImovelModal()">+ Novo Imóvel</button>
+                <button class="btn btn-primary" data-perm="imoveis:criar" onclick="openImovelModal()">+ Novo Imóvel</button>
               </div>
             </div>
 
@@ -793,7 +794,7 @@
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-secondary" onclick="importarContratoPorIA('locacao')" title="Importar contrato (PDF, Word ou imagem) e preencher tudo automaticamente">🤖 Importar contrato</button>
-                <button class="btn btn-primary" onclick="openContratoModal()">+ Novo Contrato</button>
+                <button class="btn btn-primary" data-perm="contratos:criar" onclick="openContratoModal()">+ Novo Contrato</button>
               </div>
             </div>
 
@@ -825,7 +826,7 @@
                 <h3>Balancetes Mensais</h3>
                 <p class="muted">Apuração de receitas e despesas por contrato e mês.</p>
               </div>
-              <button class="btn btn-primary" onclick="openBalanceteModal()">+ Novo Balancete</button>
+              <button class="btn btn-primary" data-perm="balancetes:criar" onclick="openBalanceteModal()">+ Novo Balancete</button>
             </div>
 
             <div class="form-row" style="margin-bottom: 14px; max-width: 600px;">
@@ -882,7 +883,7 @@
                 <h3>Compradores</h3>
                 <p class="muted">Interessados em adquirir imóveis sob administração.</p>
               </div>
-              <button class="btn btn-primary" onclick="openCompradorModal()">+ Novo Comprador</button>
+              <button class="btn btn-primary" data-perm="compradores:criar" onclick="openCompradorModal()">+ Novo Comprador</button>
             </div>
 
             <div class="table-wrap">
@@ -916,7 +917,7 @@
               </div>
               <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-secondary" onclick="importarContratoPorIA('venda')" title="Importar contrato de venda (PDF, Word ou imagem) e preencher tudo automaticamente">🤖 Importar contrato</button>
-                <button class="btn btn-primary" onclick="openNegociacaoModal()">+ Nova Negociação</button>
+                <button class="btn btn-primary" data-perm="negociacoes:criar" onclick="openNegociacaoModal()">+ Nova Negociação</button>
               </div>
             </div>
 
@@ -1585,7 +1586,7 @@
 
         <!-- ============================================ -->
         <section class="section" id="section-aprovacoes" style="display:none;">
-          <div class="card">
+          <div class="card" id="card-aprovacoes-pagamento">
             <div class="section-header">
               <div>
                 <h3>✅ Aprovações de pagamento</h3>
@@ -1613,6 +1614,110 @@
             <p class="muted" style="font-size:11px; margin-top:8px;">
               Quem solicitou um repasse não pode aprovar o próprio — outra pessoa precisa confirmar.
             </p>
+          </div>
+
+          <!-- Alterações "Com aprovação" (Perfis 3.0, 12/10/2026) -->
+          <div class="card" id="card-alteracoes" style="margin-top:16px;">
+            <div class="section-header">
+              <div>
+                <h3 id="card-alteracoes-titulo">🕓 Alterações aguardando aprovação</h3>
+                <p class="muted">O que a equipe fez "Com aprovação". Você só aprova os itens em que tem ✅ Pode — e nunca o próprio pedido.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadAlteracoesPendentes()">🔄 Recarregar</button>
+            </div>
+            <div id="alteracoes-status" class="status-inline" style="display:none; margin-bottom:10px;"></div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Pedido em</th>
+                    <th>Quem pediu</th>
+                    <th>O quê</th>
+                    <th>Status</th>
+                    <th>Decisão</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-alteracoes">
+                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 👥 Equipe e permissões (Perfis 3.0, 12/10/2026): visível a quem tem
+             "Gerenciar usuários e perfis" — não depende do módulo Configurações -->
+        <section class="section" id="section-equipe" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>👥 Equipe e permissões</h3>
+                <p class="muted">Quem acessa o sistema e o que cada um pode fazer. Ninguém concede o que não tem.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadEquipe()">🔄 Recarregar</button>
+            </div>
+            <div id="equipe-alert" class="alert alert-error" style="display:none;"></div>
+            <h4 class="form-section-title">👥 Usuários e perfis da imobiliária</h4>
+            <div style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; border-radius:8px; padding:14px; margin-bottom:16px;">
+              <p style="margin:0 0 8px; color:var(--primary-dark); font-size:13px;">
+                <strong>💡 Como funciona:</strong>
+              </p>
+              <ol style="margin:0; padding-left:18px; color:var(--text); line-height:1.7; font-size:12.5px;">
+                <li>Cada <strong>perfil</strong> diz, módulo a módulo, se a pessoa pode <strong>Ver</strong>, <strong>Criar</strong>, <strong>Editar</strong> e <strong>Excluir</strong>: ✅ Pode · 🕓 Com aprovação · ⛔ Não pode.</li>
+                <li><strong>🕓 Com aprovação</strong>: a alteração não vale na hora — vai para <strong>✅ Aprovações</strong> e só entra quando alguém com "✅ Pode" naquele item aprovar.</li>
+                <li><strong>Delegação</strong>: só quem tem "👥 Gerenciar usuários e perfis" mexe aqui, e <strong>ninguém concede o que não tem</strong> nem altera o próprio perfil.</li>
+                <li>Use "⚙ Criar perfis padrão" para ganhar prontos os cargos Gerente, Gestor, Corretor, Aux. Administrativo, Financeiro e Cobrança — e ajuste à sua imobiliária.</li>
+              </ol>
+            </div>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              <strong>Usuários cadastrados:</strong> troque o perfil de cada um direto na lista.
+            </p>
+            <div id="usuarios-status" class="status-inline" style="display:none; margin-bottom:10px;"></div>
+
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>E-mail</th>
+                    <th>Perfil</th>
+                    <th>Status</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-usuarios-tenant">
+                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button class="btn btn-primary btn-sm" type="button" onclick="openUsuarioTenantModal()">+ Adicionar usuário</button>
+
+            <h4 class="form-section-title">Perfis e permissões</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Perfis dos cargos da imobiliária. "acima do seu limite" = tem permissão que você não tem: só quem tem pode alterar.
+            </p>
+
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead>
+                  <tr>
+                    <th>Nome do perfil</th>
+                    <th>Resumo</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-perfis">
+                  <tr><td colspan="3" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-primary btn-sm" type="button" onclick="openPerfilModal()">+ Novo perfil</button>
+              <button class="btn btn-secondary btn-sm" type="button" id="btn-criar-perfis-seed" onclick="criarPerfisSeed()" title="Cria os perfis-base (um por tipo de usuário) derivados das permissões padrão. Idempotente — pode rodar várias vezes.">⚙ Criar perfis padrão</button>
+            </div>
+            <div id="perfis-seed-status" class="status-inline" style="display:none; margin-top:10px;"></div>
           </div>
         </section>
 
@@ -1821,67 +1926,6 @@
               <p class="muted">Clique em "↻ Recarregar lista" para ver suas passkeys.</p>
             </div>
 
-            <h4 class="form-section-title">👥 Usuários e perfis da imobiliária</h4>
-            <div style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; border-radius:8px; padding:14px; margin-bottom:16px;">
-              <p style="margin:0 0 8px; color:var(--primary-dark); font-size:13px;">
-                <strong>💡 Como funciona:</strong>
-              </p>
-              <ol style="margin:0; padding-left:18px; color:var(--text); line-height:1.7; font-size:12.5px;">
-                <li><strong>Crie perfis</strong> com permissões específicas (ex: "Captador" só vê imóveis, "Financeiro" só vê contratos/balancetes).</li>
-                <li><strong>Cadastre operadores</strong> com e-mail e senha — eles entram pelo mesmo login do app.</li>
-                <li><strong>Vincule cada operador a um perfil</strong> pra limitar o que ele vê. Sem perfil = padrão (todos os cadastros).</li>
-                <li>Administradores têm acesso total ao tenant; operadores só veem o permitido pelo perfil.</li>
-              </ol>
-            </div>
-            <p class="muted" style="font-size:12px; margin-bottom:14px;">
-              <strong>Usuários cadastrados:</strong> operadores que acessam o sistema da imobiliária.
-            </p>
-
-            <div class="table-wrap" style="margin-bottom:14px;">
-              <table class="table" style="font-size:13px;">
-                <thead>
-                  <tr>
-                    <th>Nome</th>
-                    <th>E-mail</th>
-                    <th>Perfil</th>
-                    <th>Status</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="tbody-usuarios-tenant">
-                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <button class="btn btn-primary btn-sm" type="button" onclick="openUsuarioTenantModal()">+ Adicionar usuário</button>
-
-            <h4 class="form-section-title">Perfis e permissões</h4>
-            <p class="muted" style="font-size:12px; margin-bottom:14px;">
-              Crie perfis customizados com permissões específicas (ex: "Captador", "Financeiro").
-              Vincule operadores a esses perfis pra limitar o que cada um vê e faz.
-            </p>
-
-            <div class="table-wrap" style="margin-bottom:14px;">
-              <table class="table" style="font-size:13px;">
-                <thead>
-                  <tr>
-                    <th>Nome do perfil</th>
-                    <th>Módulos permitidos</th>
-                    <th>Ações</th>
-                  </tr>
-                </thead>
-                <tbody id="tbody-perfis">
-                  <tr><td colspan="3" class="empty">Carregando…</td></tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button class="btn btn-primary btn-sm" type="button" onclick="openPerfilModal()">+ Novo perfil</button>
-              <button class="btn btn-secondary btn-sm" type="button" onclick="criarPerfisSeed()" title="Cria os perfis-base (um por tipo de usuário) derivados das permissões padrão. Idempotente — pode rodar várias vezes.">⚙ Criar perfis padrão</button>
-            </div>
-            <div id="perfis-seed-status" class="status-inline" style="display:none; margin-top:10px;"></div>
 
             <h4 class="form-section-title">🛠 Manutenção (administrador)</h4>
             <p class="muted" style="font-size:12px; margin-bottom:14px;">
@@ -3355,27 +3399,29 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <input type="text" id="perfil-nome" placeholder="Ex: Captador, Financeiro, Atendente">
         </div>
 
+        <p id="perfil-travado-aviso" style="display:none; font-size:12.5px; background:#FEF2F2; color:#991B1B; border-left:3px solid #DC2626; padding:8px 10px; margin-bottom:12px;"></p>
+
         <div class="form-group">
-          <label>Permissões de módulos</label>
+          <label>Permissões por módulo</label>
           <p class="muted" style="font-size:11px; margin-bottom:10px;">
-            <strong>Acesso</strong> = pode ver o módulo. <strong>Editar</strong> = pode criar/alterar/excluir.
-            "Editar" só fica ativo se "Acesso" estiver marcado.
+            <strong>Ver</strong> = enxerga o módulo. <strong>Criar / Editar / Excluir</strong>:
+            ✅ Pode · 🕓 Com aprovação (vai para ✅ Aprovações e só vale quando alguém com "Pode" aprovar) · ⛔ Não pode.
+            Opções "(acima do seu)" ficam bloqueadas: ninguém concede o que não tem.
           </p>
           <div id="perfil-modulos-container"></div>
         </div>
 
         <div class="form-group">
-          <label>🔐 Ações sensíveis (aprovações)</label>
+          <label>🔐 Ações delicadas</label>
           <p class="muted" style="font-size:11px; margin-bottom:10px;">
-            Ações que <strong>movem dinheiro ou fecham contrato</strong>. Quem tem a ação marcada
-            pode <strong>aprovar</strong> a operação. ⚠️ A trava real é no servidor (2FA) — esta
-            marcação só controla quem vê o botão.
+            Ações que <strong>movem dinheiro, mudam para onde o dinheiro vai ou dão poder a outras pessoas</strong>.
+            As que são uma aprovação (ex.: aprovar repasse) só têm Pode / Não pode.
           </p>
           <div id="perfil-acoes-container"></div>
         </div>
 
         <p class="muted" id="perfil-sistema-aviso" style="display:none; font-size:11px; background:#fffbeb; border-left:3px solid #f59e0b; padding:8px 10px;">
-          ⚙ Este é um <strong>perfil-base do sistema</strong> (criado pelo "Criar perfis padrão").
+          ⚙ Este é um <strong>perfil-base</strong>: vale para quem é do tipo (Operador, Corretor…) e não tem perfil escolhido.
           Você pode editar as permissões, mas não pode excluí-lo nem renomeá-lo.
         </p>
       </div>
@@ -3524,17 +3570,17 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-group">
           <label>Tipo de acesso</label>
           <select id="usuario-role" onchange="onUsuarioRoleChange()">
-            <option value="operador">Operador (acesso limitado conforme perfil)</option>
+            <option value="operador">Equipe interna (o que pode fazer = perfil abaixo)</option>
             <option value="admin">Administrador (acesso total ao tenant)</option>
           </select>
         </div>
 
         <div class="form-group" id="usuario-perfil-group">
-          <label>Perfil customizado (opcional)</label>
+          <label>Perfil (cargo)</label>
           <select id="usuario-perfil">
-            <option value="">— Padrão (todos os cadastros e operação)</option>
+            <option value="">— Padrão do tipo</option>
           </select>
-          <p class="muted" style="font-size:11px;">Se selecionado, o operador só vê os módulos permitidos por este perfil.</p>
+          <p class="muted" style="font-size:11px;">Define o que a pessoa vê e faz (Gerente, Gestor, Financeiro…). Perfis acima do seu limite não podem ser escolhidos.</p>
         </div>
 
         <div class="form-group" id="usuario-senha-group">
@@ -5566,7 +5612,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261012c-repasse-rep"></script>
-  <script src="rede.js?v=20261011i-portais"></script>
+  <script src="app.js?v=20261012d-perfis3"></script>
+  <script src="rede.js?v=20261012a-perfis3"></script>
 </body>
 </html>

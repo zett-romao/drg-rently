@@ -458,7 +458,49 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
      mudou depois da solicitação. Espelho de `destinoRepasse()` no `app.js` — mudou um, muda o outro.
   6. Solicitação, Aprovações, auditoria e Livro Caixa mostram o favorecido e o instrumento.
 
+### Permissões — quem pode fazer o quê (Perfis 3.0)
+
+- **Original (comportamento travado em 07/08/2026):** o tipo de usuário decidia quase tudo.
+  Admin fazia tudo; operador via os módulos do perfil e **editava tudo o que via** (o "Editar"
+  do perfil não era conferido em lugar nenhum); corretor criava e alterava livremente o que
+  ele mesmo captou. Só o admin criava usuários, e perfil só valia para operador.
+- 🔓 **ALTERADA 12/10/2026** (o dono: *"o corretor precisará de autorizações para fazer
+  alterações… autorizado pelo gestor com autorizações delegadas pelo super admin… perfil
+  customizável… o que interessa para um e o que interessa para outro"*; escolheu 3 níveis,
+  Ver/Criar/Editar/Excluir e delegação em cadeia):
+  1. **Todo usuário tem perfil**, qualquer que seja o tipo (admin, operador, corretor). Sem
+     perfil escolhido vale o perfil-base do tipo (`seed_<role>`) e, sem ele, o padrão do código.
+  2. **Por módulo:** Ver (sim/não) + Criar / Editar / Excluir em **3 níveis**: ✅ Pode ·
+     🕓 Com aprovação · ⛔ Não pode. **Ações delicadas** à parte (Pix/conta de repasse, repasse
+     ao representante, solicitar repasse, fechar balancete, aprovar pagamento, gerenciar
+     usuários e perfis, aprovar alterações…).
+  3. **🕓 Com aprovação** = a gravação vai para `alteracoesPendentes` e só vale quando alguém
+     aprova. **Aprovar exige** "✔ Aprovar alterações da equipe" **e** ✅ Pode no mesmo item
+     (módulo+operação e cada ação delicada envolvida). Ninguém aprova o próprio pedido.
+  4. **Delegação:** só quem tem "👥 Gerenciar usuários e perfis" mexe em perfis e usuários;
+     **ninguém concede o que não tem**, ninguém altera o próprio perfil nem mexe em quem está
+     acima. Super Admin é a raiz, sem limite. Administrador só é criado por Administrador.
+  5. **Corretor (padrão):** cria ✅, edita 🕓, exclui ⛔; Pix/conta e repasse ao representante 🕓.
+     O alcance "só o que ele captou" continua vindo das regras do Firestore.
+  6. **Sem perda para quem já usa:** perfis 2.0 antigos são convertidos sem tirar nada (quem
+     editava continua com ✅ em criar/editar/excluir; ações novas herdam o que a pessoa já fazia).
+     Operador sem perfil continua fazendo o que fazia.
+  7. Telas que **não passam pela fila** (Configurações, Importação, Corretores, anexos e fotos)
+     exigem ✅ Pode: arquivo e chave não ficam guardados num pedido pendente.
+- **Código:** `normalizarPerfil`, `nivelPermissao`, `excessosSobreMeuPerfil`, `gravar()`,
+  `POS_APROVACAO`/`EXCLUSAO_CUSTOM` (efeitos que a tela faria ao salvar), `PERFIS_MODELO`.
+- ⚠️ **Pendente (fase 4):** a trava por perfil ainda é **da tela**. No Firestore, a equipe
+  interna continua gravando qualquer subcoleção do tenant (regra genérica `isEquipeTenant`),
+  e o "não concede o que não tem" não é conferido no servidor. Fechar isso exige reescrever
+  as regras por coleção, lendo o perfil.
+
 ## Histórico de decisões
+
+- **2026-10-12 (noite)**: 🔓 **Perfis 3.0** (ver "Permissões" acima): seção nova
+  "👥 Equipe e permissões" (saiu de Configurações), perfis-modelo Gerente/Gestor/Corretor/
+  Aux. Administrativo/Financeiro/Cobrança, fila "🕓 Alterações aguardando aprovação" na tela
+  ✅ Aprovações, `gravar()` em todos os cadastros. Regras novas (colar no Console): delegação
+  em `users` + `alteracoesPendentes` para o corretor.
 
 - **2026-10-12 (tarde)**: 🔓 regra do **repasse** alterada — repasse ao representante com
   autorização expressa (ver "🔒 Regras travadas"). De quebra, "💸 Solicitar repasse" passou a

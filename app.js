@@ -49,13 +49,32 @@ const MODULOS_DISPONIVEIS = [
 // Ações sensíveis — NÃO são módulos. Entram em perfil.acoes{}.
 // São as ações que "movem dinheiro" ou "fecham contrato" e (futuramente,
 // Fase S4) exigem fluxo de aprovação com 2FA no back-end.
+// tresNiveis: true → aceita "Com aprovação" (a alteração vai para a fila e
+// só vale quando alguém com "Pode" aprova). Ações que JÁ SÃO uma aprovação
+// (ou que só o Super Admin faz) ficam em Pode / Não pode.
 const ACOES_SENSIVEIS = [
+  { id: 'gerenciarUsuariosPerfis', label: '👥 Gerenciar usuários e perfis',        desc: 'Criar usuários, montar perfis e atribuí-los — só até o limite das suas próprias permissões' },
+  { id: 'aprovarAlteracoes',       label: '✔ Aprovar alterações da equipe',       desc: 'Aprovar o que a equipe fez "Com aprovação" — só nos itens em que você mesmo tem ✅ Pode' },
   { id: 'aprovarPagamentoLocador', label: '💸 Aprovar pagamento ao locador (PIX)', desc: 'Liberar transferências PIX de repasse ao locador' },
+  { id: 'solicitarRepasse',        label: '📨 Solicitar repasse',                  desc: 'Criar a solicitação de repasse no balancete (outra pessoa aprova)' },
+  { id: 'alterarDadosRepasse',     label: '🏦 Alterar Pix/conta de repasse',        desc: 'Mudar chave Pix ou conta bancária do proprietário', tresNiveis: true },
+  { id: 'repasseRepresentante',    label: '🔁 Repasse ao representante',           desc: 'Ligar/desligar o repasse ao representante e mexer na autorização (instrumento)', tresNiveis: true },
   { id: 'aprovarCobranca',         label: '💳 Aprovar cobrança ao locatário',      desc: 'Gerar boletos/PIX de cobrança via Asaas' },
   { id: 'gerenciarAssinaturaAsaas', label: '🔁 Gerenciar assinatura recorrente',   desc: 'Criar, reajustar e cancelar assinaturas Asaas' },
-  { id: 'fecharBalancete',         label: '📊 Fechar/consolidar balancete',        desc: 'Marcar balancete como fechado/enviado' },
+  { id: 'fecharBalancete',         label: '📊 Fechar/consolidar balancete',        desc: 'Marcar balancete como fechado/enviado', tresNiveis: true },
   { id: 'excluirTenant',           label: '🗑 Excluir tenant definitivo',          desc: 'Exclusão permanente de cliente (Super Admin)' },
 ];
+
+// Níveis de permissão (3.0). Ordem importa: delegação compara pelo índice.
+const NIVEIS_PERMISSAO = ['nao', 'aprovacao', 'sim'];
+const NIVEL_LABEL = { sim: '✅ Pode', aprovacao: '🕓 Com aprovação', nao: '⛔ Não pode' };
+const OPS_MODULO = ['criar', 'editar', 'excluir'];
+const OP_LABEL = { criar: 'Criar', editar: 'Editar', excluir: 'Excluir' };
+function rankNivel(n) { const i = NIVEIS_PERMISSAO.indexOf(n); return i < 0 ? 0 : i; }
+// Efeitos pós-aprovação por coleção (preenchido junto de cada módulo; ver gravar()).
+const POS_APROVACAO = {};
+// Exclusões que não são um simples delete (ex.: contrato apaga em cascata).
+const EXCLUSAO_CUSTOM = {};
 
 // Mapa role → permissões padrão (usado pelo fallback nível 3 e pelos perfis seed).
 // Cada role recebe o conjunto de módulos que historicamente via.
@@ -74,12 +93,22 @@ const ROLE_MODULOS_PADRAO = {
 // pacote contratado pelo tenant (modulosHabilitados).
 const MODULOS_NUCLEO = ['rede', 'corretores'];
 // Ações sensíveis que cada role tem por padrão (no perfil seed).
+// (lista = "Pode"; o resto é "Não pode", salvo ROLE_ACOES_APROVACAO)
 const ROLE_ACOES_PADRAO = {
   super_admin:  ACOES_SENSIVEIS.map(a => a.id),
-  operador_drg: ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
-  admin:        ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
-  operador:     [], // operador comum NÃO aprova nada por padrão
+  operador_drg: ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
+  admin:        ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
+  // operador comum NÃO aprova nada por padrão; mantém o que já fazia antes dos perfis 3.0
+  operador:     ['solicitarRepasse','alterarDadosRepasse','repasseRepresentante'],
   corretor:     [],
+};
+// Ações "Com aprovação" por padrão (o dono, 12/10/2026: corretor precisa de autorização)
+const ROLE_ACOES_APROVACAO = {
+  corretor: ['alterarDadosRepasse', 'repasseRepresentante'],
+};
+// Criar/Editar/Excluir por padrão, nos módulos que o role vê. Sem entrada = tudo "Pode".
+const ROLE_OPS_PADRAO = {
+  corretor: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
 };
 
 // Default de operadores (sem perfil customizado)
@@ -783,7 +812,8 @@ function userPodeVerModulo(modulo) {
 // Visibilidade de SEÇÃO no menu. Igual a userPodeVerModulo, mas trata
 // "aprovacoes" — que NÃO é módulo: é gated pela AÇÃO aprovarPagamentoLocador.
 function podeVerSecao(name) {
-  if (name === 'aprovacoes') return pode('aprovarPagamentoLocador');
+  if (name === 'aprovacoes') return pode('aprovarPagamentoLocador') || podeAprovarAlgumaAlteracao();
+  if (name === 'equipe') return pode('gerenciarUsuariosPerfis');
   return userPodeVerModulo(name);
 }
 
@@ -791,45 +821,67 @@ function podeVerSecao(name) {
 // CAMADA 1 — Perfis 2.0 (permissões customizáveis acesso+editar+ações)
 // =============================================================
 
-// Adapter: converte qualquer formato de perfil pro modelo 2.0 normalizado.
-// - Modelo 2.0: { permissoes:{mod:{acesso,editar}}, acoes:{acaoId:bool} }
-// - Modelo legado: { modulos:[ids] } → acesso:true + editar:true pros ids listados
-// - Sem perfil (null): deriva do ROLE_MODULOS_PADRAO + ROLE_ACOES_PADRAO
+// Adapter: converte qualquer formato de perfil pro modelo 3.0 normalizado:
+//   { permissoes:{ mod:{ ver:bool, criar, editar, excluir } }, acoes:{ id: nivel } }
+//   nivel ∈ 'sim' | 'aprovacao' | 'nao'  (NIVEIS_PERMISSAO)
+// Formatos aceitos (nada é perdido na conversão):
+// - 3.0: permissoes[mod].ver + criar/editar/excluir como string
+// - 2.0: permissoes[mod].{acesso,editar} booleanos → editar=true vira tudo "sim"
+// - legado { modulos:[ids] } → ver + tudo "sim" nos listados
+// - null: deriva do role (ROLE_MODULOS_PADRAO / ROLE_OPS_PADRAO / ROLE_ACOES_*)
+// Ações que não existiam quando o perfil foi salvo herdam o que a pessoa já
+// fazia na prática (ex.: quem editava Locadores já mudava o Pix) — sem lockout.
 function normalizarPerfil(perfilDoc, role) {
   const permissoes = {};
   const acoes = {};
+  const nivelDe = (v) => (v === true ? 'sim' : (NIVEIS_PERMISSAO.includes(v) ? v : 'nao'));
+  const opsRole = ROLE_OPS_PADRAO[role] || {};
 
   if (perfilDoc && perfilDoc.permissoes && typeof perfilDoc.permissoes === 'object') {
-    // Modelo 2.0 — usa direto
     MODULOS_DISPONIVEIS.forEach(m => {
       const p = perfilDoc.permissoes[m.id] || {};
-      permissoes[m.id] = {
-        acesso: !!p.acesso,
-        editar: m.somenteLeitura ? false : !!p.editar,
-      };
+      const ver = !!(p.ver !== undefined ? p.ver : p.acesso);
+      const r = { ver };
+      OPS_MODULO.forEach(op => {
+        let n = (op in p) && typeof p[op] === 'string' ? nivelDe(p[op])
+              : (p.editar === true ? 'sim' : 'nao'); // 2.0: "editar" cobria criar/alterar/excluir
+        if (m.somenteLeitura || !ver) n = 'nao';
+        r[op] = n;
+      });
+      permissoes[m.id] = r;
     });
-    ACOES_SENSIVEIS.forEach(a => {
-      acoes[a.id] = !!(perfilDoc.acoes && perfilDoc.acoes[a.id]);
-    });
-  } else if (perfilDoc && Array.isArray(perfilDoc.modulos)) {
-    // Modelo legado { modulos:[...] } — acesso+editar pros listados
-    MODULOS_DISPONIVEIS.forEach(m => {
-      const tem = perfilDoc.modulos.includes(m.id);
-      permissoes[m.id] = { acesso: tem, editar: m.somenteLeitura ? false : tem };
-    });
-    // Legado não tinha ações — deriva do role
-    const acoesRole = ROLE_ACOES_PADRAO[role] || [];
-    ACOES_SENSIVEIS.forEach(a => { acoes[a.id] = acoesRole.includes(a.id); });
   } else {
-    // Sem perfil — deriva 100% do role (fallback nível 3)
-    const modsRole = ROLE_MODULOS_PADRAO[role] || ROLE_MODULOS_PADRAO.operador;
-    const acoesRole = ROLE_ACOES_PADRAO[role] || [];
+    const mods = (perfilDoc && Array.isArray(perfilDoc.modulos)) ? perfilDoc.modulos
+      : (ROLE_MODULOS_PADRAO[role] || ROLE_MODULOS_PADRAO.operador);
+    const usarOpsRole = !(perfilDoc && Array.isArray(perfilDoc.modulos));
     MODULOS_DISPONIVEIS.forEach(m => {
-      const tem = modsRole.includes(m.id);
-      permissoes[m.id] = { acesso: tem, editar: m.somenteLeitura ? false : tem };
+      const ver = mods.includes(m.id);
+      const r = { ver };
+      OPS_MODULO.forEach(op => {
+        r[op] = (!ver || m.somenteLeitura) ? 'nao' : (usarOpsRole && opsRole[op]) || 'sim';
+      });
+      permissoes[m.id] = r;
     });
-    ACOES_SENSIVEIS.forEach(a => { acoes[a.id] = acoesRole.includes(a.id); });
   }
+
+  const acoesSalvas = (perfilDoc && perfilDoc.acoes) || null;
+  const acoesSim = ROLE_ACOES_PADRAO[role] || [];
+  const acoesApr = ROLE_ACOES_APROVACAO[role] || [];
+  const herdada = {
+    gerenciarUsuariosPerfis: () => (permissoes.configuracoes.editar === 'sim' ? 'sim' : 'nao'),
+    aprovarAlteracoes:       () => (permissoes.configuracoes.editar === 'sim' ? 'sim' : 'nao'),
+    solicitarRepasse:        () => (permissoes.balancetes.editar === 'sim' ? 'sim' : 'nao'),
+    alterarDadosRepasse:     () => permissoes.locadores.editar,
+    repasseRepresentante:    () => permissoes.locadores.editar,
+  };
+  ACOES_SENSIVEIS.forEach(a => {
+    let n;
+    if (acoesSalvas && a.id in acoesSalvas) n = nivelDe(acoesSalvas[a.id]);
+    else if (acoesSalvas && herdada[a.id]) n = herdada[a.id]();
+    else n = acoesSim.includes(a.id) ? 'sim' : (acoesApr.includes(a.id) ? 'aprovacao' : 'nao');
+    if (!a.tresNiveis && n === 'aprovacao') n = 'nao';
+    acoes[a.id] = n;
+  });
   return { permissoes, acoes };
 }
 
@@ -863,27 +915,58 @@ async function resolverPerfilUsuario() {
   return State.perfilResolvido;
 }
 
-// API de permissão da Camada 1.
-//   pode('contratos', 'acesso')  → pode VER o módulo
-//   pode('contratos', 'editar')  → pode CRIAR/ALTERAR/EXCLUIR no módulo
-//   pode('aprovarPagamentoLocador') → tem a ação sensível (1 argumento)
-// ⚠️ Isto é só UI/governança. A trava REAL é no Firestore + back-end (S2/S4).
+// API de permissão (Perfis 3.0).
+//   pode('contratos', 'ver'|'acesso') → pode VER o módulo
+//   pode('contratos', 'criar'|'editar'|'excluir') → tem "Pode" (sem aprovação)
+//   pode('aprovarPagamentoLocador') → tem a ação com "Pode" (1 argumento)
+//   nivelPermissao('contratos', 'editar') / nivelPermissao('alterarDadosRepasse')
+//     → 'sim' | 'aprovacao' | 'nao'  (use quando "Com aprovação" importa)
+// ⚠️ A trava REAL é no Firestore + back-end; aqui é a tela.
+// Perfil em vigor; se ainda não resolveu (ou falhou), vale o padrão do tipo — nunca trava todo mundo.
+function perfilAtual() {
+  return State.perfilResolvido || normalizarPerfil(null, State.userDoc?.role || 'operador');
+}
+
+function nivelPermissao(chave, op) {
+  if (State.userDoc?.role === 'super_admin') return 'sim'; // piso anti-lockout
+  const pr = perfilAtual();
+  if (op === undefined) return pr.acoes?.[chave] || 'nao';
+  const p = pr.permissoes?.[chave];
+  if (!p || !p.ver) return 'nao';
+  return p[op] || 'nao';
+}
+
 function pode(chave, nivel) {
-  // 1 argumento = consulta de AÇÃO sensível
-  if (nivel === undefined) {
-    // Piso anti-lockout: super_admin sempre pode tudo
-    if (State.userDoc?.role === 'super_admin') return true;
-    return !!(State.perfilResolvido?.acoes?.[chave]);
-  }
-  // 2 argumentos = consulta de MÓDULO
-  // Piso anti-lockout: super_admin sempre vê telas administrativas
   if (State.userDoc?.role === 'super_admin') return true;
-  const p = State.perfilResolvido?.permissoes?.[chave];
+  if (nivel === undefined) return nivelPermissao(chave) === 'sim';
+  const p = perfilAtual().permissoes?.[chave];
   if (!p) return false;
-  if (nivel === 'editar') return !!p.editar;
-  return !!p.acesso;
+  if (nivel === 'acesso' || nivel === 'ver') return !!p.ver;
+  return nivelPermissao(chave, nivel) === 'sim';
 }
 window.pode = pode;
+window.nivelPermissao = nivelPermissao;
+
+// ---------- Delegação: ninguém concede o que não tem ----------
+// Compara um perfil normalizado com o de quem está logado. Retorna a lista
+// do que passa do limite (vazia = cabe). Super Admin não tem limite.
+function excessosSobreMeuPerfil(norm) {
+  if (State.userDoc?.role === 'super_admin') return [];
+  const meu = perfilAtual();
+  const exc = [];
+  MODULOS_DISPONIVEIS.forEach(m => {
+    const p = norm.permissoes[m.id] || {};
+    const eu = meu.permissoes[m.id] || {};
+    if (p.ver && !eu.ver) exc.push(`${m.label}: ver`);
+    OPS_MODULO.forEach(op => {
+      if (rankNivel(p[op]) > rankNivel(eu.ver ? eu[op] : 'nao')) exc.push(`${m.label}: ${OP_LABEL[op].toLowerCase()} (${NIVEL_LABEL[p[op]]})`);
+    });
+  });
+  ACOES_SENSIVEIS.forEach(a => {
+    if (rankNivel(norm.acoes[a.id]) > rankNivel(meu.acoes[a.id])) exc.push(`${a.label.replace(/^\S+\s/, '')} (${NIVEL_LABEL[norm.acoes[a.id]]})`);
+  });
+  return exc;
+}
 
 // Permissão pra áreas do Super Admin (equipe DRG interna)
 function userDRGPodeVerArea(area) {
@@ -935,6 +1018,12 @@ async function renderApp() {
     const mod = el.dataset.section;
     if (mod === 'superadmin') return; // já tratado acima
     el.style.display = podeVerSecao(mod) ? 'flex' : 'none';
+  });
+  // Perfis 3.0: botões marcados com data-perm="modulo:op" somem quando é "⛔ Não pode"
+  // ("🕓 Com aprovação" continua visível: a gravação vai para a fila)
+  document.querySelectorAll('[data-perm]').forEach(el => {
+    const [mod, op] = el.dataset.perm.split(':');
+    el.style.display = nivelPermissao(mod, op) === 'nao' ? 'none' : '';
   });
   // Esconde grupos do menu que ficaram sem nenhum item visível (ex.: corretor)
   document.querySelectorAll('.nav-group').forEach(g => {
@@ -1071,7 +1160,9 @@ function showSection(name, _opts = {}) {
     loadLeads();
   }
   if (name === 'aprovacoes' && State.tenant) {
-    loadAprovacoes();
+    $('card-aprovacoes-pagamento').style.display = pode('aprovarPagamentoLocador') ? '' : 'none';
+    if (pode('aprovarPagamentoLocador')) loadAprovacoes();
+    loadAlteracoesPendentes();
   }
   if (name === 'calendario' && State.tenant) {
     loadCalendario();
@@ -1102,10 +1193,11 @@ function showSection(name, _opts = {}) {
   if (name === 'caixa' && State.tenant) {
     initCaixa();
   }
+  if (name === 'equipe' && State.tenant) {
+    loadEquipe();
+  }
   if (name === 'configuracoes' && State.tenant) {
     loadConfigImobiliaria();
-    loadUsuariosTenant();
-    loadPerfis();
   }
   if (name === 'auditoria' && State.tenant) {
     loadAuditoria();
@@ -4255,6 +4347,8 @@ async function renderInstrumentoArquivoRepresentante() {
 }
 
 async function anexarInstrumentoRepresentante() {
+  if (!exigirNivelAnexo('locadores', 'criar', 'locador-alert')) return; // Perfis 3.0
+$g
   const input = $('locador-rep-instr-file');
   const file = input.files && input.files[0];
   input.value = '';
@@ -4419,6 +4513,32 @@ function lerDadosBancariosLocador() {
   };
 }
 
+// Ações delicadas que este salvamento toca (Perfis 3.0): mudar para onde vai o
+// dinheiro exige a ação própria, além de "Editar" em Locadores.
+function acoesDelicadasLocador(antes, depois) {
+  const j = (v) => JSON.stringify(v === undefined ? null : v);
+  const acoes = [];
+  const pixMudou = (antes.pix || null) !== (depois.pix || null);
+  const contaMudou = j(antes.dadosBancarios || null) !== j(depois.dadosBancarios || null);
+  if (pixMudou || contaMudou) acoes.push('alterarDadosRepasse');
+  const repAntes = antes.representante || null, repDepois = depois.representante || null;
+  const ativoAntes = !!(repAntes && repAntes.repasse && repAntes.repasse.ativo);
+  const ativoDepois = !!(repDepois && repDepois.repasse && repDepois.repasse.ativo);
+  const autorizacao = (r) => j(r ? { repasse: r.repasse || null, instrumento: r.instrumento || null, documento: r.documento || null } : null);
+  if ((ativoAntes || ativoDepois) && autorizacao(repAntes) !== autorizacao(repDepois)) acoes.push('repasseRepresentante');
+  return acoes;
+}
+
+// Exclusão aprovada da fila: apaga também os arquivos do proprietário
+POS_APROVACAO.locadores = async ({ id, op }) => {
+  if (op !== 'excluir') { invalidateLocadoresCache(); return; }
+  try {
+    const list = await storageTenantRef().child(`locadores/${id}`).listAll();
+    await Promise.all(list.items.map(item => item.delete()));
+  } catch (_) { /* pasta pode não existir */ }
+  invalidateLocadoresCache();
+};
+
 async function saveLocador() {
   clearAlert('locador-alert');
 
@@ -4483,13 +4603,28 @@ async function saveLocador() {
 
   let salvou = false;
   try {
-    if (id) {
-      await tenantPath().collection('locadores').doc(id).update(data);
-      logAuditoria('update', 'locador', id, { nome: data.nome });
-    } else {
+    // Perfis 3.0: gravar() decide entre gravar, mandar para aprovação ou recusar
+    const antes = id ? ((await tenantPath().collection('locadores').doc(id).get()).data() || {}) : {};
+    const acoes = acoesDelicadasLocador(antes, data);
+    if (!id) {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('locadores').add(data);
+    }
+    const r = await gravar({
+      modulo: 'locadores', colecao: 'locadores', op: id ? 'editar' : 'criar', id: id || null,
+      dados: data, antes: id ? antes : null, acoes, titulo: `Proprietário ${data.nome}`,
+    });
+    if (r.pendente) {
+      salvou = true;
+      btn.textContent = '🕓 Enviado para aprovação';
+      showAlert('locador-alert', msgGravacao(r), 'success');
+      setTimeout(() => { closeLocadorModal(); btn.disabled = false; btn.textContent = 'Salvar'; }, 1800);
+      return;
+    }
+    if (id) {
+      logAuditoria('update', 'locador', id, { nome: data.nome });
+    } else {
+      const docRef = { id: r.id };
       logAuditoria('create', 'locador', docRef.id, { nome: data.nome });
       // re-abrir em modo edição pra liberar uploads de docs
       btn.disabled = false;
@@ -5132,6 +5267,10 @@ async function solicitarPagamentoLocador() {
     showInlineStatus(STATUS_ID, 'Líquido a repassar é zero ou negativo.', 'error');
     return;
   }
+  if (!pode('solicitarRepasse')) {
+    showInlineStatus(STATUS_ID, '⛔ Seu perfil não permite solicitar repasse. Peça a quem gerencia a equipe.', 'error');
+    return;
+  }
   const locador = _balanceteLocadorInfo;
   const dest = locador.destino || destinoRepasse(locador);
   // Representante sem autorização expressa completa: BLOQUEIA (não cai pro proprietário em silêncio)
@@ -5226,6 +5365,354 @@ window.solicitarPagamentoLocador = solicitarPagamentoLocador;
 // =============================================================
 let _aprovacoesCache = [];
 let _aprovacaoAtual = null;
+
+// =============================================================
+// ALTERAÇÕES "COM APROVAÇÃO" (Perfis 3.0, 12/10/2026)
+// Toda gravação de cadastro passa por gravar(): conforme o perfil de quem
+// está gravando, grava na hora (✅ Pode), manda pra fila (🕓 Com aprovação)
+// ou recusa (⛔ Não pode). A fila mora em tenants/{t}/alteracoesPendentes.
+// Quem aprova precisa de "✔ Aprovar alterações da equipe" E ter ✅ Pode no
+// mesmo item (módulo+operação e cada ação delicada envolvida).
+// =============================================================
+
+// Nível efetivo = o MENOR entre o do módulo/operação e o de cada ação delicada envolvida.
+function nivelEfetivo(modulo, op, acoes = []) {
+  let n = nivelPermissao(modulo, op);
+  acoes.forEach(a => { const na = nivelPermissao(a); if (rankNivel(na) < rankNivel(n)) n = na; });
+  return n;
+}
+
+const OP_VERBO = { criar: 'criar', editar: 'alterar', excluir: 'excluir' };
+
+// FieldValue (serverTimestamp, delete…) não pode ir para a fila: tira e
+// reaplica os carimbos na hora de gravar de verdade.
+function limparParaFila(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const FV = firebase.firestore.FieldValue;
+  const out = Array.isArray(obj) ? [] : {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v instanceof FV) return;
+    if (v && typeof v === 'object' && !(v instanceof Date) && !(v instanceof firebase.firestore.Timestamp)) out[k] = limparParaFila(v);
+    else out[k] = v;
+  });
+  return out;
+}
+
+// Pós-aprovação por coleção (efeitos colaterais que a tela faria ao salvar).
+// Recebe { id, dados, op } e roda DEPOIS da gravação aprovada.
+
+/**
+ * Grava respeitando o perfil.
+ *   modulo: id do módulo (MODULOS_DISPONIVEIS) · colecao: subcoleção do tenant
+ *   op: 'criar' | 'editar' | 'excluir' · id: doc (obrigatório p/ editar/excluir)
+ *   dados: payload (criar/editar) · titulo: "Locador João Silva" (aparece na fila)
+ *   acoes: ações delicadas envolvidas (ex.: ['alterarDadosRepasse'])
+ *   antes: dados atuais (para mostrar o "de → para" ao aprovador)
+ * Retorna { feito:true, id } ou { pendente:true, pendenteId }. Lança Error se "Não pode".
+ */
+async function gravar({ modulo, colecao, op, id = null, dados = null, titulo = '', acoes = [], antes = null }) {
+  const nivel = nivelEfetivo(modulo, op, acoes);
+  const rotulo = (MODULOS_DISPONIVEIS.find(m => m.id === modulo) || {}).label || modulo;
+  if (nivel === 'nao') {
+    const qual = acoes.find(a => nivelPermissao(a) === 'nao');
+    const acaoLbl = qual ? (ACOES_SENSIVEIS.find(a => a.id === qual) || {}).label : null;
+    throw new Error(`⛔ Seu perfil não permite ${OP_VERBO[op]} em ${rotulo}${acaoLbl ? ` (${acaoLbl})` : ''}. Peça a quem gerencia a equipe.`);
+  }
+  const col = tenantPath().collection(colecao);
+  if (nivel === 'sim') {
+    if (op === 'criar') {
+      if (id) { await col.doc(id).set(dados, { merge: true }); return { feito: true, id }; } // ID fixo (ex.: balancete)
+      const ref = await col.add(dados); return { feito: true, id: ref.id };
+    }
+    if (op === 'editar') { await col.doc(id).update(dados); return { feito: true, id }; }
+    if (op === 'excluir') { await col.doc(id).delete(); return { feito: true, id }; }
+  }
+  // 🕓 Com aprovação → fila
+  const antesLimpo = antes && dados ? Object.fromEntries(Object.keys(limparParaFila(dados)).map(k => [k, antes[k] === undefined ? null : antes[k]])) : (antes ? limparParaFila(antes) : null);
+  const ref = await tenantPath().collection('alteracoesPendentes').add({
+    status: 'PENDENTE',
+    modulo, colecao, op, docId: id || null,
+    dados: dados ? limparParaFila(dados) : null,
+    antes: antesLimpo ? limparParaFila(antesLimpo) : null,
+    acoes: acoes.filter(a => nivelPermissao(a) !== 'sim'),
+    acoesEnvolvidas: acoes,
+    titulo: titulo || rotulo,
+    solicitadoPor: State.user.uid,
+    solicitadoPorNome: State.userDoc?.nome || State.user.email || '',
+    solicitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  logAuditoria('solicitar_' + op, colecao, id || ref.id, { pendente: ref.id, titulo });
+  return { pendente: true, pendenteId: ref.id };
+}
+window.gravar = gravar;
+
+// Texto padrão de retorno para a tela (regra nº 1: sempre dizer o que aconteceu)
+function msgGravacao(r, okTexto) {
+  return r && r.pendente
+    ? '🕓 Enviado para aprovação. Vale assim que um gestor aprovar em ✅ Aprovações.'
+    : okTexto;
+}
+
+// Vê a tela ✅ Aprovações: quem aprova OU quem faz algo "Com aprovação" (acompanha os próprios pedidos)
+function temAlgoComAprovacao() {
+  const pr = perfilAtual();
+  return Object.values(pr.acoes).includes('aprovacao')
+    || Object.values(pr.permissoes).some(p => p.ver && OPS_MODULO.some(op => p[op] === 'aprovacao'));
+}
+
+// Helpers dos cadastros (Perfis 3.0)
+async function lerAntes(colecao, id) {
+  if (!id) return null;
+  const s = await tenantPath().collection(colecao).doc(id).get();
+  return s.exists ? s.data() : null;
+}
+// Mostra "🕓 enviado para aprovação" e fecha o modal (regra nº 1: responde e sai)
+function avisarPendente(alertId, fechar) {
+  showAlert(alertId, msgGravacao({ pendente: true }), 'success');
+  if (fechar) setTimeout(fechar, 1800);
+}
+// Pós-aprovação de exclusão: apaga a pasta de anexos do registro no Storage
+function apagarPastaAoExcluir(pasta, extra) {
+  return async ({ id, op }) => {
+    if (op === 'excluir') {
+      try {
+        const list = await storageTenantRef().child(`${pasta}/${id}`).listAll();
+        await Promise.all(list.items.map(item => item.delete()));
+      } catch (_) { /* pasta pode não existir */ }
+    }
+    if (extra) await extra({ id, op });
+  };
+}
+// Telas que NÃO passam pela fila (chaves, configurações, gravação em massa):
+// exigem ✅ Pode. Retorna true se pode seguir; senão avisa (alerta ou modal).
+function exigirPode(modulo, op, alertId) {
+  const n = nivelPermissao(modulo, op);
+  if (n === 'sim') return true;
+  const rot = (MODULOS_DISPONIVEIS.find(m => m.id === modulo) || {}).label || modulo;
+  const msg = n === 'aprovacao'
+    ? `🕓 Em ${rot}, "${OP_LABEL[op]}" está "Com aprovação", mas esta tela não passa pela fila (mexe em chaves ou em vários registros de uma vez). Peça a um gestor que faça, ou que libere ✅ Pode.`
+    : `⛔ Seu perfil não permite ${OP_VERBO[op]} em ${rot}. Peça a quem gerencia a equipe.`;
+  if (alertId && $(alertId)) showAlert(alertId, msg);
+  else confirmar({ titulo: 'Sem permissão', mensagem: escapeHtml(msg), confirmar: 'OK' });
+  return false;
+}
+
+// Anexos (arquivo não vai para a fila): enviar exige ✅ Criar; apagar exige ✅ Excluir
+function exigirNivelAnexo(modulo, op, alertId) {
+  const n = nivelPermissao(modulo, op);
+  if (n === 'sim') return true;
+  showAlert(alertId, n === 'aprovacao'
+    ? `🕓 Anexos não passam pela fila de aprovação: para ${op === 'criar' ? 'anexar' : 'apagar'} arquivos aqui é preciso "✅ Pode" em ${OP_LABEL[op]}. Peça a um gestor.`
+    : `⛔ Seu perfil não permite ${op === 'criar' ? 'anexar' : 'apagar'} arquivos aqui.`);
+  return false;
+}
+
+function podeAprovarAlgumaAlteracao() {
+  return pode('aprovarAlteracoes') || temAlgoComAprovacao();
+}
+
+// Esta pessoa pode aprovar ESTE pedido? (mesmos itens com ✅ Pode)
+function podeAprovarPedido(p) {
+  if (!pode('aprovarAlteracoes')) return false;
+  if (p.solicitadoPor === State.user?.uid) return false;
+  return nivelEfetivo(p.modulo, p.op, p.acoesEnvolvidas || p.acoes || []) === 'sim';
+}
+
+let _alteracoesCache = [];
+
+async function loadAlteracoesPendentes() {
+  const tbody = $('tbody-alteracoes');
+  if (!tbody || !State.tenant) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="empty">Carregando…</td></tr>';
+  try {
+    // Quem aprova vê tudo; quem só pede vê os próprios pedidos (e o motivo, se rejeitado)
+    const col = tenantPath().collection('alteracoesPendentes');
+    const snap = pode('aprovarAlteracoes')
+      ? await col.orderBy('solicitadoEm', 'desc').limit(100).get()
+      : await col.where('solicitadoPor', '==', State.user.uid).limit(100).get();
+    const ms = (p) => (p.solicitadoEm?.toMillis ? p.solicitadoEm.toMillis() : 0);
+    _alteracoesCache = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b) - ms(a));
+    $('card-alteracoes-titulo').textContent = pode('aprovarAlteracoes') ? '🕓 Alterações aguardando aprovação' : '🕓 Meus pedidos de alteração';
+    renderAlteracoesPendentes();
+  } catch (err) {
+    console.error('Erro ao carregar alterações pendentes:', err);
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">❌ ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function fmtValorDiff(v) {
+  if (v === null || v === undefined || v === '') return '<span class="muted">(vazio)</span>';
+  if (v && typeof v.toDate === 'function') v = v.toDate();
+  if (v instanceof Date) return v.toLocaleString('pt-BR');
+  if (typeof v === 'boolean') return v ? 'sim' : 'não';
+  if (typeof v === 'object') return `<code>${escapeHtml(JSON.stringify(v).slice(0, 200))}</code>`;
+  return escapeHtml(String(v).slice(0, 200));
+}
+
+function diffPedidoHtml(p) {
+  if (p.op === 'excluir') return '<em>Excluir o registro inteiro.</em>';
+  const d = p.dados || {};
+  const a = p.antes || {};
+  const linhas = Object.keys(d)
+    .filter(k => p.op === 'criar' || JSON.stringify(d[k]) !== JSON.stringify(a[k]))
+    .map(k => `<tr><td><strong>${escapeHtml(k)}</strong></td>${p.op === 'criar' ? '' : `<td>${fmtValorDiff(a[k])}</td>`}<td>${fmtValorDiff(d[k])}</td></tr>`);
+  if (!linhas.length) return '<em class="muted">Nenhum campo diferente do que já está gravado.</em>';
+  return `<table class="table diff-table"><thead><tr><th>Campo</th>${p.op === 'criar' ? '' : '<th>Hoje</th>'}<th>${p.op === 'criar' ? 'Valor' : 'Passa a ser'}</th></tr></thead><tbody>${linhas.join('')}</tbody></table>`;
+}
+
+function renderAlteracoesPendentes() {
+  const tbody = $('tbody-alteracoes');
+  if (!tbody) return;
+  const lista = _alteracoesCache;
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma alteração aguardando aprovação.</td></tr>';
+    return;
+  }
+  const badgeOp = { criar: '➕ Criar', editar: '✏️ Alterar', excluir: '🗑 Excluir' };
+  tbody.innerHTML = lista.map(p => {
+    const dt = p.solicitadoEm?.toDate ? p.solicitadoEm.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    let acoes;
+    if (p.status === 'PENDENTE') {
+      const posso = podeAprovarPedido(p);
+      const motivo = p.solicitadoPor === State.user?.uid ? 'Você não aprova o próprio pedido' : 'Você não tem ✅ Pode neste item';
+      acoes = posso
+        ? `<button class="btn btn-primary btn-sm" id="btn-aprovar-alt-${p.id}" onclick="decidirAlteracao('${p.id}', true)">Aprovar</button>
+           <button class="btn btn-secondary btn-sm" id="btn-rejeitar-alt-${p.id}" onclick="decidirAlteracao('${p.id}', false)">Rejeitar</button>`
+        : `<span class="muted" style="font-size:11px;">${escapeHtml(motivo)}</span>`;
+    } else {
+      acoes = `<span class="aprov-badge ${p.status === 'APROVADA' ? 'aprov-badge-aprovado' : 'aprov-badge-rejeitado'}">${p.status === 'APROVADA' ? 'Aprovada' : 'Rejeitada'}</span>
+        <br><span class="muted" style="font-size:11px;">por ${escapeHtml(p.decididoPorNome || '—')}${p.motivo ? ' — ' + escapeHtml(p.motivo) : ''}</span>`;
+    }
+    const delicadas = (p.acoesEnvolvidas || []).map(a => (ACOES_SENSIVEIS.find(x => x.id === a) || {}).label).filter(Boolean);
+    return `<tr>
+      <td>${dt}</td>
+      <td>${escapeHtml(p.solicitadoPorNome || '—')}</td>
+      <td><strong>${badgeOp[p.op] || p.op}</strong> · ${escapeHtml(p.titulo || p.colecao)}
+        ${delicadas.length ? `<br><span style="font-size:11px; color:#b45309;">${escapeHtml(delicadas.join(' · '))}</span>` : ''}
+        <details class="diff-details"><summary>Ver o que muda</summary>${diffPedidoHtml(p)}</details></td>
+      <td>${p.status === 'PENDENTE' ? '<span class="aprov-badge aprov-badge-aguardando">Aguardando</span>' : ''}</td>
+      <td>${acoes}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function decidirAlteracao(pedidoId, aprovar) {
+  const p = _alteracoesCache.find(x => x.id === pedidoId);
+  if (!p) return;
+  if (!podeAprovarPedido(p)) { showInlineStatus('alteracoes-status', '❌ Você não pode decidir este pedido.', 'error'); return; }
+  let motivo = '';
+  if (aprovar) {
+    if (!(await confirmar({ titulo: 'Aprovar alteração?', mensagem: `${escapeHtml(p.solicitadoPorNome || '')} pediu para <strong>${OP_VERBO[p.op]}</strong>: ${escapeHtml(p.titulo || '')}.`, detalhe: 'A alteração é gravada agora, em seu nome como aprovador.', confirmar: '✔ Aprovar' }))) return;
+  } else {
+    const r = await pedirTexto({ titulo: 'Rejeitar alteração', mensagem: 'Motivo (aparece para quem pediu):', confirmar: 'Rejeitar' });
+    if (r === null) return;
+    motivo = r;
+  }
+  const btn = $(aprovar ? `btn-aprovar-alt-${pedidoId}` : `btn-rejeitar-alt-${pedidoId}`);
+  try {
+    await drgSubmit(btn, aprovar ? '⏳ Aprovando... aguarde' : '⏳ Rejeitando... aguarde', async () => {
+      const ref = tenantPath().collection('alteracoesPendentes').doc(pedidoId);
+      const atual = await ref.get();
+      if (!atual.exists || atual.data().status !== 'PENDENTE') throw new Error('Este pedido já foi decidido por outra pessoa.');
+      let docId = p.docId;
+      if (aprovar) {
+        const col = tenantPath().collection(p.colecao);
+        const agora = firebase.firestore.FieldValue.serverTimestamp();
+        if (p.op === 'criar') {
+          const novo = { ...p.dados, criadoEm: agora, criadoPor: p.solicitadoPor, aprovadoPor: State.user.uid };
+          if (p.docId) await col.doc(p.docId).set(novo, { merge: true });
+          else docId = (await col.add(novo)).id;
+        } else if (p.op === 'editar') {
+          await col.doc(p.docId).update({ ...p.dados, atualizadoEm: agora, aprovadoPor: State.user.uid });
+        } else if (p.op === 'excluir') {
+          if (EXCLUSAO_CUSTOM[p.colecao]) await EXCLUSAO_CUSTOM[p.colecao](p.docId);
+          else await col.doc(p.docId).delete();
+        }
+        const pos = POS_APROVACAO[p.colecao];
+        if (pos) { try { await pos({ id: docId, dados: p.dados, antes: p.antes, op: p.op }); } catch (e) { console.warn('Pós-aprovação falhou:', e); } }
+      }
+      await ref.update({
+        status: aprovar ? 'APROVADA' : 'REJEITADA',
+        motivo: motivo || null,
+        docIdFinal: docId || null,
+        decididoPor: State.user.uid,
+        decididoPorNome: State.userDoc?.nome || State.user.email || '',
+        decididoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      logAuditoria(aprovar ? 'aprovar_alteracao' : 'rejeitar_alteracao', p.colecao, docId || pedidoId,
+        { pedido: pedidoId, op: p.op, solicitadoPor: p.solicitadoPorNome, motivo: motivo || null });
+    });
+    showInlineStatus('alteracoes-status', aprovar ? `✓ Aprovada e gravada: ${escapeHtml(p.titulo || '')}.` : '✓ Pedido rejeitado.', 'success', 6000);
+    loadAlteracoesPendentes();
+  } catch (err) {
+    console.error('Erro ao decidir alteração:', err);
+    showInlineStatus('alteracoes-status', `❌ ${escapeHtml(err.message)}`, 'error');
+  }
+}
+window.decidirAlteracao = decidirAlteracao;
+
+// Efeitos pós-aprovação dos cadastros (rodam também na exclusão direta)
+POS_APROVACAO.locatarios = apagarPastaAoExcluir('locatarios', async () => invalidateLocatariosCache());
+POS_APROVACAO.garantias = apagarPastaAoExcluir('garantias', async () => invalidateGarantiasCache());
+POS_APROVACAO.compradores = apagarPastaAoExcluir('compradores', async () => invalidateCompradoresCache());
+EXCLUSAO_CUSTOM.contratos = (id) => excluirContratoCascata(id);
+POS_APROVACAO.balancetes = async ({ id, op }) => {
+  if (op !== 'excluir') return;
+  try {
+    const list = await storageTenantRef().child(`balancetes/${id}/comprovantes`).listAll();
+    await Promise.all(list.items.map(item => item.delete()));
+  } catch (_) {}
+};
+// Contrato aprovado: imóvel acompanha (alugado / disponível), como no salvar direto
+POS_APROVACAO.contratos = async ({ op, dados, antes }) => {
+  if (op === 'excluir' || !dados || !dados.imovelId) return;
+  await syncImovelStatusFromContrato(dados.imovelId, dados.status, antes ? antes.status : null);
+  invalidateImoveisCache();
+};
+POS_APROVACAO.imoveis = async ({ id, op, fichaJaRemovida }) => {
+  if (op === 'excluir') {
+    if (!fichaJaRemovida) await removerFichaRede(id).catch(e => console.warn('Ficha da rede não removida:', e));
+    try {
+      const list = await storageTenantRef().child(`imoveis/${id}`).listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) { /* pasta pode não existir */ }
+  } else {
+    await sincronizarFichaRede(id).catch(e => console.warn('Ficha da rede não sincronizada:', e));
+  }
+  invalidateImoveisCache();
+};
+POS_APROVACAO.negociacoes = async ({ id, op, dados, antes }) => {
+  if (op === 'excluir') {
+    if (antes && antes.status === 'fechada' && antes.imovelId) {
+      await tenantPath().collection('imoveis').doc(antes.imovelId).update({ status: 'disponivel' });
+    }
+    try {
+      const list = await storageTenantRef().child(`negociacoes/${id}`).listAll();
+      await Promise.all(list.items.map(item => item.delete()));
+    } catch (_) {}
+    await tenantPath().collection('comissoes').doc(id).delete().catch(() => {}); // extrato dos corretores
+    invalidateImoveisCache();
+    return;
+  }
+  // criar/editar aprovados: refaz o extrato de comissão e a situação do imóvel
+  try {
+    const s = await tenantPath().collection('negociacoes').doc(id).get();
+    await sincronizarComissao(id, s.data() || dados);
+  } catch (e) { console.warn('Extrato de comissão não sincronizado:', e); }
+  const d = dados || {};
+  if (d.imovelId) await syncImovelStatusFromNegociacao(d.imovelId, d.status, antes ? antes.status : null);
+  invalidateImoveisCache();
+};
+
+// Pergunta um texto curto usando o modal de confirmação (o DOM dele persiste ao fechar)
+async function pedirTexto({ titulo, mensagem, confirmar: textoOk = 'OK' }) {
+  const ok = await confirmar({
+    titulo, mensagem, confirmar: textoOk, perigo: true,
+    detalhe: '<input type="text" id="confirm-texto-input" maxlength="300" style="width:100%; min-height:38px;" placeholder="Escreva aqui">',
+  });
+  if (!ok) return null;
+  return ($('confirm-texto-input')?.value || '').trim();
+}
 
 async function loadAprovacoes() {
   const tbody = $('tbody-aprovacoes');
@@ -5422,7 +5909,8 @@ function compShift(comp, delta) {
 }
 function caixaPodeFechar() {
   const role = State.userDoc?.role;
-  return State.isSuperAdmin || role === 'admin' || role === 'operador_drg';
+  // Perfis 3.0: além dos tipos de sempre, quem tem ✅ Editar no Livro Caixa (ex.: Financeiro)
+  return State.isSuperAdmin || role === 'admin' || role === 'operador_drg' || pode('caixa', 'editar');
 }
 
 function initCaixa() {
@@ -5578,15 +6066,15 @@ async function salvarLancamentoCaixa() {
   const btn = $('btn-salvar-lanc-caixa');
   btn.disabled = true;
   try {
-    if (id) {
-      await tenantPath().collection('caixaPool').doc(id).update(payload);
-      logAuditoria('update', 'caixaPool', id, { tipo, valor, rubrica });
-    } else {
+    if (!id) {
       payload.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       payload.criadoPor = State.user.uid;
-      const ref = await tenantPath().collection('caixaPool').add(payload);
-      logAuditoria('create', 'caixaPool', ref.id, { tipo, valor, rubrica });
     }
+    const r = await gravar({ modulo: 'caixa', colecao: 'caixaPool', op: id ? 'editar' : 'criar', id: id || null,
+      dados: payload, antes: await lerAntes('caixaPool', id),
+      titulo: `Livro Caixa: ${tipo === 'entrada' ? 'entrada' : 'saída'} ${fmtBRL(valor)} (${rubrica})` });
+    if (r.pendente) { avisarPendente('lanc-caixa-alert', fecharModalLancCaixa); return; }
+    logAuditoria(id ? 'update' : 'create', 'caixaPool', id || r.id, { tipo, valor, rubrica });
     fecharModalLancCaixa();
     // Se o lançamento caiu noutra competência, vai pra ela
     if (competencia !== _caixaComp) _caixaComp = competencia;
@@ -5609,7 +6097,12 @@ async function excluirLancamentoCaixa(id) {
     confirmar: '🗑 Excluir', perigo: true,
   }))) return;
   try {
-    await tenantPath().collection('caixaPool').doc(id).delete();
+    const r = await gravar({ modulo: 'caixa', colecao: 'caixaPool', op: 'excluir', id, antes: l,
+      titulo: `Livro Caixa: ${l.tipo === 'entrada' ? 'entrada' : 'saída'} ${fmtBRL(l.valor || 0)} (${l.rubrica || ''})` });
+    if (r.pendente) {
+      await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
+      return;
+    }
     logAuditoria('delete', 'caixaPool', id, { tipo: l.tipo, valor: l.valor });
     await loadCaixa();
   } catch (err) {
@@ -5742,15 +6235,17 @@ async function deleteLocador() {
   if (!(await confirmar({ titulo: 'Excluir locador/vendedor?', mensagem: 'Você está prestes a remover este proprietário do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
-    // apagar arquivos do Storage
-    const folderRef = storageTenantRef().child(`locadores/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) { /* pasta pode não existir */ }
-
-    // apagar doc do Firestore
-    await tenantPath().collection('locadores').doc(id).delete();
+    // Perfis 3.0: exclusão pode ir para aprovação (aí os arquivos ficam até aprovar)
+    const nome = $('locador-nome').value.trim();
+    const r = await drgSubmit($('btn-delete-locador'), '⏳ Excluindo... aguarde', () => gravar({
+      modulo: 'locadores', colecao: 'locadores', op: 'excluir', id, titulo: `Proprietário ${nome}`,
+    }), { destravar: true });
+    if (r.pendente) {
+      showAlert('locador-alert', msgGravacao(r), 'success');
+      setTimeout(closeLocadorModal, 1800);
+      return;
+    }
+    await POS_APROVACAO.locadores({ id, op: 'excluir' }); // apaga os arquivos do Storage
     logAuditoria('delete', 'locador', id);
     invalidateLocadoresCache();
     closeLocadorModal();
@@ -5804,6 +6299,8 @@ async function loadLocadorDocs(locadorId) {
 }
 
 async function uploadLocadorDocs() {
+  if (!exigirNivelAnexo('locadores', 'criar', 'locador-alert')) return; // Perfis 3.0
+$g
   const locadorId = $('locador-id').value;
   if (!locadorId) {
     showAlert('locador-alert', 'Salve o locador antes de anexar documentos.');
@@ -5842,6 +6339,8 @@ async function uploadLocadorDocs() {
 }
 
 async function deleteLocadorDoc(locadorId, filename) {
+  if (!exigirNivelAnexo('locadores', 'excluir', 'locador-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locadores/${locadorId}/${filename}`).delete();
@@ -6158,13 +6657,17 @@ async function saveLocatario() {
   btn.textContent = 'Salvando…';
 
   try {
-    if (id) {
-      await tenantPath().collection('locatarios').doc(id).update(data);
-      logAuditoria('update', 'locatario', id, { nome: data.nome, status: data.status });
-    } else {
+    if (!id) {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('locatarios').add(data);
+    }
+    const r = await gravar({ modulo: 'locatarios', colecao: 'locatarios', op: id ? 'editar' : 'criar', id: id || null,
+      dados: data, antes: await lerAntes('locatarios', id), titulo: `Locatário ${data.nome}` });
+    if (r.pendente) { avisarPendente('locatario-alert', closeLocatarioModal); return; }
+    if (id) {
+      logAuditoria('update', 'locatario', id, { nome: data.nome, status: data.status });
+    } else {
+      const docRef = { id: r.id };
       logAuditoria('create', 'locatario', docRef.id, { nome: data.nome });
       btn.disabled = false;
       btn.textContent = 'Salvar';
@@ -6192,13 +6695,10 @@ async function deleteLocatario() {
   if (!(await confirmar({ titulo: 'Excluir locatário?', mensagem: 'Você está prestes a remover este locatário do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
-    const folderRef = storageTenantRef().child(`locatarios/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) { /* pasta pode não existir */ }
-
-    await tenantPath().collection('locatarios').doc(id).delete();
+    const r = await gravar({ modulo: 'locatarios', colecao: 'locatarios', op: 'excluir', id,
+      antes: await lerAntes('locatarios', id), titulo: `Locatário ${$('locatario-nome').value.trim()}` });
+    if (r.pendente) { avisarPendente('locatario-alert', closeLocatarioModal); return; }
+    await POS_APROVACAO.locatarios({ id, op: 'excluir' }); // apaga os anexos
     logAuditoria('delete', 'locatario', id);
     invalidateLocatariosCache();
     closeLocatarioModal();
@@ -6250,6 +6750,8 @@ async function loadLocatarioDocs(locatarioId) {
 }
 
 async function uploadLocatarioDocs() {
+  if (!exigirNivelAnexo('locatarios', 'criar', 'locatario-alert')) return; // Perfis 3.0
+$g
   const locatarioId = $('locatario-id').value;
   if (!locatarioId) {
     showAlert('locatario-alert', 'Salve o locatário antes de anexar documentos.');
@@ -6287,6 +6789,8 @@ async function uploadLocatarioDocs() {
 }
 
 async function deleteLocatarioDoc(locatarioId, filename) {
+  if (!exigirNivelAnexo('locatarios', 'excluir', 'locatario-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locatarios/${locatarioId}/${filename}`).delete();
@@ -6689,12 +7193,17 @@ async function saveGarantia() {
 
   try {
     if (id) {
-      await tenantPath().collection('garantias').doc(id).update(data);
+      const r = await gravar({ modulo: 'garantias', colecao: 'garantias', op: 'editar', id, dados: data,
+        antes: await lerAntes('garantias', id), titulo: 'Garantia ' + (data.nome || data.tipo || '') });
+      if (r.pendente) { avisarPendente('garantia-alert', closeGarantiaModal); return; }
       logAuditoria('update', 'garantia', id, { tipo: data.tipo });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('garantias').add(data);
+      const r = await gravar({ modulo: 'garantias', colecao: 'garantias', op: 'criar', dados: data,
+        titulo: 'Garantia ' + (data.nome || data.tipo || '') });
+      if (r.pendente) { avisarPendente('garantia-alert', closeGarantiaModal); return; }
+      const docRef = { id: r.id };
       logAuditoria('create', 'garantia', docRef.id, { tipo: data.tipo });
       btn.disabled = false;
       btn.textContent = 'Salvar';
@@ -6722,13 +7231,11 @@ async function deleteGarantia() {
   if (!(await confirmar({ titulo: 'Excluir garantia?', mensagem: 'Você está prestes a remover esta garantia do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
-    const folderRef = storageTenantRef().child(`garantias/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) { /* pasta pode não existir */ }
-
-    await tenantPath().collection('garantias').doc(id).delete();
+    const antes = await lerAntes('garantias', id);
+    const r = await gravar({ modulo: 'garantias', colecao: 'garantias', op: 'excluir', id, antes,
+      titulo: 'Garantia ' + ((antes && (antes.nome || antes.tipo)) || '') });
+    if (r.pendente) { avisarPendente('garantia-alert', closeGarantiaModal); return; }
+    await POS_APROVACAO.garantias({ id, op: 'excluir' }); // apaga os anexos
     logAuditoria('delete', 'garantia', id);
     invalidateGarantiasCache();
     closeGarantiaModal();
@@ -6780,6 +7287,8 @@ async function loadGarantiaDocs(garantiaId) {
 }
 
 async function uploadGarantiaDocs() {
+  if (!exigirNivelAnexo('garantias', 'criar', 'garantia-alert')) return; // Perfis 3.0
+$g
   const garantiaId = $('garantia-id').value;
   if (!garantiaId) {
     showAlert('garantia-alert', 'Salve a garantia antes de anexar documentos.');
@@ -6817,6 +7326,8 @@ async function uploadGarantiaDocs() {
 }
 
 async function deleteGarantiaDoc(garantiaId, filename) {
+  if (!exigirNivelAnexo('garantias', 'excluir', 'garantia-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`garantias/${garantiaId}/${filename}`).delete();
@@ -8103,6 +8614,8 @@ async function confirmarBoletoExtraido() {
 }
 
 async function uploadLancComprovante(id, file) {
+  if (!exigirNivelAnexo('balancetes', 'criar', 'balancete-alert')) return; // Perfis 3.0
+$g
   if (!file) return;
   const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
   const idx = _balanceteLancamentos.findIndex(l => l.id === id);
@@ -8250,7 +8763,13 @@ async function saveBalancete() {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
     }
-    await tenantPath().collection('balancetes').doc(id).set(data, { merge: true });
+    // Perfis 3.0: fechar/enviar o balancete é ação delicada à parte
+    const statusAntes = existing.exists ? (existing.data().status || 'aberto') : 'aberto';
+    const acoes = (data.status !== 'aberto' && statusAntes === 'aberto') ? ['fecharBalancete'] : [];
+    const r = await gravar({ modulo: 'balancetes', colecao: 'balancetes', op: existing.exists ? 'editar' : 'criar', id,
+      dados: data, antes: existing.exists ? existing.data() : null, acoes,
+      titulo: `Balancete ${fmtMesAno(mes, ano)}` });
+    if (r.pendente) { avisarPendente('balancete-alert', closeBalanceteModal); return; }
     $('balancete-id').value = id;
     logAuditoria(existing.exists ? 'update' : 'create', 'balancete', id, {
       mes: data.mes, ano: data.ano, status: data.status, liquido: data.liquidoLocador,
@@ -8878,13 +9397,10 @@ async function deleteBalancete() {
   if (!id) return;
   if (!(await confirmar({ titulo: 'Excluir balancete?', mensagem: 'Remover este balancete e todos os comprovantes anexados.', detalhe: '⚠️ Os comprovantes do storage também serão removidos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    // Apaga comprovantes do storage
-    const folderRef = storageTenantRef().child(`balancetes/${id}/comprovantes`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) {}
-    await tenantPath().collection('balancetes').doc(id).delete();
+    const r = await gravar({ modulo: 'balancetes', colecao: 'balancetes', op: 'excluir', id,
+      antes: await lerAntes('balancetes', id), titulo: 'Balancete ' + id.split('_').slice(0, 2).reverse().join('/') });
+    if (r.pendente) { avisarPendente('balancete-alert', closeBalanceteModal); return; }
+    await POS_APROVACAO.balancetes({ id, op: 'excluir' }); // comprovantes do Storage
     logAuditoria('delete', 'balancete', id);
     closeBalanceteModal();
     loadBalancetes();
@@ -9175,12 +9691,16 @@ async function saveComprador() {
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
     if (id) {
-      await tenantPath().collection('compradores').doc(id).update(data);
+      const r = await gravar({ modulo: 'compradores', colecao: 'compradores', op: 'editar', id, dados: data,
+        antes: await lerAntes('compradores', id), titulo: `Comprador ${data.nome}` });
+      if (r.pendente) { avisarPendente('comprador-alert', closeCompradorModal); return; }
       logAuditoria('update', 'comprador', id, { nome: data.nome, status: data.status });
     } else {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('compradores').add(data);
+      const r = await gravar({ modulo: 'compradores', colecao: 'compradores', op: 'criar', dados: data, titulo: `Comprador ${data.nome}` });
+      if (r.pendente) { avisarPendente('comprador-alert', closeCompradorModal); return; }
+      const docRef = { id: r.id };
       logAuditoria('create', 'comprador', docRef.id, { nome: data.nome });
       btn.disabled = false; btn.textContent = 'Salvar';
       invalidateCompradoresCache();
@@ -9205,12 +9725,10 @@ async function deleteComprador() {
   if (!id) return;
   if (!(await confirmar({ titulo: 'Excluir comprador?', mensagem: 'Você está prestes a remover este comprador do sistema.', detalhe: '⚠️ Os documentos anexados também serão removidos do storage<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    const folderRef = storageTenantRef().child(`compradores/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) {}
-    await tenantPath().collection('compradores').doc(id).delete();
+    const r = await gravar({ modulo: 'compradores', colecao: 'compradores', op: 'excluir', id,
+      antes: await lerAntes('compradores', id), titulo: `Comprador ${$('comprador-nome').value.trim()}` });
+    if (r.pendente) { avisarPendente('comprador-alert', closeCompradorModal); return; }
+    await POS_APROVACAO.compradores({ id, op: 'excluir' }); // apaga os anexos
     logAuditoria('delete', 'comprador', id);
     invalidateCompradoresCache();
     closeCompradorModal();
@@ -9258,6 +9776,8 @@ async function loadCompradorDocs(id) {
 }
 
 async function uploadCompradorDocs() {
+  if (!exigirNivelAnexo('compradores', 'criar', 'comprador-alert')) return; // Perfis 3.0
+$g
   const id = $('comprador-id').value;
   if (!id) { showAlert('comprador-alert', 'Salve o comprador antes de anexar documentos.'); return; }
   const input = $('comprador-doc-input');
@@ -9282,6 +9802,8 @@ async function uploadCompradorDocs() {
 }
 
 async function deleteCompradorDoc(id, filename) {
+  if (!exigirNivelAnexo('compradores', 'excluir', 'comprador-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`compradores/${id}/${filename}`).delete();
@@ -9427,11 +9949,18 @@ async function loadLeads() {
 
 async function updateLeadStatus(leadId, novoStatus) {
   try {
-    await tenantPath().collection('leadsImoveis').doc(leadId).update({
-      status: novoStatus,
-      statusAtualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-      statusAtualizadoPor: State.user?.uid || null,
-    });
+    const r = await gravar({ modulo: 'leads', colecao: 'leadsImoveis', op: 'editar', id: leadId,
+      dados: {
+        status: novoStatus,
+        statusAtualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        statusAtualizadoPor: State.user?.uid || null,
+      },
+      antes: await lerAntes('leadsImoveis', leadId), titulo: 'Lead — status ' + novoStatus });
+    if (r.pendente) {
+      await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
+      renderLeadsTable();
+      return;
+    }
     // Atualiza local
     const idx = _leadsCarregados.findIndex(l => l._id === leadId);
     if (idx !== -1) _leadsCarregados[idx].status = novoStatus;
@@ -9452,7 +9981,12 @@ async function deleteLead(leadId, nome) {
   });
   if (!ok) return;
   try {
-    await tenantPath().collection('leadsImoveis').doc(leadId).delete();
+    const r = await gravar({ modulo: 'leads', colecao: 'leadsImoveis', op: 'excluir', id: leadId,
+      antes: await lerAntes('leadsImoveis', leadId), titulo: 'Lead de ' + (nome || 'sem nome') });
+    if (r.pendente) {
+      await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
+      return;
+    }
     _leadsCarregados = _leadsCarregados.filter(l => l._id !== leadId);
     renderLeadsTable();
   } catch (err) {
@@ -9655,7 +10189,9 @@ async function saveNegociacao() {
   try {
     let negociacaoId = id;
     if (id) {
-      await tenantPath().collection('negociacoes').doc(id).update(data);
+      const r = await gravar({ modulo: 'negociacoes', colecao: 'negociacoes', op: 'editar', id, dados: data,
+        antes: await lerAntes('negociacoes', id), titulo: `Negociação ${data.numero || ''}`.trim() });
+      if (r.pendente) { avisarPendente('negociacao-alert', closeNegociacaoModal); return; }
       logAuditoria('update', 'negociacao', id, { status: data.status, valor: data.valor });
     } else {
       const seq = await proximoNumeroSequencial('negociacoes');
@@ -9663,8 +10199,10 @@ async function saveNegociacao() {
       data.numeroSequencial = seq.numeroSequencial;
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('negociacoes').add(data);
-      negociacaoId = docRef.id;
+      const r = await gravar({ modulo: 'negociacoes', colecao: 'negociacoes', op: 'criar', dados: data,
+        titulo: `Negociação ${data.numero || ''}`.trim() });
+      if (r.pendente) { avisarPendente('negociacao-alert', closeNegociacaoModal); return; }
+      negociacaoId = r.id;
       logAuditoria('create', 'negociacao', negociacaoId, { numero: data.numero, status: data.status, valor: data.valor });
     }
     // Extrato de comissão dos corretores envolvidos (antes de invalidar o cache de imóveis)
@@ -9706,21 +10244,11 @@ async function deleteNegociacao() {
   if (!id) return;
   if (!(await confirmar({ titulo: 'Excluir negociação?', mensagem: 'Remover esta negociação de venda.', detalhe: 'Os documentos anexados não serão afetados. Esta ação <strong>não pode ser desfeita</strong>.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    const snap = await tenantPath().collection('negociacoes').doc(id).get();
-    if (snap.exists) {
-      const n = snap.data();
-      if (n.status === 'fechada' && n.imovelId) {
-        await tenantPath().collection('imoveis').doc(n.imovelId).update({ status: 'disponivel' });
-        invalidateImoveisCache();
-      }
-    }
-    const folderRef = storageTenantRef().child(`negociacoes/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) {}
-    await tenantPath().collection('comissoes').doc(id).delete().catch(() => {}); // extrato dos corretores
-    await tenantPath().collection('negociacoes').doc(id).delete();
+    const antes = await lerAntes('negociacoes', id);
+    const r = await gravar({ modulo: 'negociacoes', colecao: 'negociacoes', op: 'excluir', id, antes,
+      titulo: `Negociação ${(antes && antes.numero) || ''}`.trim() });
+    if (r.pendente) { avisarPendente('negociacao-alert', closeNegociacaoModal); return; }
+    await POS_APROVACAO.negociacoes({ id, op: 'excluir', antes }); // imóvel, anexos e comissões
     logAuditoria('delete', 'negociacao', id);
     closeNegociacaoModal();
     loadNegociacoes();
@@ -9766,6 +10294,8 @@ async function loadNegociacaoDocs(id) {
 }
 
 async function uploadNegociacaoDocs() {
+  if (!exigirNivelAnexo('negociacoes', 'criar', 'negociacao-alert')) return; // Perfis 3.0
+$g
   const id = $('negociacao-id').value;
   if (!id) { showAlert('negociacao-alert', 'Salve antes de anexar.'); return; }
   const input = $('negociacao-doc-input');
@@ -9790,6 +10320,8 @@ async function uploadNegociacaoDocs() {
 }
 
 async function deleteNegociacaoDoc(id, filename) {
+  if (!exigirNivelAnexo('negociacoes', 'excluir', 'negociacao-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`negociacoes/${id}/${filename}`).delete();
@@ -10360,13 +10892,22 @@ async function saveImovel() {
   btn.textContent = 'Salvando…';
 
   try {
-    if (id) {
-      await tenantPath().collection('imoveis').doc(id).update(data);
-      logAuditoria('update', 'imovel', id, { apelido: data.apelido, status: data.status });
-    } else {
+    if (!id) {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('imoveis').add(data);
+    }
+    const r = await gravar({ modulo: 'imoveis', colecao: 'imoveis', op: id ? 'editar' : 'criar', id: id || null,
+      dados: data, antes: await lerAntes('imoveis', id), titulo: `Imóvel ${data.apelido}` });
+    if (r.pendente) {
+      modalAutoSaveClear('imovel');
+      showInlineStatus('imovel-acoes-status', msgGravacao(r), 'success');
+      setTimeout(closeImovelModal, 1800);
+      return;
+    }
+    if (id) {
+      logAuditoria('update', 'imovel', id, { apelido: data.apelido, status: data.status });
+    } else {
+      const docRef = { id: r.id };
       logAuditoria('create', 'imovel', docRef.id, { apelido: data.apelido });
       sincronizarFichaRede(docRef.id).catch(e => console.warn('Ficha da rede não sincronizada:', e));
       btn.disabled = false;
@@ -10397,15 +10938,21 @@ async function deleteImovel() {
   if (!(await confirmar({ titulo: 'Excluir imóvel?', mensagem: 'Você está prestes a remover este imóvel do sistema.', detalhe: '⚠️ Os documentos e fotos anexados serão removidos do storage<br>⚠️ Contratos vinculados ficarão órfãos<br>⚠️ Esta ação <strong>não pode ser desfeita</strong>', confirmar: '🗑 Excluir', perigo: true }))) return;
 
   try {
-    const folderRef = storageTenantRef().child(`imoveis/${id}`);
-    try {
-      const list = await folderRef.listAll();
-      await Promise.all(list.items.map(item => item.delete()));
-    } catch (_) { /* pasta pode não existir */ }
-
+    // Perfis 3.0: "Com aprovação" → fila; "Não pode" → erro. Só apaga direto com ✅ Pode.
+    const n = nivelPermissao('imoveis', 'excluir');
+    if (n !== 'sim') {
+      const r = await gravar({ modulo: 'imoveis', colecao: 'imoveis', op: 'excluir', id,
+        antes: await lerAntes('imoveis', id), titulo: `Imóvel ${$('imovel-apelido').value.trim()}` });
+      if (r.pendente) {
+        showAlert('imovel-alert', msgGravacao(r), 'success');
+        setTimeout(closeImovelModal, 1800);
+      }
+      return;
+    }
     // Ficha da rede sai ANTES (as regras do corretor conferem o imóvel pai)
     await removerFichaRede(id);
     await tenantPath().collection('imoveis').doc(id).delete();
+    await POS_APROVACAO.imoveis({ id, op: 'excluir', fichaJaRemovida: true }); // fotos e documentos
     logAuditoria('delete', 'imovel', id);
     invalidateImoveisCache();
     $('imovel-id').value = ''; // evita re-sincronizar a ficha no close
@@ -10458,6 +11005,8 @@ async function loadImovelDocs(imovelId) {
 }
 
 async function uploadImovelDocs() {
+  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+$g
   const imovelId = $('imovel-id').value;
   if (!imovelId) {
     showAlert('imovel-alert', 'Salve o imóvel antes de anexar documentos.');
@@ -10495,6 +11044,8 @@ async function uploadImovelDocs() {
 }
 
 async function deleteImovelDoc(imovelId, filename) {
+  if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`imoveis/${imovelId}/${filename}`).delete();
@@ -10590,6 +11141,8 @@ function habilitarReordenacaoFotos(imovelId) {
 }
 
 async function salvarNovaOrdemFotos(imovelId) {
+  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+$g
   const grid = $('imovel-fotos-grid');
   const items = Array.from(grid.querySelectorAll('.foto-item[data-foto-id]'));
   if (items.length === 0) return;
@@ -10702,6 +11255,8 @@ function getLogoImage() {
 }
 
 async function uploadImovelFotos() {
+  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+$g
   let imovelId = $('imovel-id').value;
 
   // Se ainda não tem id (modo criação), cria um rascunho automaticamente
@@ -10805,6 +11360,8 @@ async function uploadImovelFotos() {
 }
 
 async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
+  if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir foto?', mensagem: 'Remover esta foto do imóvel.', detalhe: 'A foto será apagada do storage. Você pode subir outra a qualquer momento.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId).delete();
@@ -11034,6 +11591,7 @@ async function loadConfigImobiliaria() {
 let _saveConfigDebounce = null;
 async function saveConfigImobiliaria() {
   clearTimeout(_saveConfigDebounce);
+  if (!exigirPode('configuracoes', 'editar', 'cfg-alert')) return;
   _saveConfigDebounce = setTimeout(async () => {
     try {
       // Tenant doc — telefone, e-mail e slug (públicos)
@@ -11597,6 +12155,8 @@ function previewFeedXml() {
 // ---------- Upload da logo do tenant ----------
 
 async function uploadLogoTenant() {
+  if (!exigirPode('configuracoes', 'editar', 'cfg-alert')) return; // Perfis 3.0
+$g
   const input = $('cfg-logo-input');
   const file = input.files?.[0];
   if (!file) return;
@@ -12120,7 +12680,9 @@ async function saveContrato() {
   try {
     let contratoId = id;
     if (id) {
-      await tenantPath().collection('contratos').doc(id).update(data);
+      const r = await gravar({ modulo: 'contratos', colecao: 'contratos', op: 'editar', id, dados: data,
+        antes: await lerAntes('contratos', id), titulo: `Contrato ${data.numero || ''}`.trim() });
+      if (r.pendente) { avisarPendente('contrato-alert', closeContratoModal); return; }
       logAuditoria('update', 'contrato', id, { status: data.status, aluguel: data.aluguel });
     } else {
       const seq = await proximoNumeroSequencial('contratos');
@@ -12128,8 +12690,10 @@ async function saveContrato() {
       data.numeroSequencial = seq.numeroSequencial;
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
-      const docRef = await tenantPath().collection('contratos').add(data);
-      contratoId = docRef.id;
+      const r = await gravar({ modulo: 'contratos', colecao: 'contratos', op: 'criar', dados: data,
+        titulo: `Contrato ${data.numero || ''}`.trim() });
+      if (r.pendente) { avisarPendente('contrato-alert', closeContratoModal); return; }
+      contratoId = r.id;
       logAuditoria('create', 'contrato', contratoId, { numero: data.numero, status: data.status, aluguel: data.aluguel });
     }
 
@@ -12186,6 +12750,25 @@ async function deleteContrato() {
   }))) return;
 
   try {
+    // Perfis 3.0: sem ✅ Pode, a exclusão vai para a fila (ou é recusada)
+    if (nivelPermissao('contratos', 'excluir') !== 'sim') {
+      const antes = await lerAntes('contratos', id);
+      const r = await gravar({ modulo: 'contratos', colecao: 'contratos', op: 'excluir', id, antes,
+        titulo: `Contrato ${(antes && antes.numero) || ''} (com garantia, balancetes e anexos)` });
+      if (r.pendente) avisarPendente('contrato-alert', closeContratoModal);
+      return;
+    }
+    await excluirContratoCascata(id);
+    closeContratoModal();
+    loadContratos();
+  } catch (err) {
+    console.error('Erro ao excluir contrato:', err);
+    showAlert('contrato-alert', 'Erro: ' + err.message);
+  }
+}
+
+// Exclusão do contrato e de tudo vinculado. Também roda ao aprovar a exclusão pela fila.
+async function excluirContratoCascata(id) {
     const snap = await tenantPath().collection('contratos').doc(id).get();
     const c = snap.exists ? snap.data() : {};
     const removidos = [];
@@ -12246,12 +12829,6 @@ async function deleteContrato() {
       numero: c.numero || null,
       cascata: removidos.length ? removidos.join(' + ') : 'sem vínculos',
     });
-    closeContratoModal();
-    loadContratos();
-  } catch (err) {
-    console.error('Erro ao excluir contrato:', err);
-    showAlert('contrato-alert', 'Erro: ' + err.message);
-  }
 }
 
 async function loadContratoDocs(contratoId) {
@@ -12295,6 +12872,8 @@ async function loadContratoDocs(contratoId) {
 }
 
 async function uploadContratoDocs() {
+  if (!exigirNivelAnexo('contratos', 'criar', 'contrato-alert')) return; // Perfis 3.0
+$g
   const contratoId = $('contrato-id').value;
   if (!contratoId) {
     showAlert('contrato-alert', 'Salve o contrato antes de anexar documentos.');
@@ -12332,6 +12911,8 @@ async function uploadContratoDocs() {
 }
 
 async function deleteContratoDoc(contratoId, filename) {
+  if (!exigirNivelAnexo('contratos', 'excluir', 'contrato-alert')) return; // Perfis 3.0
+$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`contratos/${contratoId}/${filename}`).delete();
@@ -12837,6 +13418,7 @@ function cancelarImportacao() {
 
 async function confirmarImportacao() {
   if (!_importParsed) return;
+  if (!exigirPode('importacao', 'criar')) return;
   const { tipo, schema, rows, errosPorLinha } = _importParsed;
 
   const validas = rows.filter((_, i) => errosPorLinha[i].length === 0);
@@ -13518,199 +14100,349 @@ function gerarSenhaUsuario() {
 
 // ----- Perfis customizados -----
 
-// Conta quantos módulos/ações um perfil libera (resumo pra tabela)
-function resumoPerfil(perfilDoc, role) {
-  const norm = normalizarPerfil(perfilDoc, role);
-  const mods = Object.values(norm.permissoes).filter(p => p.acesso).length;
-  const editar = Object.values(norm.permissoes).filter(p => p.editar).length;
-  const acoes = Object.values(norm.acoes).filter(Boolean).length;
-  return { mods, editar, acoes };
+// =============================================================
+// PERFIS 3.0 — Ver + Criar/Editar/Excluir em 3 níveis + ações delicadas
+// Delegação: só quem tem "👥 Gerenciar usuários e perfis" mexe aqui, e
+// ninguém concede o que não tem nem altera o próprio perfil (o dono, 12/10/2026).
+// =============================================================
+
+// Perfis-modelo dos cargos (o dono: Gerente, Gestor, Corretor, Aux. Adm.,
+// Financeiro, Cobrança…). São pontos de partida: cada imobiliária ajusta.
+function montarPerfilModelo(spec) {
+  const permissoes = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    const ver = spec.ver === '*' ? true : spec.ver.includes(m.id);
+    const ops = { ...spec.ops, ...((spec.excecoes || {})[m.id] || {}) };
+    const r = { ver };
+    OPS_MODULO.forEach(op => { r[op] = (!ver || m.somenteLeitura) ? 'nao' : (ops[op] || 'nao'); });
+    permissoes[m.id] = r;
+  });
+  const acoes = {};
+  ACOES_SENSIVEIS.forEach(a => {
+    acoes[a.id] = (spec.acoesSim || []).includes(a.id) ? 'sim'
+      : ((spec.acoesAprovacao || []).includes(a.id) && a.tresNiveis ? 'aprovacao' : 'nao');
+  });
+  return { permissoes, acoes };
+}
+
+const SO_LER = { criar: 'nao', editar: 'nao', excluir: 'nao' };
+const PERFIS_MODELO = {
+  modelo_gerente: {
+    nome: 'Gerente',
+    ver: '*', ops: { criar: 'sim', editar: 'sim', excluir: 'sim' },
+    acoesSim: ACOES_SENSIVEIS.map(a => a.id).filter(id => id !== 'excluirTenant'),
+  },
+  modelo_gestor: {
+    nome: 'Gestor',
+    ver: '*', ops: { criar: 'sim', editar: 'sim', excluir: 'aprovacao' },
+    excecoes: {
+      configuracoes: SO_LER,
+      caixa: { criar: 'aprovacao', editar: 'aprovacao', excluir: 'nao' },
+      importacao: { criar: 'aprovacao', editar: 'aprovacao', excluir: 'nao' },
+    },
+    acoesSim: ['gerenciarUsuariosPerfis', 'aprovarAlteracoes', 'solicitarRepasse', 'aprovarCobranca', 'fecharBalancete'],
+    acoesAprovacao: ['alterarDadosRepasse', 'repasseRepresentante'],
+  },
+  modelo_corretor: {
+    nome: 'Corretor',
+    ver: ['imoveis', 'locadores', 'rede'],
+    ops: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
+    acoesAprovacao: ['alterarDadosRepasse', 'repasseRepresentante'],
+  },
+  modelo_aux_adm: {
+    nome: 'Aux. Administrativo',
+    ver: ['dashboard', 'alertas', 'calendario', 'locadores', 'locatarios', 'compradores', 'garantias',
+          'imoveis', 'contratos', 'negociacoes', 'leads', 'balancetes', 'vitrine', 'portais', 'rede'],
+    ops: { criar: 'sim', editar: 'sim', excluir: 'aprovacao' },
+    excecoes: {
+      contratos: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
+      balancetes: { criar: 'sim', editar: 'sim', excluir: 'nao' },
+    },
+    acoesSim: ['solicitarRepasse'],
+    acoesAprovacao: ['alterarDadosRepasse', 'repasseRepresentante', 'fecharBalancete'],
+  },
+  modelo_financeiro: {
+    nome: 'Financeiro',
+    ver: ['dashboard', 'alertas', 'relatorios', 'calendario', 'locadores', 'locatarios', 'garantias',
+          'contratos', 'balancetes', 'caixa'],
+    ops: SO_LER,
+    excecoes: {
+      balancetes: { criar: 'sim', editar: 'sim', excluir: 'aprovacao' },
+      caixa: { criar: 'sim', editar: 'sim', excluir: 'aprovacao' },
+    },
+    acoesSim: ['aprovarAlteracoes', 'aprovarPagamentoLocador', 'solicitarRepasse', 'aprovarCobranca', 'gerenciarAssinaturaAsaas', 'fecharBalancete'],
+    acoesAprovacao: ['alterarDadosRepasse'],
+  },
+  modelo_cobranca: {
+    nome: 'Cobrança',
+    ver: ['dashboard', 'alertas', 'calendario', 'locatarios', 'garantias', 'contratos', 'balancetes'],
+    ops: SO_LER,
+    excecoes: { locatarios: { criar: 'nao', editar: 'sim', excluir: 'nao' } },
+    acoesSim: ['aprovarCobranca'],
+  },
+};
+
+let _perfisCache = {}; // id → { doc, norm }
+
+function roleDoPerfilId(id) {
+  return id && id.startsWith('seed_') ? id.slice(5) : null;
+}
+
+// Perfil efetivo de um usuário qualquer (mesma ordem do resolverPerfilUsuario)
+function perfilEfetivoDe(u) {
+  const role = u.role || 'operador';
+  const c = (u.perfilId && _perfisCache[u.perfilId]) || _perfisCache['seed_' + role];
+  return c ? c.norm : normalizarPerfil(null, role);
+}
+
+function resumoPerfil(norm) {
+  const ps = Object.values(norm.permissoes);
+  const contar = (n) => ps.reduce((acc, p) => acc + OPS_MODULO.filter(op => p[op] === n).length, 0);
+  return {
+    mods: ps.filter(p => p.ver).length,
+    sim: contar('sim'),
+    aprovacao: contar('aprovacao') + Object.values(norm.acoes).filter(n => n === 'aprovacao').length,
+    acoes: Object.values(norm.acoes).filter(n => n === 'sim').length,
+  };
+}
+
+async function carregarPerfisCache() {
+  const snap = await tenantPath().collection('perfis').get();
+  _perfisCache = {};
+  snap.docs.forEach(d => {
+    const doc = d.data();
+    _perfisCache[d.id] = { doc, norm: normalizarPerfil(doc, roleDoPerfilId(d.id) || doc.seedRole || null) };
+  });
+  return snap;
+}
+
+// Seção "👥 Equipe e permissões": perfis primeiro (a lista de usuários usa o cache)
+async function loadEquipe() {
+  await loadPerfis();
+  await loadUsuariosTenant();
 }
 
 async function loadPerfis() {
   const tbody = $('tbody-perfis');
-  if (!tbody) return;
-  if (!State.tenant) return;
+  if (!tbody || !State.tenant) return;
   tbody.innerHTML = `<tr><td colspan="3" class="empty">Carregando…</td></tr>`;
   try {
-    const snap = await tenantPath().collection('perfis').get();
+    const snap = await carregarPerfisCache();
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil ainda. Clique em "⚙ Criar perfis padrão" pra gerar os perfis-base.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="3" class="empty">Nenhum perfil ainda. Clique em "⚙ Criar perfis padrão" para gerar os perfis dos cargos.</td></tr>`;
       return;
     }
-    // Ordena: perfis de sistema primeiro, depois customizados
-    const docs = snap.docs.slice().sort((a, b) => {
-      const sa = a.data().sistema ? 0 : 1;
-      const sb = b.data().sistema ? 0 : 1;
-      return sa - sb;
-    });
+    const ordem = (d) => (d.data().sistema ? 0 : (d.id.startsWith('modelo_') ? 1 : 2));
+    const docs = snap.docs.slice().sort((a, b) => ordem(a) - ordem(b) || String(a.data().nome).localeCompare(String(b.data().nome)));
     tbody.innerHTML = docs.map(d => {
       const p = d.data();
-      // role do seed: seed_admin → admin
-      const role = d.id.startsWith('seed_') ? d.id.slice(5) : null;
-      const r = resumoPerfil(p, role);
-      const badgeSistema = p.sistema
-        ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;">⚙ sistema</span>'
-        : '';
-      const resumoTxt = `${r.mods} módulo(s) · ${r.editar} c/ edição` + (r.acoes ? ` · <strong style="color:#b45309;">${r.acoes} ação(ões) sensível(eis)</strong>` : '');
+      const norm = _perfisCache[d.id].norm;
+      const r = resumoPerfil(norm);
+      const badges = (p.sistema ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;">⚙ base do tipo</span>' : '')
+        + (State.userDoc?.perfilId === d.id ? ' <span class="papel-chip">o seu</span>' : '')
+        + (excessosSobreMeuPerfil(norm).length ? ' <span class="papel-chip" style="background:#FEE2E2;color:#991B1B;" title="Tem permissões que você não tem — só quem tem pode editar">acima do seu limite</span>' : '');
+      const resumoTxt = `${r.mods} módulo(s) · ${r.sim} pode` + (r.aprovacao ? ` · ${r.aprovacao} com aprovação` : '')
+        + (r.acoes ? ` · <strong style="color:#b45309;">${r.acoes} ação(ões) delicada(s)</strong>` : '');
       return `<tr>
-        <td><strong>${escapeHtml(p.nome || '—')}</strong>${badgeSistema}</td>
+        <td><strong>${escapeHtml(p.nome || '—')}</strong>${badges}</td>
         <td style="font-size:11px; color:var(--text-muted);">${resumoTxt}</td>
-        <td><button class="btn btn-sm btn-secondary" onclick="openPerfilModal('${d.id}')">Editar</button></td>
+        <td><button class="btn btn-sm btn-secondary" onclick="openPerfilModal('${d.id}')">Abrir</button></td>
       </tr>`;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
-// Cria perfis-base seed_<role> (idempotente — sobrescreve mantendo id fixo).
+// Cria os perfis-base (um por tipo de usuário) e os perfis-modelo dos cargos.
+// Base: sobrescreve (idempotente, como sempre foi). Modelos: só cria os que
+// faltam — nunca apaga ajuste feito pela imobiliária. Pula o que passa do seu limite.
 async function criarPerfisSeed() {
   if (!State.tenant) return;
   const SID = 'perfis-seed-status';
   const ok = await confirmar({
     titulo: 'Criar perfis padrão?',
-    mensagem: 'Vamos criar os perfis-base do sistema (um por tipo de usuário).',
-    detalhe: 'São criados/atualizados: <strong>seed_admin</strong>, <strong>seed_operador</strong>, <strong>seed_operador_drg</strong>, <strong>seed_super_admin</strong>.<br><br>Operação <strong>idempotente</strong> — pode rodar quantas vezes quiser. Não apaga perfis customizados nem altera operadores já vinculados.',
+    mensagem: 'Vamos criar os perfis-base (um por tipo de usuário) e os perfis dos cargos: Gerente, Gestor, Corretor, Aux. Administrativo, Financeiro e Cobrança.',
+    detalhe: 'Os perfis-base são <strong>recriados</strong> com o padrão do sistema. Os perfis dos cargos só são criados se ainda <strong>não existirem</strong> — o que vocês já ajustaram fica como está. Perfis acima do seu limite são pulados.',
     confirmar: '⚙ Criar perfis',
     aviso: true,
   });
   if (!ok) return;
-
-  showInlineStatus(SID, '🔄 Criando perfis-base…', 'loading');
+  const btn = $('btn-criar-perfis-seed');
   try {
-    const roles = ['super_admin', 'operador_drg', 'admin', 'operador'];
-    const nomesRole = {
-      super_admin:  'Base — Super Admin (acesso total)',
-      operador_drg: 'Base — Operador DRG (equipe interna)',
-      admin:        'Base — Administrador do tenant',
-      operador:     'Base — Operador comum',
-    };
-    const batch = db.batch();
-    roles.forEach(role => {
-      const norm = normalizarPerfil(null, role); // deriva do ROLE_MODULOS/ACOES_PADRAO
-      const ref = tenantPath().collection('perfis').doc('seed_' + role);
-      batch.set(ref, {
-        nome: nomesRole[role],
-        permissoes: norm.permissoes,
-        acoes: norm.acoes,
-        sistema: true,
-        seedRole: role,
-        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-        criadoPor: State.user?.uid || null,
-      }, { merge: true });
-    });
-    await batch.commit();
-    logAuditoria('create', 'config', 'perfis-seed', { count: roles.length });
-    showInlineStatus(SID, '✅ 4 perfis-base criados/atualizados com sucesso.', 'success', 6000);
-    loadPerfis();
+    let criados = 0;
+    const pulados = [];
+    await drgSubmit(btn, '⏳ Criando perfis... aguarde', async () => {
+      await carregarPerfisCache();
+      const roles = ['super_admin', 'operador_drg', 'admin', 'operador', 'corretor'];
+      const nomesRole = {
+        super_admin:  'Base — Super Admin (acesso total)',
+        operador_drg: 'Base — Operador DRG (equipe interna)',
+        admin:        'Base — Administrador do tenant',
+        operador:     'Base — Operador comum',
+        corretor:     'Base — Corretor',
+      };
+      const batch = db.batch();
+      const agora = firebase.firestore.FieldValue.serverTimestamp();
+      roles.forEach(role => {
+        const norm = normalizarPerfil(null, role);
+        if (excessosSobreMeuPerfil(norm).length) { pulados.push(nomesRole[role]); return; }
+        batch.set(tenantPath().collection('perfis').doc('seed_' + role), {
+          nome: nomesRole[role], permissoes: norm.permissoes, acoes: norm.acoes, versao: 3,
+          sistema: true, seedRole: role, atualizadoEm: agora, criadoPor: State.user?.uid || null,
+        }, { merge: true });
+        criados++;
+      });
+      Object.entries(PERFIS_MODELO).forEach(([id, spec]) => {
+        if (_perfisCache[id]) return;
+        const norm = montarPerfilModelo(spec);
+        if (excessosSobreMeuPerfil(norm).length) { pulados.push(spec.nome); return; }
+        batch.set(tenantPath().collection('perfis').doc(id), {
+          nome: spec.nome, permissoes: norm.permissoes, acoes: norm.acoes, versao: 3,
+          sistema: false, modelo: true, criadoEm: agora, criadoPor: State.user?.uid || null,
+        });
+        criados++;
+      });
+      await batch.commit();
+    }, { destravar: true });
+    logAuditoria('create', 'config', 'perfis-seed', { criados, pulados });
+    showInlineStatus(SID, `✓ ${criados} perfil(is) criado(s)/atualizado(s).` + (pulados.length ? ` Pulados (acima do seu limite): ${escapeHtml(pulados.join(', '))}.` : ''), 'success', 8000);
+    loadEquipe();
   } catch (err) {
     console.error('Erro ao criar perfis seed:', err);
-    showInlineStatus(SID, `❌ ${err.message}`, 'error');
+    showInlineStatus(SID, `❌ ${escapeHtml(err.message)}`, 'error');
   }
 }
 window.criarPerfisSeed = criarPerfisSeed;
 
-// Renderiza a grade de permissões (módulos: acesso+editar; ações: 1 checkbox).
-function renderPerfilEditor(perfilNorm) {
-  // Módulos agrupados
-  const container = $('perfil-modulos-container');
+function opcoesNivel(selecionado, limite, tresNiveis = true) {
+  const meuRank = rankNivel(limite);
+  return NIVEIS_PERMISSAO.slice().reverse()
+    .filter(n => tresNiveis || n !== 'aprovacao')
+    .map(n => `<option value="${n}" ${n === selecionado ? 'selected' : ''} ${rankNivel(n) > meuRank ? 'disabled' : ''}>${NIVEL_LABEL[n]}${rankNivel(n) > meuRank ? ' (acima do seu)' : ''}</option>`)
+    .join('');
+}
+
+// Grade de permissões. "travado" = só leitura (perfil acima do seu limite ou o seu próprio).
+function renderPerfilEditor(norm, travado) {
+  const souSuper = State.userDoc?.role === 'super_admin';
+  const meu = perfilAtual();
+  const limiteOp = (modId, op) => souSuper ? 'sim' : ((meu.permissoes[modId] || {}).ver ? (meu.permissoes[modId][op] || 'nao') : 'nao');
+  const limiteVer = (modId) => souSuper || !!(meu.permissoes[modId] || {}).ver;
+  const dis = travado ? 'disabled' : '';
+
   const grupos = {};
-  MODULOS_DISPONIVEIS.forEach(m => {
-    if (!grupos[m.grupo]) grupos[m.grupo] = [];
-    grupos[m.grupo].push(m);
-  });
-  container.innerHTML = Object.entries(grupos).map(([grupo, mods]) => `
+  MODULOS_DISPONIVEIS.forEach(m => { (grupos[m.grupo] = grupos[m.grupo] || []).push(m); });
+  $('perfil-modulos-container').innerHTML = Object.entries(grupos).map(([grupo, mods]) => `
     <div class="perfil-grupo">
       <div class="perfil-grupo-titulo">${grupo}</div>
       <div class="perfil-grade">
         ${mods.map(m => {
-          const p = perfilNorm.permissoes[m.id] || {};
+          const p = norm.permissoes[m.id] || {};
+          const podeVer = limiteVer(m.id);
           return `
           <div class="perfil-card-modulo" data-modulo="${m.id}">
             <div class="perfil-card-nome">${escapeHtml(m.label)}</div>
-            <div class="perfil-card-checks">
-              <label title="Pode ver este módulo">
-                <input type="checkbox" class="chk-acesso" data-modulo="${m.id}" ${p.acesso ? 'checked' : ''}
-                  onchange="onPerfilAcessoChange('${m.id}')">
-                <span>Acesso</span>
-              </label>
-              ${m.somenteLeitura ? '<span class="perfil-card-leitura">só leitura</span>' : `
-              <label title="Pode criar / alterar / excluir">
-                <input type="checkbox" class="chk-editar" data-modulo="${m.id}" ${p.editar ? 'checked' : ''}
-                  ${p.acesso ? '' : 'disabled'}>
-                <span>Editar</span>
-              </label>`}
-            </div>
+            <label class="perfil-ver" title="Pode ver este módulo">
+              <input type="checkbox" class="chk-ver" data-modulo="${m.id}" ${p.ver ? 'checked' : ''}
+                ${(!podeVer && !p.ver) || travado ? 'disabled' : ''} onchange="onPerfilVerChange('${m.id}')">
+              <span>Ver</span>
+            </label>
+            ${m.somenteLeitura ? '<span class="perfil-card-leitura">só leitura</span>' : `
+            <div class="perfil-ops">
+              ${OPS_MODULO.map(op => `
+                <label class="perfil-op">
+                  <span>${OP_LABEL[op]}</span>
+                  <select class="sel-op" data-modulo="${m.id}" data-op="${op}" ${p.ver ? '' : 'disabled'} ${dis}>
+                    ${opcoesNivel(p.ver ? p[op] : 'nao', limiteOp(m.id, op))}
+                  </select>
+                </label>`).join('')}
+            </div>`}
           </div>`;
         }).join('')}
       </div>
     </div>
   `).join('');
 
-  // Ações sensíveis
-  const acoesContainer = $('perfil-acoes-container');
-  acoesContainer.innerHTML = `
+  $('perfil-acoes-container').innerHTML = `
     <div class="perfil-grade">
-      ${ACOES_SENSIVEIS.map(a => {
-        const marcada = !!perfilNorm.acoes[a.id];
-        return `
+      ${ACOES_SENSIVEIS.map(a => `
         <div class="perfil-card-acao">
-          <label title="${escapeHtml(a.desc)}">
-            <input type="checkbox" class="chk-acao" data-acao="${a.id}" ${marcada ? 'checked' : ''}>
-            <span>
-              <strong>${escapeHtml(a.label)}</strong>
-              <small>${escapeHtml(a.desc)}</small>
-            </span>
-          </label>
-        </div>`;
-      }).join('')}
+          <div>
+            <strong>${escapeHtml(a.label)}</strong>
+            <small>${escapeHtml(a.desc)}</small>
+          </div>
+          <select class="sel-acao" data-acao="${a.id}" ${dis}>
+            ${opcoesNivel(norm.acoes[a.id] || 'nao', souSuper ? 'sim' : (meu.acoes[a.id] || 'nao'), !!a.tresNiveis)}
+          </select>
+        </div>`).join('')}
     </div>
   `;
 }
 
-// "Editar" depende de "Acesso" — quando desmarca acesso, desmarca+trava editar.
-function onPerfilAcessoChange(moduloId) {
-  const acesso = document.querySelector(`.chk-acesso[data-modulo="${moduloId}"]`);
-  const editar = document.querySelector(`.chk-editar[data-modulo="${moduloId}"]`);
-  if (!editar) return;
-  if (acesso.checked) {
-    editar.disabled = false;
-  } else {
-    editar.checked = false;
-    editar.disabled = true;
-  }
+// Sem "Ver" não há Criar/Editar/Excluir
+function onPerfilVerChange(moduloId) {
+  const ver = document.querySelector(`.chk-ver[data-modulo="${moduloId}"]`).checked;
+  document.querySelectorAll(`.sel-op[data-modulo="${moduloId}"]`).forEach(sel => {
+    sel.disabled = !ver;
+    if (!ver) sel.value = 'nao';
+  });
 }
-window.onPerfilAcessoChange = onPerfilAcessoChange;
+window.onPerfilVerChange = onPerfilVerChange;
+
+function lerPerfilDoEditor() {
+  const permissoes = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    const ver = !!document.querySelector(`.chk-ver[data-modulo="${m.id}"]`)?.checked;
+    const r = { ver };
+    OPS_MODULO.forEach(op => {
+      const sel = document.querySelector(`.sel-op[data-modulo="${m.id}"][data-op="${op}"]`);
+      r[op] = (!ver || m.somenteLeitura || !sel) ? 'nao' : sel.value;
+    });
+    permissoes[m.id] = r;
+  });
+  const acoes = {};
+  ACOES_SENSIVEIS.forEach(a => {
+    acoes[a.id] = document.querySelector(`.sel-acao[data-acao="${a.id}"]`)?.value || 'nao';
+  });
+  return { permissoes, acoes };
+}
 
 async function openPerfilModal(id) {
   clearAlert('perfil-alert');
   $('perfil-id').value = id || '';
-  $('modal-perfil-title').textContent = id ? 'Editar perfil' : 'Novo perfil';
+  $('modal-perfil-title').textContent = id ? 'Perfil de permissões' : 'Novo perfil';
   $('perfil-nome').value = '';
 
   let perfilDoc = null;
-  let ehSistema = false;
-  let roleDoSeed = null;
   if (id) {
     try {
       const snap = await tenantPath().collection('perfis').doc(id).get();
-      if (snap.exists) {
-        perfilDoc = snap.data();
-        $('perfil-nome').value = perfilDoc.nome || '';
-        ehSistema = !!perfilDoc.sistema;
-        roleDoSeed = id.startsWith('seed_') ? id.slice(5) : null;
-      }
+      if (snap.exists) perfilDoc = snap.data();
     } catch (_) {}
   }
+  const ehSistema = !!perfilDoc?.sistema;
+  const norm = perfilDoc ? normalizarPerfil(perfilDoc, roleDoPerfilId(id) || perfilDoc.seedRole || null)
+                         : normalizarPerfil({ permissoes: {}, acoes: {} }, null);
+  const souSuper = State.userDoc?.role === 'super_admin';
+  const ehMeu = !!id && State.userDoc?.perfilId === id && !souSuper;
+  const excessos = excessosSobreMeuPerfil(norm);
+  const travado = ehMeu || excessos.length > 0;
 
-  // Perfil de sistema: nome travado, sem excluir, com aviso
-  $('perfil-nome').disabled = ehSistema;
-  $('btn-delete-perfil').style.display = (id && !ehSistema) ? 'inline-block' : 'none';
+  $('perfil-nome').value = perfilDoc?.nome || '';
+  $('perfil-nome').disabled = ehSistema || travado;
+  $('btn-delete-perfil').style.display = (id && !ehSistema && !travado) ? 'inline-block' : 'none';
+  $('btn-save-perfil').style.display = travado ? 'none' : 'inline-block';
   $('perfil-sistema-aviso').style.display = ehSistema ? 'block' : 'none';
+  const aviso = $('perfil-travado-aviso');
+  if (ehMeu) {
+    aviso.innerHTML = '🔒 Este é <strong>o seu próprio perfil</strong>. Ninguém altera as próprias permissões — peça a quem está acima de você.';
+  } else if (excessos.length) {
+    aviso.innerHTML = `🔒 Este perfil tem permissões que <strong>você não tem</strong>, então só pode ser alterado por quem tem: ${escapeHtml(excessos.slice(0, 6).join('; '))}${excessos.length > 6 ? '…' : ''}`;
+  }
+  aviso.style.display = travado ? 'block' : 'none';
 
-  const norm = normalizarPerfil(perfilDoc, roleDoSeed);
-  renderPerfilEditor(norm);
+  renderPerfilEditor(norm, travado);
   $('modal-perfil').style.display = 'flex';
 }
 
@@ -13721,47 +14453,44 @@ async function savePerfil() {
   const id = $('perfil-id').value;
   const nome = $('perfil-nome').value.trim();
   if (!nome) { showAlert('perfil-alert', 'Nome do perfil é obrigatório.'); return; }
-
-  // Monta o objeto permissoes{} a partir dos checkboxes
-  const permissoes = {};
-  MODULOS_DISPONIVEIS.forEach(m => {
-    const acesso = document.querySelector(`.chk-acesso[data-modulo="${m.id}"]`)?.checked || false;
-    const editar = m.somenteLeitura ? false
-      : (document.querySelector(`.chk-editar[data-modulo="${m.id}"]`)?.checked || false);
-    permissoes[m.id] = { acesso, editar: acesso && editar };
-  });
-  // Monta acoes{}
-  const acoes = {};
-  ACOES_SENSIVEIS.forEach(a => {
-    acoes[a.id] = document.querySelector(`.chk-acao[data-acao="${a.id}"]`)?.checked || false;
-  });
+  if (!pode('gerenciarUsuariosPerfis')) { showAlert('perfil-alert', 'Seu perfil não tem "Gerenciar usuários e perfis".'); return; }
+  if (id && State.userDoc?.perfilId === id && State.userDoc?.role !== 'super_admin') {
+    showAlert('perfil-alert', 'Você não pode alterar o seu próprio perfil.'); return;
+  }
+  const norm = lerPerfilDoEditor();
+  const excessos = excessosSobreMeuPerfil(norm);
+  if (excessos.length) {
+    showAlert('perfil-alert', 'Você não pode conceder o que não tem: ' + excessos.join('; ') + '.'); return;
+  }
 
   try {
-    if (id) {
-      // Perfil de sistema: não muda o nome (campo está disabled mesmo)
-      const snap = await tenantPath().collection('perfis').doc(id).get();
-      const ehSistema = snap.exists && !!snap.data().sistema;
-      const payload = { permissoes, acoes, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() };
-      if (!ehSistema) payload.nome = nome;
-      await tenantPath().collection('perfis').doc(id).update(payload);
-      logAuditoria('update', 'config', 'perfil:' + id, { nome });
-    } else {
-      const ref = await tenantPath().collection('perfis').add({
-        nome, permissoes, acoes,
-        sistema: false,
-        criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-        criadoPor: State.user.uid,
-      });
-      logAuditoria('create', 'config', 'perfil:' + ref.id, { nome });
-    }
-    closePerfilModal();
-    loadPerfis();
-    showAlert('cfg-alert', 'Perfil salvo.', 'success');
-    // Se o usuário editou o próprio perfil, re-resolve
-    if (State.userDoc?.perfilId === id) {
-      await resolverPerfilUsuario();
-      renderApp();
-    }
+    await drgSubmit($('btn-save-perfil'), '⏳ Salvando... aguarde', async () => {
+      const payload = { permissoes: norm.permissoes, acoes: norm.acoes, versao: 3,
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPor: State.user.uid };
+      if (id) {
+        const snap = await tenantPath().collection('perfis').doc(id).get();
+        if (snap.exists) {
+          const atual = snap.data();
+          // Revalida com o que está no banco (pode ter mudado desde que abriu)
+          if (excessosSobreMeuPerfil(normalizarPerfil(atual, roleDoPerfilId(id) || atual.seedRole || null)).length) {
+            throw new Error('Este perfil passou a ter permissões acima das suas. Recarregue a tela.');
+          }
+          if (!atual.sistema) payload.nome = nome;
+        }
+        await tenantPath().collection('perfis').doc(id).update(payload);
+        logAuditoria('update', 'config', 'perfil:' + id, { nome });
+      } else {
+        const ref = await tenantPath().collection('perfis').add({
+          ...payload, nome, sistema: false,
+          criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
+        });
+        logAuditoria('create', 'config', 'perfil:' + ref.id, { nome });
+      }
+    });
+    $('btn-save-perfil').innerHTML = '✓ Salvo';
+    showAlert('perfil-alert', '✓ Perfil salvo. Vale no próximo acesso de quem usa este perfil.', 'success');
+    loadEquipe();
+    setTimeout(() => { closePerfilModal(); $('btn-save-perfil').disabled = false; $('btn-save-perfil').innerHTML = 'Salvar'; }, 900);
   } catch (err) {
     showAlert('perfil-alert', 'Erro: ' + err.message);
   }
@@ -13770,7 +14499,6 @@ async function savePerfil() {
 async function deletePerfil() {
   const id = $('perfil-id').value;
   if (!id) return;
-  // Bloqueia exclusão de perfil de sistema
   try {
     const snap = await tenantPath().collection('perfis').doc(id).get();
     if (snap.exists && snap.data().sistema) {
@@ -13778,28 +14506,44 @@ async function deletePerfil() {
       return;
     }
   } catch (_) {}
-  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Os usuários vinculados a ele perdem o perfil e caem no fallback (perfil-base do tier). Você pode reatribuir manualmente depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
+  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Operador, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    await tenantPath().collection('perfis').doc(id).delete();
-    logAuditoria('delete', 'config', 'perfil:' + id);
+    await drgSubmit($('btn-delete-perfil'), '⏳ Excluindo... aguarde', async () => {
+      await tenantPath().collection('perfis').doc(id).delete();
+      logAuditoria('delete', 'config', 'perfil:' + id);
+    }, { destravar: true });
     closePerfilModal();
-    loadPerfis();
+    showAlert('equipe-alert', '✓ Perfil excluído.', 'success');
+    loadEquipe();
   } catch (err) {
     showAlert('perfil-alert', 'Erro: ' + err.message);
   }
 }
 
+// <option>s de perfil para um usuário do tipo `role`. Perfis acima do seu limite vêm desabilitados.
+function opcoesPerfilUsuario(role, selecionado) {
+  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+  const base = _perfisCache['seed_' + role];
+  let html = `<option value="">— Padrão do tipo ${nomeTipo}${base ? '' : ' (sem perfil-base criado)'}</option>`;
+  Object.entries(_perfisCache)
+    .filter(([pid]) => !pid.startsWith('seed_'))
+    .sort((a, b) => String(a[1].doc.nome).localeCompare(String(b[1].doc.nome)))
+    .forEach(([pid, c]) => {
+      const acima = excessosSobreMeuPerfil(c.norm).length > 0;
+      html += `<option value="${pid}" ${pid === selecionado ? 'selected' : ''} ${acima ? 'disabled' : ''}>${escapeHtml(c.doc.nome || pid)}${acima ? ' (acima do seu limite)' : ''}</option>`;
+    });
+  return html;
+}
+
 async function populateUsuarioPerfilSelect() {
-  const sel = $('usuario-perfil');
-  sel.innerHTML = '<option value="">— Padrão (todos os cadastros e operação)</option>';
-  try {
-    const snap = await tenantPath().collection('perfis').get();
-    sel.innerHTML += snap.docs.map(d => `<option value="${d.id}">${d.data().nome}</option>`).join('');
-  } catch (_) {}
+  try { await carregarPerfisCache(); } catch (_) {}
+  $('usuario-perfil').innerHTML = opcoesPerfilUsuario($('usuario-role').value, '');
 }
 
 function onUsuarioRoleChange() {
-  $('usuario-perfil-group').style.display = $('usuario-role').value === 'operador' ? 'block' : 'none';
+  const sel = $('usuario-perfil');
+  const atual = sel.value;
+  sel.innerHTML = opcoesPerfilUsuario($('usuario-role').value, atual);
 }
 
 async function loadUsuariosTenant() {
@@ -13814,36 +14558,72 @@ async function loadUsuariosTenant() {
       tbody.innerHTML = `<tr><td colspan="5" class="empty">Nenhum usuário cadastrado.</td></tr>`;
       return;
     }
-    const rows = snap.docs.map(doc => {
+    const souSuper = State.userDoc?.role === 'super_admin';
+    tbody.innerHTML = snap.docs.map(doc => {
       const u = doc.data();
       const isSelf = doc.id === State.user.uid;
       const ativo = u.ativo !== false;
-      const roleLabel = { admin: 'Administrador', corretor: 'Corretor' }[u.role] || 'Operador';
+      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[u.role] || 'Operador';
+      // Não mexe em quem está acima de você (nem em você mesmo)
+      const acima = !souSuper && excessosSobreMeuPerfil(perfilEfetivoDe(u)).length > 0;
+      const bloqueado = isSelf || acima || !pode('gerenciarUsuariosPerfis') || (u.role === 'admin' && !souSuper && State.userDoc?.role !== 'admin');
+      const motivo = isSelf ? 'Você não altera o próprio perfil' : (acima ? 'Este usuário tem permissões acima das suas' : '');
       const statusBadge = ativo
         ? '<span class="badge-status ativo">Ativo</span>'
         : '<span class="badge-status suspenso">Desativado</span>';
-      const toggleLabel = ativo ? 'Desativar' : 'Reativar';
-      const toggleClass = ativo ? 'btn-danger' : 'btn-primary';
       return `
         <tr>
-          <td><strong>${u.nome || '—'}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}</td>
-          <td>${u.email || '—'}</td>
-          <td>${roleLabel}</td>
+          <td><strong>${escapeHtml(u.nome || '—')}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}<br><span class="muted" style="font-size:11px;">${tipo}</span></td>
+          <td>${escapeHtml(u.email || '—')}</td>
+          <td>
+            <select class="sel-perfil-usuario" data-uid="${doc.id}" data-role="${escapeHtml(u.role || 'operador')}" data-atual="${escapeHtml(u.perfilId || '')}"
+              ${bloqueado ? `disabled title="${escapeHtml(motivo)}"` : ''} onchange="alterarPerfilUsuario(this)">
+              ${opcoesPerfilUsuario(u.role || 'operador', u.perfilId || '')}
+            </select>
+          </td>
           <td>${statusBadge}</td>
           <td>
-            ${isSelf ? '<span class="muted" style="font-size:11px;">—</span>' : `
-              <button class="btn btn-sm ${toggleClass}" onclick="toggleUsuarioAtivo('${doc.id}', ${!ativo})">${toggleLabel}</button>
+            ${bloqueado ? `<span class="muted" style="font-size:11px;">${escapeHtml(motivo || '—')}</span>` : `
+              <button class="btn btn-sm ${ativo ? 'btn-danger' : 'btn-primary'}" onclick="toggleUsuarioAtivo('${doc.id}', ${!ativo})">${ativo ? 'Desativar' : 'Reativar'}</button>
             `}
           </td>
         </tr>
       `;
-    });
-    tbody.innerHTML = rows.join('');
+    }).join('');
   } catch (err) {
     console.error('Erro ao listar usuários:', err);
-    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
+
+// Troca o perfil de um usuário direto na lista (trava o select enquanto grava)
+async function alterarPerfilUsuario(sel) {
+  const uid = sel.dataset.uid;
+  const anterior = sel.dataset.atual || '';
+  const novo = sel.value || '';
+  if (novo === anterior) return;
+  const nomePerfil = novo ? (_perfisCache[novo]?.doc.nome || novo) : 'padrão do tipo';
+  if (!(await confirmar({ titulo: 'Trocar perfil?', mensagem: `O usuário passa a ter o perfil <strong>${escapeHtml(nomePerfil)}</strong>.`, detalhe: 'Vale a partir do próximo acesso dele.', confirmar: 'Trocar' }))) {
+    sel.value = anterior; return;
+  }
+  if (novo && excessosSobreMeuPerfil(_perfisCache[novo].norm).length) {
+    showAlert('equipe-alert', 'Você não pode atribuir um perfil acima do seu limite.'); sel.value = anterior; return;
+  }
+  sel.disabled = true;
+  showInlineStatus('usuarios-status', '⏳ Salvando perfil... aguarde', 'loading');
+  try {
+    await db.collection('users').doc(uid).update({ perfilId: novo || null });
+    logAuditoria('update', 'usuario', uid, { perfilId: novo || null, perfilAnterior: anterior || null });
+    sel.dataset.atual = novo;
+    showInlineStatus('usuarios-status', `✓ Perfil alterado para ${escapeHtml(nomePerfil)}.`, 'success', 5000);
+  } catch (err) {
+    sel.value = anterior;
+    showInlineStatus('usuarios-status', `❌ ${escapeHtml(err.message)}`, 'error');
+  } finally {
+    sel.disabled = false;
+  }
+}
+window.alterarPerfilUsuario = alterarPerfilUsuario;
 
 async function openUsuarioTenantModal() {
   clearAlert('usuario-alert');
@@ -13851,11 +14631,13 @@ async function openUsuarioTenantModal() {
   $('usuario-nome').value = '';
   $('usuario-email').value = '';
   $('usuario-role').value = 'operador';
+  // Administrador (acesso total ao tenant) só quem já é admin cria
+  const optAdmin = $('usuario-role').querySelector('option[value="admin"]');
+  if (optAdmin) optAdmin.disabled = !(State.userDoc?.role === 'admin' || State.userDoc?.role === 'super_admin');
   $('usuario-senha').value = gerarSenhaAleatoria(10);
   $('usuario-enviar-email').checked = true;
   await populateUsuarioPerfilSelect();
   $('usuario-perfil').value = '';
-  onUsuarioRoleChange();
   $('modal-usuario-tenant').style.display = 'flex';
 }
 
@@ -13875,9 +14657,20 @@ async function saveUsuarioTenant() {
   if (!nome) { showAlert('usuario-alert', 'Nome é obrigatório.'); return; }
   if (!email) { showAlert('usuario-alert', 'E-mail é obrigatório.'); return; }
   if (!senha || senha.length < 6) { showAlert('usuario-alert', 'Senha deve ter no mínimo 6 caracteres.'); return; }
+  // Delegação: ninguém cria alguém acima de si
+  if (!pode('gerenciarUsuariosPerfis')) { showAlert('usuario-alert', 'Seu perfil não tem "Gerenciar usuários e perfis".'); return; }
+  if (role === 'admin' && !['admin', 'super_admin'].includes(State.userDoc?.role)) {
+    showAlert('usuario-alert', 'Só um Administrador pode criar outro Administrador.'); return;
+  }
+  const perfilEscolhido = $('usuario-perfil').value;
+  const normNovo = perfilEfetivoDe({ role, perfilId: perfilEscolhido || null });
+  const excNovo = excessosSobreMeuPerfil(normNovo);
+  if (excNovo.length) {
+    showAlert('usuario-alert', 'Este usuário ficaria com permissões acima das suas: ' + excNovo.slice(0, 6).join('; ') + '. Escolha outro perfil.'); return;
+  }
 
   const btn = $('btn-save-usuario');
-  btn.disabled = true; btn.textContent = 'Criando…';
+  btn.disabled = true; btn.textContent = '⏳ Criando... aguarde';
 
   try {
     const apiKey = firebase.app().options.apiKey;
@@ -13897,7 +14690,7 @@ async function saveUsuarioTenant() {
     const uid = data.localId;
 
     // 2) Cria doc no Firestore vinculando ao tenant atual
-    const perfilId = role === 'operador' ? ($('usuario-perfil').value || null) : null;
+    const perfilId = $('usuario-perfil').value || null;
     await db.collection('users').doc(uid).set({
       nome,
       email,
@@ -13945,7 +14738,7 @@ async function saveUsuarioTenant() {
 
     logAuditoria('create', 'usuario', uid, { nome, email, role });
     closeUsuarioTenantModal();
-    showAlert('cfg-alert', `✓ Usuário ${nome} criado. Senha inicial: ${senha}`, 'success');
+    showAlert('equipe-alert', `✓ Usuário ${nome} criado. Senha inicial: ${senha}`, 'success');
     loadUsuariosTenant();
   } catch (err) {
     console.error('Erro ao criar usuário:', err);
@@ -13961,10 +14754,10 @@ async function toggleUsuarioAtivo(uid, novoAtivo) {
   try {
     await db.collection('users').doc(uid).update({ ativo: novoAtivo });
     logAuditoria('toggle_ativo', 'usuario', uid, { ativo: novoAtivo });
-    showAlert('cfg-alert', `Usuário ${novoAtivo ? 'reativado' : 'desativado'}.`, 'success');
+    showAlert('equipe-alert', `Usuário ${novoAtivo ? 'reativado' : 'desativado'}.`, 'success');
     loadUsuariosTenant();
   } catch (err) {
-    showAlert('cfg-alert', 'Erro: ' + err.message);
+    showAlert('equipe-alert', 'Erro: ' + err.message);
   }
 }
 

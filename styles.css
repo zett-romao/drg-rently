@@ -4091,3 +4091,41 @@ details.card > summary:hover {
 .rep-repasse-info.ok { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
 .rep-repasse-info.pendente { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
 .resumo-pix-rep { font-size: 12px; color: var(--text-muted, #64748B); display: block; margin-top: 2px; }
+
+/* Perfis 3.0 — Ver + Criar/Editar/Excluir em 3 níveis (12/10/2026) */
+.perfil-ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 32px;
+}
+.perfil-ver input { width: 17px; height: 17px; accent-color: var(--primary); }
+.perfil-ver input:disabled { opacity: .4; cursor: not-allowed; }
+.perfil-ops {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+.perfil-op { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-muted); }
+.perfil-op select, .perfil-card-acao select {
+  font-size: 12px;
+  padding: 5px 4px;
+  min-height: 34px;
+  width: 100%;
+  border-radius: 6px;
+}
+.perfil-op select:disabled { opacity: .5; }
+.perfil-card-acao { display: flex; flex-direction: column; gap: 8px; justify-content: space-between; }
+.sel-perfil-usuario { min-height: 36px; max-width: 220px; font-size: 12.5px; }
+@media (max-width: 600px) {
+  .perfil-grade { grid-template-columns: 1fr; }
+  .sel-perfil-usuario { max-width: 100%; }
+}
+.diff-details { margin-top: 6px; font-size: 12px; }
+.diff-details summary { cursor: pointer; color: var(--primary); min-height: 28px; display: list-item; }
+.diff-table { font-size: 12px; margin-top: 6px; }
+.diff-table td, .diff-table th { padding: 4px 6px; vertical-align: top; word-break: break-word; }

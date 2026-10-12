@@ -81,6 +81,7 @@ async function loadConfigRede() {
 }
 
 async function salvarConfigRede() {
+  if (!exigirPode('corretores', 'editar')) return;
   const campos = Array.from(document.querySelectorAll('.rede-campo-chk:checked')).map(el => el.value);
   const visibilidadePadrao = $('rede-visibilidade-padrao').value;
   try {
@@ -445,6 +446,7 @@ function gerarSenhaCorretor() {
 async function saveCorretor() {
   clearAlert('corretor-alert');
   const uidExistente = $('corretor-uid').value;
+  if (!exigirPode('corretores', uidExistente ? 'editar' : 'criar', 'corretor-alert')) return;
   const nome = $('corretor-nome').value.trim();
   const email = $('corretor-email').value.trim().toLowerCase();
   const telefone = $('corretor-telefone').value.replace(/\D/g, '') || null;
@@ -584,6 +586,7 @@ async function enviarEmailAcessoCorretor(nome, email, senha) {
 }
 
 async function definirStatusCorretor(uid, status) {
+  if (!exigirPode('corretores', 'editar')) return;
   const textos = {
     ativo:    { titulo: 'Liberar acesso?', msg: 'O corretor poderá entrar, cadastrar imóveis e ver as fichas da rede.', btn: '✅ Liberar' },
     suspenso: { titulo: 'Suspender corretor?', msg: 'O acesso é bloqueado na hora. Os imóveis que ele captou continuam no sistema.', btn: 'Suspender' },
@@ -833,6 +836,7 @@ function atualizarSomaComissaoPP() {
 }
 
 async function salvarProgramaParceiros() {
+  if (!exigirPode('corretores', 'editar')) return;
   const comissao = {
     captadorPct: parseFloat($('pp-captador').value) || 0,
     vendedorPct: parseFloat($('pp-vendedor').value) || 0,

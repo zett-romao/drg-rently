@@ -1,7 +1,7 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-11 (papel corretor + rede de imóveis + blindagem de users)
+// Última atualização: 2026-10-12 (Perfis 3.0: delegação de usuários + fila "Com aprovação")
 // =============================================================
 rules_version = '2';
 service cloud.firestore {
@@ -52,6 +52,15 @@ service cloud.firestore {
                .get('programaParceiros', {}).get('ativo', false) == true;
     }
 
+    // Perfis 3.0 — quem tem "👥 Gerenciar usuários e perfis" (✅ Pode) no perfil
+    // atribuído. Admin continua coberto pelas regras de role 'admin'.
+    function delegadoGerenciar(tenantId) {
+      return belongsToTenant(tenantId)
+             && userDoc().get('perfilId', null) is string
+             && get(/databases/$(database)/documents/tenants/$(tenantId)/perfis/$(userDoc().perfilId)).data
+                  .get('acoes', {}).get('gerenciarUsuariosPerfis', false) in ['sim', true];
+    }
+
     // Campos que o próprio usuário NUNCA pode alterar no seu doc
     function camposProtegidosIntactos() {
       return !request.resource.data.diff(resource.data).affectedKeys()
@@ -66,6 +75,10 @@ service cloud.firestore {
       allow read: if isSignedIn() && userExists()
                   && userDoc().role == 'admin'
                   && resource.data.tenantId == userDoc().tenantId;
+      // Perfis 3.0: delegado lista a equipe do próprio tenant
+      allow read: if isSignedIn() && userExists()
+                  && resource.data.tenantId == userDoc().tenantId
+                  && delegadoGerenciar(userDoc().tenantId);
 
       // Criações
       // (a) signup de imobiliária: vira admin SÓ do tenant que ele mesmo criou no mesmo batch
@@ -84,6 +97,11 @@ service cloud.firestore {
                     && userDoc().role == 'admin'
                     && request.resource.data.tenantId == userDoc().tenantId
                     && request.resource.data.role in ['admin', 'operador', 'corretor'];
+      // (c2) Perfis 3.0: delegado cria operador/corretor do próprio tenant (nunca admin)
+      allow create: if isSignedIn() && userExists()
+                    && request.resource.data.tenantId == userDoc().tenantId
+                    && request.resource.data.role in ['operador', 'corretor']
+                    && delegadoGerenciar(userDoc().tenantId);
       // (d) super_admin criando equipe DRG
       allow create: if isSuperAdmin()
                     && (!('tenantId' in request.resource.data)
@@ -106,6 +124,15 @@ service cloud.firestore {
                     && resource.data.tenantId == userDoc().tenantId
                     && request.resource.data.tenantId == userDoc().tenantId
                     && request.resource.data.role in ['admin', 'operador', 'corretor'];
+
+      // Perfis 3.0: delegado troca perfil / ativa-desativa operador e corretor do
+      // próprio tenant — nunca a si mesmo, nunca admin, nunca outro campo
+      allow update: if isSignedIn() && userExists()
+                    && request.auth.uid != uid
+                    && resource.data.tenantId == userDoc().tenantId
+                    && resource.data.role in ['operador', 'corretor']
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['perfilId', 'ativo'])
+                    && delegadoGerenciar(userDoc().tenantId);
 
       // Deleções
       allow delete: if isSuperAdmin();
@@ -135,6 +162,16 @@ service cloud.firestore {
       match /{collection}/{docId} {
         allow read, write: if isEquipeTenant(tenantId);
         allow read, write: if isDRGTeam();
+      }
+
+      // Perfis 3.0 — fila "Com aprovação": corretor cria pedido em nome próprio
+      // e acompanha só os seus. Decidir (aprovar/rejeitar) é da equipe interna.
+      match /alteracoesPendentes/{pedidoId} {
+        allow create: if isCorretorOf(tenantId)
+                      && request.resource.data.solicitadoPor == request.auth.uid
+                      && request.resource.data.status == 'PENDENTE';
+        allow read: if isCorretorOf(tenantId)
+                    && resource.data.solicitadoPor == request.auth.uid;
       }
 
       // Perfis: corretor lê (precisa resolver o próprio perfil no login)
