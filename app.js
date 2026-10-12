@@ -130,6 +130,11 @@ const TENANT_PACOTES = {
     desc: 'Selecione manualmente os módulos abaixo',
     modulos: null, // marcado manualmente
   },
+  ilimitado: {
+    label: '♾️ Ilimitado',
+    desc: 'Todos os módulos liberados — inclusive os que forem criados no futuro. Usado no plano Ilimitado (cortesia).',
+    modulos: null, // null = sem filtro (todos)
+  },
 };
 
 // Áreas administrativas DRG (Super Admin / Operador DRG)
@@ -746,8 +751,9 @@ function userPodeVerModulo(modulo) {
   }
 
   // Filtro 1: o tenant tem esse módulo habilitado no plano?
-  // Se modulosHabilitados não existir (legacy), considera todos habilitados.
-  if (State.tenant?.modulosHabilitados && Array.isArray(State.tenant.modulosHabilitados)) {
+  // Se modulosHabilitados não existir (legacy) ou o plano for Ilimitado, considera todos habilitados.
+  if (State.tenant?.plano !== 'ilimitado'
+      && State.tenant?.modulosHabilitados && Array.isArray(State.tenant.modulosHabilitados)) {
     if (!State.tenant.modulosHabilitados.includes(modulo)) return false;
   }
 
@@ -1206,7 +1212,7 @@ async function enviarResetSenha() {
 
 let _tenantsCarregados = []; // cache pra filtros sem requery
 
-const PLANO_LABEL = { trial: 'Trial', basic: 'Basic', pro: 'Pro' };
+const PLANO_LABEL = { trial: 'Trial', basic: 'Basic', pro: 'Pro', ilimitado: '♾️ Ilimitado' };
 
 function diasAteData(isoDate) {
   if (!isoDate) return null;
@@ -1217,6 +1223,7 @@ function diasAteData(isoDate) {
 
 function tenantSituacao(t) {
   if (t.ativo === false) return 'suspenso';
+  if (t.plano === 'ilimitado') return 'ativo'; // cortesia: sem vencimento, nunca inadimplente
   const trialDias = diasAteData(t.trialExpira);
   const vencDias = diasAteData(t.proximoVencimento);
   if (vencDias != null && vencDias < 0) return 'inadimplente';
@@ -1542,6 +1549,7 @@ async function openTenantModal(tenantId) {
     const pacote = t.pacote || 'completo';
     $('tenant-pacote').value = pacote;
     renderTenantModulos(pacote, t.modulosHabilitados);
+    onTenantPlanoChange(); // trava/destrava campos conforme plano Ilimitado
 
     // Admin do tenant
     const adminSnap = await db.collection('users')
@@ -1615,6 +1623,22 @@ function renderTenantModulos(pacote, modulosHabilitados) {
     `).join('')}
   `;
 }
+
+// Plano Ilimitado trava o pacote em "ilimitado" e zera cobrança/vencimentos
+function onTenantPlanoChange() {
+  const ilimitado = $('tenant-plano').value === 'ilimitado';
+  if (ilimitado) {
+    $('tenant-pacote').value = 'ilimitado';
+    $('tenant-valor').value = '';
+    $('tenant-proximo-venc').value = '';
+    $('tenant-trial-expira').value = '';
+    renderTenantModulos('ilimitado', null);
+  }
+  ['tenant-pacote', 'tenant-valor', 'tenant-proximo-venc', 'tenant-trial-expira'].forEach(id => {
+    const el = $(id); if (el) el.disabled = ilimitado;
+  });
+}
+window.onTenantPlanoChange = onTenantPlanoChange;
 
 function onTenantPacoteChange() {
   const pacote = $('tenant-pacote').value;
@@ -1712,19 +1736,24 @@ async function saveTenantManagement() {
   if (!tenantId) return;
 
   // Pacote + módulos habilitados
-  const pacote = $('tenant-pacote').value;
+  const plano = $('tenant-plano').value;
+  const ilimitado = plano === 'ilimitado';
+  const pacote = ilimitado ? 'ilimitado' : $('tenant-pacote').value;
   let modulosHabilitados;
-  if (pacote === 'custom') {
+  if (pacote === 'ilimitado') {
+    modulosHabilitados = null; // null = sem filtro → todos os módulos, inclusive os futuros
+  } else if (pacote === 'custom') {
     modulosHabilitados = Array.from(document.querySelectorAll('input[name="tenant-mod"]:checked')).map(c => c.value);
   } else {
     modulosHabilitados = TENANT_PACOTES[pacote]?.modulos || [];
   }
 
   const data = {
-    plano: $('tenant-plano').value,
-    valorMensalidade: parseFloat($('tenant-valor').value) || null,
-    proximoVencimento: $('tenant-proximo-venc').value || null,
-    trialExpira: $('tenant-trial-expira').value || null,
+    plano,
+    // Ilimitado é cortesia: sem mensalidade, sem vencimento, sem trial
+    valorMensalidade: ilimitado ? null : (parseFloat($('tenant-valor').value) || null),
+    proximoVencimento: ilimitado ? null : ($('tenant-proximo-venc').value || null),
+    trialExpira: ilimitado ? null : ($('tenant-trial-expira').value || null),
     ativo: $('tenant-ativo').value === 'true',
     notas: $('tenant-notas').value.trim() || null,
     pacote,
