@@ -214,13 +214,21 @@ function maskCPFCNPJ(v) {
   return digits.length <= 11 ? maskCPF(digits) : maskCNPJ(digits);
 }
 
+// Exibe telefone no padrão "+55 11 99734-7272" (fixo: "+55 11 3456-7890").
+// Aceita com ou sem o 55 na frente (os cadastros guardam só dígitos).
 function maskTelefone(v) {
-  v = (v || '').replace(/\D/g, '').slice(0, 11);
-  if (v.length === 0) return '';
-  if (v.length <= 2)  return `(${v}`;
-  if (v.length <= 6)  return `(${v.slice(0,2)}) ${v.slice(2)}`;
-  if (v.length <= 10) return `(${v.slice(0,2)}) ${v.slice(2,6)}-${v.slice(6)}`;
-  return `(${v.slice(0,2)}) ${v.slice(2,7)}-${v.slice(7)}`;
+  let d = String(v || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length >= 12 && d.startsWith('55')) d = d.slice(2); // já veio com o código do país
+  if (d.length === 11) return `+55 ${d.slice(0,2)} ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length === 10) return `+55 ${d.slice(0,2)} ${d.slice(2,6)}-${d.slice(6)}`;
+  return String(v); // formato desconhecido (incompleto/internacional): mostra como veio
+}
+
+// Dígitos pro link do WhatsApp (wa.me) — sempre com o 55, sem duplicar
+function telefoneWhatsApp(v) {
+  const d = String(v || '').replace(/\D/g, '');
+  return (d.length >= 12 && d.startsWith('55')) ? d : '55' + d;
 }
 
 function maskCEP(v) {
@@ -8742,7 +8750,7 @@ function renderLeadsTable() {
       : '';
 
     const telLink = l.telefone
-      ? `<a href="https://wa.me/55${l.telefone.replace(/\D/g, '')}?text=Olá ${encodeURIComponent(l.nome || '')}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel..." target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>`
+      ? `<a href="https://wa.me/${telefoneWhatsApp(l.telefone)}?text=Olá ${encodeURIComponent(l.nome || '')}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel..." target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>`
       : '—';
     const emailLink = l.email ? `<br><a href="mailto:${l.email}" style="color:var(--primary); font-size:11px;">${escapeHtml(l.email)}</a>` : '';
 

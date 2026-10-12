@@ -229,7 +229,8 @@ function renderImovel(im, tenant, fotos) {
   const contatos = [];
   if (tenant.telefone) {
     const tel = String(tenant.telefone).replace(/\D/g, '');
-    const wpp = `https://wa.me/55${tel}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.apelido || ''))}`;
+    const telDDI = (tel.length >= 12 && tel.startsWith('55')) ? tel : '55' + tel; // não duplica o 55
+    const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.apelido || ''))}`;
     contatos.push(`<a href="${wpp}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
     contatos.push(`<a href="tel:+55${tel}">📞 Ligar</a>`);
   }
