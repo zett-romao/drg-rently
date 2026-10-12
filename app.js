@@ -4348,7 +4348,6 @@ async function renderInstrumentoArquivoRepresentante() {
 
 async function anexarInstrumentoRepresentante() {
   if (!exigirNivelAnexo('locadores', 'criar', 'locador-alert')) return; // Perfis 3.0
-$g
   const input = $('locador-rep-instr-file');
   const file = input.files && input.files[0];
   input.value = '';
@@ -6300,7 +6299,6 @@ async function loadLocadorDocs(locadorId) {
 
 async function uploadLocadorDocs() {
   if (!exigirNivelAnexo('locadores', 'criar', 'locador-alert')) return; // Perfis 3.0
-$g
   const locadorId = $('locador-id').value;
   if (!locadorId) {
     showAlert('locador-alert', 'Salve o locador antes de anexar documentos.');
@@ -6340,7 +6338,6 @@ $g
 
 async function deleteLocadorDoc(locadorId, filename) {
   if (!exigirNivelAnexo('locadores', 'excluir', 'locador-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locadores/${locadorId}/${filename}`).delete();
@@ -6751,7 +6748,6 @@ async function loadLocatarioDocs(locatarioId) {
 
 async function uploadLocatarioDocs() {
   if (!exigirNivelAnexo('locatarios', 'criar', 'locatario-alert')) return; // Perfis 3.0
-$g
   const locatarioId = $('locatario-id').value;
   if (!locatarioId) {
     showAlert('locatario-alert', 'Salve o locatário antes de anexar documentos.');
@@ -6790,7 +6786,6 @@ $g
 
 async function deleteLocatarioDoc(locatarioId, filename) {
   if (!exigirNivelAnexo('locatarios', 'excluir', 'locatario-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`locatarios/${locatarioId}/${filename}`).delete();
@@ -7288,7 +7283,6 @@ async function loadGarantiaDocs(garantiaId) {
 
 async function uploadGarantiaDocs() {
   if (!exigirNivelAnexo('garantias', 'criar', 'garantia-alert')) return; // Perfis 3.0
-$g
   const garantiaId = $('garantia-id').value;
   if (!garantiaId) {
     showAlert('garantia-alert', 'Salve a garantia antes de anexar documentos.');
@@ -7327,7 +7321,6 @@ $g
 
 async function deleteGarantiaDoc(garantiaId, filename) {
   if (!exigirNivelAnexo('garantias', 'excluir', 'garantia-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`garantias/${garantiaId}/${filename}`).delete();
@@ -8615,7 +8608,6 @@ async function confirmarBoletoExtraido() {
 
 async function uploadLancComprovante(id, file) {
   if (!exigirNivelAnexo('balancetes', 'criar', 'balancete-alert')) return; // Perfis 3.0
-$g
   if (!file) return;
   const balanceteId = $('balancete-id').value || `temp_${Date.now()}`;
   const idx = _balanceteLancamentos.findIndex(l => l.id === id);
@@ -9777,7 +9769,6 @@ async function loadCompradorDocs(id) {
 
 async function uploadCompradorDocs() {
   if (!exigirNivelAnexo('compradores', 'criar', 'comprador-alert')) return; // Perfis 3.0
-$g
   const id = $('comprador-id').value;
   if (!id) { showAlert('comprador-alert', 'Salve o comprador antes de anexar documentos.'); return; }
   const input = $('comprador-doc-input');
@@ -9803,7 +9794,6 @@ $g
 
 async function deleteCompradorDoc(id, filename) {
   if (!exigirNivelAnexo('compradores', 'excluir', 'comprador-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`compradores/${id}/${filename}`).delete();
@@ -10295,7 +10285,6 @@ async function loadNegociacaoDocs(id) {
 
 async function uploadNegociacaoDocs() {
   if (!exigirNivelAnexo('negociacoes', 'criar', 'negociacao-alert')) return; // Perfis 3.0
-$g
   const id = $('negociacao-id').value;
   if (!id) { showAlert('negociacao-alert', 'Salve antes de anexar.'); return; }
   const input = $('negociacao-doc-input');
@@ -10321,7 +10310,6 @@ $g
 
 async function deleteNegociacaoDoc(id, filename) {
   if (!exigirNivelAnexo('negociacoes', 'excluir', 'negociacao-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`negociacoes/${id}/${filename}`).delete();
@@ -11006,7 +10994,6 @@ async function loadImovelDocs(imovelId) {
 
 async function uploadImovelDocs() {
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
-$g
   const imovelId = $('imovel-id').value;
   if (!imovelId) {
     showAlert('imovel-alert', 'Salve o imóvel antes de anexar documentos.');
@@ -11045,7 +11032,6 @@ $g
 
 async function deleteImovelDoc(imovelId, filename) {
   if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`imoveis/${imovelId}/${filename}`).delete();
@@ -11142,7 +11128,6 @@ function habilitarReordenacaoFotos(imovelId) {
 
 async function salvarNovaOrdemFotos(imovelId) {
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
-$g
   const grid = $('imovel-fotos-grid');
   const items = Array.from(grid.querySelectorAll('.foto-item[data-foto-id]'));
   if (items.length === 0) return;
@@ -11256,7 +11241,6 @@ function getLogoImage() {
 
 async function uploadImovelFotos() {
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
-$g
   let imovelId = $('imovel-id').value;
 
   // Se ainda não tem id (modo criação), cria um rascunho automaticamente
@@ -11361,7 +11345,6 @@ $g
 
 async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
   if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir foto?', mensagem: 'Remover esta foto do imóvel.', detalhe: 'A foto será apagada do storage. Você pode subir outra a qualquer momento.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId).delete();
@@ -12156,7 +12139,6 @@ function previewFeedXml() {
 
 async function uploadLogoTenant() {
   if (!exigirPode('configuracoes', 'editar', 'cfg-alert')) return; // Perfis 3.0
-$g
   const input = $('cfg-logo-input');
   const file = input.files?.[0];
   if (!file) return;
@@ -12873,7 +12855,6 @@ async function loadContratoDocs(contratoId) {
 
 async function uploadContratoDocs() {
   if (!exigirNivelAnexo('contratos', 'criar', 'contrato-alert')) return; // Perfis 3.0
-$g
   const contratoId = $('contrato-id').value;
   if (!contratoId) {
     showAlert('contrato-alert', 'Salve o contrato antes de anexar documentos.');
@@ -12912,7 +12893,6 @@ $g
 
 async function deleteContratoDoc(contratoId, filename) {
   if (!exigirNivelAnexo('contratos', 'excluir', 'contrato-alert')) return; // Perfis 3.0
-$g
   if (!(await confirmar({ titulo: 'Excluir arquivo?', mensagem: `Remover <strong>${escapeHtml(filename)}</strong> permanentemente do storage?`, confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
     await storageTenantRef().child(`contratos/${contratoId}/${filename}`).delete();
