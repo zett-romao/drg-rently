@@ -88,10 +88,19 @@ service cloud.firestore {
       allow create: if isSuperAdmin()
                     && (!('tenantId' in request.resource.data)
                         || request.resource.data.tenantId == null);
+      // (e) equipe DRG atuando num tenant: cria admin/operador/corretor dele (nunca equipe DRG)
+      allow create: if isDRGTeam()
+                    && request.resource.data.tenantId is string
+                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
 
       // Atualizações
       allow update: if isSignedIn() && request.auth.uid == uid && camposProtegidosIntactos();
       allow update: if isSuperAdmin();
+      // equipe DRG atuando num tenant: aprova/suspende/edita usuários dele
+      allow update: if isDRGTeam()
+                    && resource.data.get('tenantId', null) is string
+                    && request.resource.data.tenantId == resource.data.tenantId
+                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
       allow update: if isSignedIn() && userExists()
                     && userDoc().role == 'admin'
                     && resource.data.tenantId == userDoc().tenantId

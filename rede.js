@@ -453,31 +453,25 @@ async function saveCorretor() {
     if (!senha || senha.length < 6) { showAlert('corretor-alert', 'Senha deve ter no mínimo 6 caracteres.'); return; }
     btn.textContent = 'Criando…';
 
-    // Conta no Firebase Auth via REST (não desloga o admin) — mesmo padrão de saveUsuarioTenant
-    const apiKey = firebase.app().options.apiKey;
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: senha, returnSecureToken: false }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      let msg = data?.error?.message || 'Erro ao criar conta';
-      if (msg === 'EMAIL_EXISTS') msg = 'Já existe uma conta com este e-mail.';
-      throw new Error(msg);
-    }
-    const uid = data.localId;
+    const conta = await criarOuRecuperarContaAuth(email, senha);
+    const uid = conta.uid;
     const agora = firebase.firestore.FieldValue.serverTimestamp();
 
-    await db.collection('users').doc(uid).set({
-      nome, email, tenantId: State.tenant.id, role: 'corretor',
-      perfilId: null, ativo: true, status: 'ativo',
-      criadoEm: agora, criadoPor: State.user.uid,
-    });
-    await tenantPath().collection('corretores').doc(uid).set({
-      uid, nome, email, telefone, creci, tipo, status: 'ativo',
-      origem: 'admin', criadoEm: agora, criadoPor: State.user.uid,
-    });
+    try {
+      await db.collection('users').doc(uid).set({
+        nome, email, tenantId: State.tenant.id, role: 'corretor',
+        perfilId: null, ativo: true, status: 'ativo',
+        criadoEm: agora, criadoPor: State.user.uid,
+      });
+      await tenantPath().collection('corretores').doc(uid).set({
+        uid, nome, email, telefone, creci, tipo, status: 'ativo',
+        origem: 'admin', criadoEm: agora, criadoPor: State.user.uid,
+      });
+    } catch (e) {
+      // Banco recusou: apaga o login recém-criado pra não sobrar conta órfã
+      if (conta.nova) await apagarContaAuth(conta.idToken);
+      throw e;
+    }
 
     if ($('corretor-enviar-email').checked) await enviarEmailAcessoCorretor(nome, email, senha);
 
@@ -493,6 +487,48 @@ async function saveCorretor() {
     btn.disabled = false;
     btn.textContent = uidExistente ? 'Salvar' : 'Criar corretor';
   }
+}
+
+// Cria o login no Firebase Auth via REST (não desloga quem está operando).
+// Se o e-mail já tem login (ex.: tentativa anterior que falhou no banco) e a
+// senha confere, reaproveita a conta — desde que ela não seja usuário de ninguém.
+async function criarOuRecuperarContaAuth(email, senha) {
+  const apiKey = firebase.app().options.apiKey;
+  const chamar = async (acao) => {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:${acao}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha, returnSecureToken: true }),
+    });
+    return { ok: res.ok, data: await res.json() };
+  };
+
+  const novo = await chamar('signUp');
+  if (novo.ok) return { uid: novo.data.localId, idToken: novo.data.idToken, nova: true };
+
+  const erro = novo.data?.error?.message || 'Erro ao criar conta';
+  if (erro !== 'EMAIL_EXISTS') throw new Error(erro.startsWith('WEAK_PASSWORD') ? 'Senha muito fraca (mín. 6 caracteres).' : erro);
+
+  const login = await chamar('signInWithPassword');
+  if (!login.ok) {
+    throw new Error('Já existe um login com este e-mail e a senha digitada não confere. Use a mesma senha da tentativa anterior ou outro e-mail.');
+  }
+  const uid = login.data.localId;
+  let jaTemCadastro = false;
+  try { jaTemCadastro = (await db.collection('users').doc(uid).get()).exists; } catch (_) { /* sem permissão de leitura → o set decide */ }
+  if (jaTemCadastro) throw new Error('Este e-mail já é usuário do sistema. Use outro e-mail para o corretor.');
+  return { uid, idToken: login.data.idToken, nova: false };
+}
+
+async function apagarContaAuth(idToken) {
+  if (!idToken) return;
+  try {
+    await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${firebase.app().options.apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    });
+  } catch (_) {}
 }
 
 async function enviarEmailAcessoCorretor(nome, email, senha) {
