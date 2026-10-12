@@ -1,0 +1,42 @@
+// =============================================================
+// DRG-Rently — Regras do Storage
+// Cole este conteúdo no Firebase Console → Storage → Rules → Publish
+// Última atualização: 2026-10-11 (papel corretor: só arquivos do que ele captou)
+// =============================================================
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function belongsToTenant(tenantId) {
+      return request.auth != null && userDoc().tenantId == tenantId;
+    }
+    function isSuperAdmin() {
+      return request.auth != null && userDoc().role == 'super_admin';
+    }
+    function isCorretor() {
+      return userDoc().role == 'corretor';
+    }
+    function corretorAtivo(tenantId) {
+      return belongsToTenant(tenantId) && isCorretor() && userDoc().get('ativo', true) == true;
+    }
+
+    // Equipe interna do tenant (admin/operador) + super_admin: tudo do tenant
+    match /tenants/{tenantId}/{allPaths=**} {
+      allow read, write: if (belongsToTenant(tenantId) && !isCorretor()) || isSuperAdmin();
+    }
+
+    // Corretor: só arquivos/fotos dos imóveis que ele captou
+    match /tenants/{tenantId}/imoveis/{imovelId}/{allPaths=**} {
+      allow read, write: if corretorAtivo(tenantId)
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+    }
+
+    // Corretor: só documentos dos proprietários que ele cadastrou
+    match /tenants/{tenantId}/locadores/{locId}/{allPaths=**} {
+      allow read, write: if corretorAtivo(tenantId)
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)/locadores/$(locId)).data.criadoPor == request.auth.uid;
+    }
+  }
+}

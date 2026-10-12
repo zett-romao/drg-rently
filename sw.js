@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v5-20260801b-favicon';
+const CACHE_VERSION = 'drg-rently-v6-20261011a-rede';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

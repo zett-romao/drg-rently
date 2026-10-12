@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
+  <link rel="stylesheet" href="styles.css?v=20261011a-rede">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -242,6 +242,13 @@
           <a class="nav-link" data-section="compradores"><span class="nav-ico">🔑</span><span>Compradores</span></a>
           <a class="nav-link" data-section="garantias"><span class="nav-ico">🛡</span><span>Garantias</span></a>
           <a class="nav-link" data-section="imoveis"><span class="nav-ico">🏢</span><span>Imóveis</span></a>
+        </div>
+
+        <div class="nav-group" data-nav-group="rede">
+          <div class="nav-group-title">Rede de corretores</div>
+          <div class="drag-hint">↕ arraste para reordenar</div>
+          <a class="nav-link" data-section="rede" title="Fichas dos imóveis compartilhados pelos corretores"><span class="nav-ico">🌐</span><span>Imóveis da Rede</span></a>
+          <a class="nav-link" data-section="corretores" title="Cadastro, aprovação e visibilidade da rede"><span class="nav-ico">🧑‍💼</span><span>Corretores</span></a>
         </div>
 
         <div class="nav-group" data-nav-group="operacao">
@@ -515,6 +522,72 @@
                   <tr><td colspan="6" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-rede" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Imóveis da Rede</h3>
+                <p class="muted">Fichas compartilhadas pelos corretores. Você vê só os campos que a imobiliária liberou; a ficha completa aparece quando o captador libera pra você.</p>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="openImovelModal()">+ Cadastrar imóvel captado</button>
+              </div>
+            </div>
+            <div class="papel-filtros" id="rede-filtros">
+              <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Finalidade:</span>
+              <button type="button" class="papel-filtro-btn active" data-fin="todos" onclick="setFiltroRedeFinalidade('todos')">Todos</button>
+              <button type="button" class="papel-filtro-btn" data-fin="locacao" onclick="setFiltroRedeFinalidade('locacao')">🏠 Locação</button>
+              <button type="button" class="papel-filtro-btn" data-fin="venda" onclick="setFiltroRedeFinalidade('venda')">💼 Venda</button>
+            </div>
+            <div class="form-group" style="margin:10px 0 14px;">
+              <input type="search" id="rede-busca" placeholder="Buscar por bairro, cidade, rua, captador ou tag…" oninput="renderRede()">
+            </div>
+            <div class="rede-grid" id="rede-grid"></div>
+          </div>
+        </section>
+
+        <section class="section" id="section-corretores" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>Corretores</h3>
+                <p class="muted">Equipe e parceiros. Cada corretor só abre os imóveis que captou; os demais aparecem pra ele como ficha da rede.</p>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-primary" onclick="openCorretorModal()">+ Novo corretor</button>
+              </div>
+            </div>
+            <div id="corretores-status"></div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr><th>Corretor</th><th>CRECI</th><th>Telefone</th><th>Tipo</th><th>Captados</th><th>Status</th><th>Ações</th></tr>
+                </thead>
+                <tbody id="tbody-corretores"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:16px;">
+            <h3>Visibilidade da rede</h3>
+            <p class="muted">Escolha o que os OUTROS corretores enxergam na ficha de cada imóvel. O captador e o admin sempre veem tudo. Em cada imóvel, o captador ainda pode deixar privado ou liberar a ficha completa pra corretores específicos.</p>
+            <div class="form-group">
+              <label>Imóvel novo, por padrão, fica:</label>
+              <select id="rede-visibilidade-padrao">
+                <option value="rede">Visível pra rede (ficha com os campos abaixo)</option>
+                <option value="privado">Privado (só captador e admin)</option>
+              </select>
+            </div>
+            <label style="font-weight:600;">Campos da ficha da rede</label>
+            <div id="rede-campos-container" class="rede-campos"></div>
+            <div id="rede-config-status" style="margin-top:10px;"></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+              <button class="btn btn-primary" onclick="salvarConfigRede()">💾 Salvar visibilidade</button>
+              <button class="btn btn-secondary" onclick="reaplicarTodasFichasRede()" title="Recalcula a ficha de todos os imóveis com a configuração atual">🔄 Reaplicar a todos os imóveis</button>
             </div>
           </div>
         </section>
@@ -4339,6 +4412,24 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <textarea id="imovel-obs" rows="3"></textarea>
         </div>
 
+        <!-- Rede de corretores -->
+        <div id="imovel-rede-section">
+          <h4 class="form-section-title">🤝 Rede de corretores</h4>
+          <p class="muted" style="font-size:12px;">Captador: <strong id="imovel-rede-captador">—</strong> · Padrão da imobiliária: <span id="imovel-rede-padrao-label"></span></p>
+          <div class="form-group">
+            <label>Visibilidade pros outros corretores</label>
+            <select id="imovel-rede-visibilidade">
+              <option value="padrao">Seguir o padrão da imobiliária</option>
+              <option value="rede">Visível pra rede (ficha com campos liberados)</option>
+              <option value="privado">Privado (só o captador e o admin)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Liberar ficha COMPLETA para:</label>
+            <div id="imovel-rede-compartilhar" class="rede-campos"></div>
+          </div>
+        </div>
+
         <!-- Publicação pública -->
         <div id="imovel-publicacao-section" style="display:none;">
           <h4 class="form-section-title">Publicação pública</h4>
@@ -5061,6 +5152,64 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <!-- Chart.js pra gráficos do Dashboard (lazy load via defer) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
-  <script src="app.js?v=20260601a"></script>
+  <div class="modal-overlay" id="modal-corretor" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-corretor-title">Novo corretor</h3>
+        <button class="modal-close" onclick="closeCorretorModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="corretor-alert" class="alert alert-error" style="display:none;"></div>
+        <input type="hidden" id="corretor-uid">
+        <div class="form-group"><label class="required">Nome completo</label><input type="text" id="corretor-nome"></div>
+        <div class="form-group"><label class="required">E-mail (será o login)</label><input type="email" id="corretor-email"></div>
+        <div class="form-group"><label>Telefone / WhatsApp</label><input type="tel" id="corretor-telefone"></div>
+        <div class="form-group"><label>CRECI</label><input type="text" id="corretor-creci"></div>
+        <div class="form-group">
+          <label>Tipo</label>
+          <select id="corretor-tipo">
+            <option value="parceiro">🤝 Parceiro (autônomo externo)</option>
+            <option value="equipe">👥 Equipe (da imobiliária)</option>
+          </select>
+        </div>
+        <div id="corretor-acesso-group">
+          <div class="form-group">
+            <label class="required">Senha inicial</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="text" id="corretor-senha" style="flex:1; font-family:'Courier New', monospace;">
+              <button class="btn btn-secondary btn-sm" type="button" onclick="gerarSenhaCorretor()">🎲 Gerar</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="toggle-row" style="cursor:pointer;">
+              <input type="checkbox" id="corretor-enviar-email" checked>
+              <span>📧 Enviar e-mail de boas-vindas com a senha (requer Worker Resend configurado)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeCorretorModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-corretor" onclick="saveCorretor()">Criar corretor</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-rede-ficha" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="rede-ficha-title">Ficha do imóvel</h3>
+        <button class="modal-close" onclick="closeFichaRede()">×</button>
+      </div>
+      <div class="modal-body" id="rede-ficha-body"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeFichaRede()">Fechar</button>
+        <button class="btn btn-primary" id="btn-rede-ficha-editar">✏️ Editar imóvel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20261011a-rede"></script>
+  <script src="rede.js?v=20261011a"></script>
 </body>
 </html>

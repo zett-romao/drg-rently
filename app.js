@@ -39,7 +39,9 @@ const MODULOS_DISPONIVEIS = [
   { id: 'caixa',         label: 'Livro Caixa (conta pool)', grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação', somenteLeitura: true },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
-  { id: 'auditoria',     label: 'Auditoria',     grupo: 'Administração', somenteLeitura: true },
+  { id: 'rede',          label: 'Imóveis da Rede (fichas compartilhadas)', grupo: 'Rede de corretores', somenteLeitura: true },
+  { id: 'corretores',    label: 'Corretores (cadastro, aprovação, visibilidade)', grupo: 'Rede de corretores' },
+  { id: 'auditoria',    label: 'Auditoria',     grupo: 'Administração', somenteLeitura: true },
   { id: 'importacao',    label: 'Importação CSV', grupo: 'Administração' },
   { id: 'configuracoes', label: 'Configurações', grupo: 'Administração' },
 ];
@@ -63,14 +65,21 @@ const ROLE_MODULOS_PADRAO = {
   admin:        MODULOS_DISPONIVEIS.map(m => m.id),
   operador:     ['dashboard','alertas','relatorios','locadores','locatarios',
                  'compradores','garantias','imoveis','contratos','negociacoes',
-                 'leads','calendario','balancetes','vitrine','portais'],
+                 'leads','calendario','balancetes','vitrine','portais','rede'],
+  // Corretor (equipe ou parceiro): só o que captou + fichas da rede.
+  // A trava real está no firestore.rules (isCorretorOf).
+  corretor:     ['imoveis','locadores','rede'],
 };
+// Módulos da rede de corretores: fazem parte do núcleo, não dependem do
+// pacote contratado pelo tenant (modulosHabilitados).
+const MODULOS_NUCLEO = ['rede', 'corretores'];
 // Ações sensíveis que cada role tem por padrão (no perfil seed).
 const ROLE_ACOES_PADRAO = {
   super_admin:  ACOES_SENSIVEIS.map(a => a.id),
   operador_drg: ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
   admin:        ['aprovarPagamentoLocador','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
   operador:     [], // operador comum NÃO aprova nada por padrão
+  corretor:     [],
 };
 
 // Default de operadores (sem perfil customizado)
@@ -728,6 +737,14 @@ function userPodeVerModulo(modulo) {
   // Super admin / operador DRG vê tudo (mas tem painel próprio)
   if (State.isSuperAdmin) return true;
 
+  // Rede de corretores: admin sempre vê (perfis seed antigos não conhecem
+  // esses módulos); "corretores" é só pra admin; demais seguem o perfil.
+  if (MODULOS_NUCLEO.includes(modulo)) {
+    if (State.userDoc?.role === 'admin') return true;
+    if (modulo === 'corretores') return false;
+    return State.perfilResolvido ? pode(modulo, 'acesso') : (ROLE_MODULOS_PADRAO[State.userDoc?.role] || []).includes(modulo);
+  }
+
   // Filtro 1: o tenant tem esse módulo habilitado no plano?
   // Se modulosHabilitados não existir (legacy), considera todos habilitados.
   if (State.tenant?.modulosHabilitados && Array.isArray(State.tenant.modulosHabilitados)) {
@@ -903,17 +920,24 @@ async function renderApp() {
     if (mod === 'superadmin') return; // já tratado acima
     el.style.display = podeVerSecao(mod) ? 'flex' : 'none';
   });
+  // Esconde grupos do menu que ficaram sem nenhum item visível (ex.: corretor)
+  document.querySelectorAll('.nav-group').forEach(g => {
+    const algumVisivel = Array.from(g.querySelectorAll('.nav-link')).some(l => l.style.display !== 'none');
+    g.style.display = algumVisivel ? '' : 'none';
+  });
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
   enableSidebarDnD();
 
-  // Se a seção atual não é permitida, manda pro dashboard
+  // Se a seção atual não é permitida, manda pra tela inicial do papel
+  // (corretor não tem dashboard — o dashboard lê dados da imobiliária toda)
+  const inicial = isCorretor() ? 'imoveis' : 'dashboard';
   if (State.currentSection && !podeVerSecao(State.currentSection)) {
-    State.currentSection = 'dashboard';
+    State.currentSection = inicial;
   }
 
-  showSection(State.currentSection || 'dashboard');
+  showSection(State.currentSection || inicial);
 }
 
 // =============================================================
@@ -967,6 +991,8 @@ function showSection(name, _opts = {}) {
 
   const titles = {
     dashboard: 'Dashboard',
+    rede: 'Imóveis da Rede',
+    corretores: 'Corretores',
     alertas: 'Alertas',
     relatorios: 'Relatórios',
     locadores: 'Locadores / Vendedores',
@@ -1036,6 +1062,13 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'imoveis' && State.tenant) {
     loadImoveis();
+  }
+  if (name === 'rede' && State.tenant) {
+    loadRede();
+  }
+  if (name === 'corretores' && State.tenant) {
+    loadCorretores();
+    loadConfigRede();
   }
   if (name === 'contratos' && State.tenant) {
     loadContratos();
@@ -3202,6 +3235,7 @@ async function verificarAlertasParaNotificar() {
 let _notifInterval = null;
 async function inicializarNotificacoes() {
   if (!State.tenant || !State.user) return;
+  if (isCorretor()) return; // alertas leem contratos/leads da imobiliária toda
   if (_notifInterval) return; // já rodando
 
   // Se nunca foi perguntado, aguarda 30s antes de pedir
@@ -3465,6 +3499,24 @@ function storageTenantRef() {
   return storage.ref().child(`tenants/${State.tenant.id}`);
 }
 
+function isCorretor() { return State.userDoc?.role === 'corretor'; }
+
+// Consulta uma coleção do tenant respeitando o papel do usuário.
+// Corretor só enxerga o que ele mesmo cadastrou (criadoPor) — as regras do
+// Firestore recusam consultas amplas dele, então o filtro vai na query.
+// Sem orderBy junto do where (evita índice composto): ordena no cliente.
+// Retorna objeto com a mesma forma de um QuerySnapshot ({ docs, empty, size }).
+async function queryDoUsuario(colecao, campoOrdem) {
+  const ref = tenantPath().collection(colecao);
+  if (!isCorretor()) return (campoOrdem ? ref.orderBy(campoOrdem) : ref).get();
+  const snap = await ref.where('criadoPor', '==', State.user.uid).get();
+  const docs = snap.docs.slice();
+  if (campoOrdem) {
+    docs.sort((a, b) => String(a.data()[campoOrdem] || '').localeCompare(String(b.data()[campoOrdem] || ''), 'pt-BR'));
+  }
+  return { docs, empty: docs.length === 0, size: docs.length };
+}
+
 // Estado do filtro de papéis (locador/vendedor/todos)
 let _locadoresFiltroPapel = 'todos';
 let _locadoresCarregados = [];
@@ -3530,7 +3582,7 @@ async function loadLocadores() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await tenantPath().collection('locadores').orderBy('nome').get();
+    const snap = await queryDoUsuario('locadores', 'nome');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum cadastro ainda. Clique em "Novo Locador/Vendedor" para começar.</td></tr>`;
       _locadoresCarregados = [];
@@ -9135,7 +9187,7 @@ let _locadoresCache = null;
 
 async function ensureLocadoresCache() {
   if (_locadoresCache) return _locadoresCache;
-  const snap = await tenantPath().collection('locadores').orderBy('nome').get();
+  const snap = await queryDoUsuario('locadores', 'nome');
   _locadoresCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return _locadoresCache;
 }
@@ -9259,7 +9311,7 @@ async function loadImoveis() {
 
   try {
     const [imSnap, locs] = await Promise.all([
-      tenantPath().collection('imoveis').orderBy('apelido').get(),
+      queryDoUsuario('imoveis', 'apelido'),
       ensureLocadoresCache(),
     ]);
 
@@ -9484,6 +9536,9 @@ async function openImovelModal(id) {
   renderImovelTags();
   inicializarTagsInput();
 
+  // Rede de corretores: visibilidade + liberação da ficha completa (rede.js)
+  await prepararRedeNoModalImovel(id);
+
   $('modal-imovel').style.display = 'flex';
 
   // Auto-save: liga listeners e checa recovery (só em modo criação)
@@ -9498,6 +9553,9 @@ async function openImovelModal(id) {
 
 function closeImovelModal() {
   $('modal-imovel').style.display = 'none';
+  // Atualiza a ficha da rede (pega fotos/edições feitas com o modal aberto)
+  const id = $('imovel-id').value;
+  if (id) sincronizarFichaRede(id).catch(e => console.warn('Ficha da rede não sincronizada:', e));
 }
 
 async function saveImovel() {
@@ -9576,6 +9634,8 @@ async function saveImovel() {
     tourUrl: $('imovel-tour-url')?.value.trim() || null,
     vitrineFeed: $('imovel-vitrine-feed')?.checked !== false,
     tags: Array.isArray(_imovelTags) ? [..._imovelTags] : [],
+    // Rede de corretores: redeVisibilidade + compartilhadoCom (rede.js)
+    ...lerRedeDoModalImovel(),
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -9592,6 +9652,7 @@ async function saveImovel() {
       data.criadoPor = State.user.uid;
       const docRef = await tenantPath().collection('imoveis').add(data);
       logAuditoria('create', 'imovel', docRef.id, { apelido: data.apelido });
+      sincronizarFichaRede(docRef.id).catch(e => console.warn('Ficha da rede não sincronizada:', e));
       btn.disabled = false;
       btn.textContent = 'Salvar';
       invalidateImoveisCache();
@@ -9626,9 +9687,12 @@ async function deleteImovel() {
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) { /* pasta pode não existir */ }
 
+    // Ficha da rede sai ANTES (as regras do corretor conferem o imóvel pai)
+    await removerFichaRede(id);
     await tenantPath().collection('imoveis').doc(id).delete();
     logAuditoria('delete', 'imovel', id);
     invalidateImoveisCache();
+    $('imovel-id').value = ''; // evita re-sincronizar a ficha no close
     closeImovelModal();
     loadImoveis();
   } catch (err) {
@@ -9947,7 +10011,8 @@ async function uploadImovelFotos() {
       invalidateImoveisCache();
       // Aciona estado de "modo edição" pra liberar docs/publicação após save completo
       $('imovel-docs-section').style.display = 'block';
-      $('imovel-publicacao-section').style.display = 'block';
+      // Corretor não publica no site/portais — quem publica é a imobiliária
+      $('imovel-publicacao-section').style.display = isCorretor() ? 'none' : 'block';
       // Avisa o operador
       showAlert(
         'imovel-alert',
@@ -12903,7 +12968,7 @@ async function loadUsuariosTenant() {
       const u = doc.data();
       const isSelf = doc.id === State.user.uid;
       const ativo = u.ativo !== false;
-      const roleLabel = u.role === 'admin' ? 'Administrador' : 'Operador';
+      const roleLabel = { admin: 'Administrador', corretor: 'Corretor' }[u.role] || 'Operador';
       const statusBadge = ativo
         ? '<span class="badge-status ativo">Ativo</span>'
         : '<span class="badge-status suspenso">Desativado</span>';

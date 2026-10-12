@@ -375,7 +375,51 @@ Sheets, atualizada sozinha. Exige: planilha criada + compartilhada com uma servi
 grava no `caixaPool`. Fazer depois que o fluxo acima estiver testado em produção. Por ora,
 o **export .xlsx** já entrega uma planilha real por mês.
 
+## Rede de corretores (`rede.js` + papel `corretor`)
+
+Adicionado em 2026-10-11. Corretores (equipe **ou** parceiros autônomos) entram no tenant
+com `role: 'corretor'`, cadastram os imóveis que captam e veem os dos outros só como
+**ficha da rede**. Código em `rede.js` (carregado depois do `app.js`).
+
+**Fonte da verdade das regras:** `firestore.rules` e `storage.rules` na raiz do repo
+(os blocos de regras mais acima neste arquivo são históricos — **não** colar esses).
+
+**Modelo (por tenant):**
+- `users/{uid}` com `role: 'corretor'`, `ativo`, `status` ('ativo'|'pendente'|'suspenso').
+- `corretores/{uid}` — cartão: nome, email, telefone, creci, `tipo` ('equipe'|'parceiro'), status.
+- `config/rede` — `campos` (quais campos vão pra ficha) + `visibilidadePadrao` ('rede'|'privado').
+  **Customizável em tela** (Corretores → Visibilidade da rede). Lista de campos possíveis = `REDE_CAMPOS`.
+- `imoveis/{id}` ganha `redeVisibilidade` ('padrao'|'rede'|'privado') e `compartilhadoCom` [uids].
+  Dono = `criadoPor` (campo que já existia).
+- `imoveisRede/{id}` — **ficha**: cópia só com os campos liberados + `captadorUid`, `visivel`,
+  `compartilhadoCom`. `imoveisRede/{id}/completo/dados` — todos os campos (captador + liberados).
+
+**Por que cópia e não filtro:** Firestore não esconde campo — quem lê um doc lê ele inteiro.
+Então o imóvel original fica trancado (corretor só lê o que captou) e a rede lê a cópia.
+A cópia é recalculada em `sincronizarFichaRede()` ao salvar/fechar o modal do imóvel; mudou a
+config → botão "Reaplicar a todos os imóveis".
+
+**Travas (firestore.rules):** corretor fica FORA da regra genérica de subcoleção
+(`isEquipeTenant`). Ele só tem: imóveis/locadores/fotos/arquivos que ele mesmo criou,
+fichas visíveis/dele/liberadas, `corretores` (leitura), `perfis` (leitura), `config/rede`
+(leitura). Não pode ligar `linkPublico` (publicar no site é decisão da imobiliária).
+Fotos que ele grava precisam ter URL do `firebasestorage.googleapis.com`.
+**Consultas do corretor precisam bater com a regra** (Firestore não filtra) → use
+`queryDoUsuario()` (filtra `criadoPor`) em vez de `.collection(x).get()`.
+
+**Próximas etapas:** (2) página pública "Seja corretor parceiro" com autocadastro →
+nasce `ativo:false, status:'pendente'` (regras já aceitam) → admin aprova em Corretores.
+(3) comissão dividida captador × quem fecha × escritório (percentuais configuráveis).
+
 ## Histórico de decisões
+
+- **2026-10-11**: **Rede de corretores** (ver seção acima) + **blindagem de `users`**: antes,
+  qualquer usuário podia editar o próprio doc e se promover a `super_admin`, e qualquer um
+  podia criar `users/{uid}` apontando pra tenant alheio como admin. Agora: self-update não
+  mexe em role/tenantId/ativo/perfilId/status; self-create só como admin do tenant que ele
+  criou no mesmo batch (`getAfter`) ou como corretor pendente; admin só cria/edita
+  admin/operador/corretor. Visibilidade da ficha é configurável em tela (pedido do dono:
+  "customizável, não travado no código").
 
 - **2026-06-01**: Conta Asaas vira **conta pool** + módulo **Livro Caixa** (ver seção acima). Cora foi cogitado e **descartado** (API cobrada, mTLS, sem recorrência, repasse TED com aprovação no app). Decisão: ficar 100% no Asaas e ter um livro caixa por competência alimentado pelo webhook (entradas/tarifa) e pelo repasse (saídas), com export .xlsx; Google Sheets espelhado fica pra etapa 2.
 
