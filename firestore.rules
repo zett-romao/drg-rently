@@ -46,6 +46,12 @@ service cloud.firestore {
       return belongsToTenant(tenantId) && userDoc().role != 'corretor';
     }
 
+    // Programa "Seja corretor parceiro" ligado no tenant (tenants/{id}.programaParceiros.ativo)
+    function programaParceirosAtivo(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)).data
+               .get('programaParceiros', {}).get('ativo', false) == true;
+    }
+
     // Campos que o próprio usuário NUNCA pode alterar no seu doc
     function camposProtegidosIntactos() {
       return !request.resource.data.diff(resource.data).affectedKeys()
@@ -66,11 +72,13 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.auth.uid == uid
                     && request.resource.data.role == 'admin'
                     && getAfter(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.criadoPor == request.auth.uid;
-      // (b) autocadastro de corretor parceiro: nasce pendente e desativado
+      // (b) autocadastro de corretor parceiro: nasce pendente e desativado,
+      //     e só se o tenant estiver com o programa de parceiros ligado
       allow create: if isSignedIn() && request.auth.uid == uid
                     && request.resource.data.role == 'corretor'
                     && request.resource.data.ativo == false
-                    && request.resource.data.status == 'pendente';
+                    && request.resource.data.status == 'pendente'
+                    && programaParceirosAtivo(request.resource.data.tenantId);
       // (c) admin criando usuário do próprio tenant (nunca equipe DRG)
       allow create: if isSignedIn() && userExists()
                     && userDoc().role == 'admin'
@@ -138,9 +146,41 @@ service cloud.firestore {
         allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
                           .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid']);
-        // autocadastro: cria o próprio cartão pendente
+        // autocadastro: cria o próprio cartão pendente (programa ligado)
         allow create: if isSignedIn() && request.auth.uid == corretorId
-                      && request.resource.data.status == 'pendente';
+                      && request.resource.data.status == 'pendente'
+                      && request.resource.data.tipo == 'parceiro'
+                      && programaParceirosAtivo(tenantId);
+      }
+
+      // Extrato de comissão: corretor lê só os negócios em que participa
+      match /comissoes/{negId} {
+        allow read: if isCorretorOf(tenantId)
+                    && request.auth.uid in resource.data.participantes;
+      }
+
+      // Vitrine pública: cópia enxuta do imóvel publicado (site + feed dos portais)
+      match /vitrine/{imovelId} {
+        allow read;
+        // corretor só atualiza a cópia de imóvel DELE que a imobiliária já publicou
+        allow create, update: if isCorretorOf(tenantId)
+                              && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
+                              && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('linkPublico', false) == true;
+        allow delete: if isCorretorOf(tenantId)
+                      && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+      }
+
+      // "Anuncie seu imóvel" da vitrine pública: qualquer visitante cria, só cria
+      match /leadsImoveis/{leadId} {
+        allow create: if request.resource.data.origem == 'vitrine_publica'
+                      && request.resource.data.status == 'novo'
+                      && request.resource.data.keys().hasOnly(['origem', 'nome', 'telefone', 'email',
+                           'finalidade', 'tipo', 'cidadeBairro', 'descricao', 'status',
+                           'criadoEm', 'userAgent', 'url'])
+                      && request.resource.data.nome is string
+                      && request.resource.data.nome.size() <= 200
+                      && (request.resource.data.get('descricao', null) == null
+                          || request.resource.data.descricao.size() <= 5000);
       }
 
       // Locadores (proprietários): corretor só os que ele cadastrou
@@ -151,8 +191,11 @@ service cloud.firestore {
                       && request.resource.data.criadoPor == request.auth.uid;
       }
 
-      // Imóveis: leitura pública SE linkPublico === true
+      // Imóveis
       match /imoveis/{imovelId} {
+        // TRANSIÇÃO: leitura pública do imóvel inteiro. Site e feed agora leem
+        // a coleção "vitrine". APAGAR esta linha depois que o Worker drg-rently-feed
+        // for atualizado (cloudflare-worker-feed.js lendo "vitrine").
         allow read: if resource.data.linkPublico == true;
         allow read, write: if isEquipeTenant(tenantId);
         allow read, write: if isDRGTeam();

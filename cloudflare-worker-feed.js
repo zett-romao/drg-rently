@@ -94,10 +94,10 @@ export default {
       }
       const tenant = parseFirestoreDoc(await tRes.json());
 
-      // 3) Lista imóveis publicados (linkPublico === true)
+      // 3) Lista imóveis publicados (coleção vitrine — só campos públicos)
       const queryBody = {
         structuredQuery: {
-          from: [{ collectionId: 'imoveis' }],
+          from: [{ collectionId: 'vitrine' }], // cópia pública (sem dados internos) — ver rede.js
           where: {
             fieldFilter: {
               field: { fieldPath: 'linkPublico' },
@@ -276,7 +276,7 @@ function gerarWimoveisXml(tenant, imoveis) {
     <PrecoLocacao>${im.aluguelSugerido || 0}</PrecoLocacao>
     <PrecoCondominio>${im.valorCondominio || 0}</PrecoCondominio>
     <PrecoIPTU>${im.valorIPTU || 0}</PrecoIPTU>
-    <Observacao>${cdata(im.descricaoLonga || im.obs || im.apelido || '')}</Observacao>
+    <Observacao>${cdata(im.descricaoLonga || im.apelido || '')}</Observacao>
     <UrlVideo>${esc(im.videoUrl)}</UrlVideo>
     <UrlTour360>${esc(im.tourUrl)}</UrlTour360>
     <Fotos>
@@ -332,7 +332,7 @@ function gerarZapXml(tenant, imoveis) {
       <TransactionTypes>${txTypes.join('')}</TransactionTypes>
       <Details>
         <PropertyType>${esc(propertyType)}</PropertyType>
-        <Description>${cdata(im.descricaoLonga || im.obs || im.apelido || '')}</Description>
+        <Description>${cdata(im.descricaoLonga || im.apelido || '')}</Description>
         <LivingArea unit="square metres">${im.areaUtil || 0}</LivingArea>
         <LotArea unit="square metres">${im.areaTotal || 0}</LotArea>
         <Bedrooms>${im.quartos || 0}</Bedrooms>
@@ -391,7 +391,7 @@ function gerarOlxXml(tenant, imoveis) {
     <id>${esc(im.id)}</id>
     <category>${im.tipo === 'comercial' ? 'Comerciais' : 'Imóveis'}</category>
     <subject>${cdata(im.apelido || '')}</subject>
-    <body>${cdata(im.descricaoLonga || im.obs || im.apelido || '')}</body>
+    <body>${cdata(im.descricaoLonga || im.apelido || '')}</body>
     <type>${esc(im.subtipo || 'Outros')}</type>
     <transactionType>${finalidadeLabel(im)}</transactionType>
     <price>${im.aluguelSugerido || im.valorVenda || 0}</price>
@@ -432,7 +432,7 @@ function gerarImovelwebXml(tenant, imoveis) {
     return `  <propiedad>
     <referencia>${esc(im.id)}</referencia>
     <titulo>${cdata(im.apelido || '')}</titulo>
-    <descripcion>${cdata(im.descricaoLonga || im.obs || im.apelido || '')}</descripcion>
+    <descripcion>${cdata(im.descricaoLonga || im.apelido || '')}</descripcion>
     <tipo_inmueble>${esc(im.subtipo || 'Casa')}</tipo_inmueble>
     <operacion>${finalidadeLabel(im)}</operacion>
     <pais>Brasil</pais>

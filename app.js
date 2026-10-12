@@ -353,7 +353,9 @@ async function loadProfileAndShow(user) {
     // Conta desativada (operadores desativados pelo admin)
     if (State.userDoc.ativo === false) {
       await auth.signOut();
-      showAlert('login-alert', 'Sua conta foi desativada. Contate o administrador da imobiliária.');
+      showAlert('login-alert', State.userDoc.status === 'pendente'
+        ? '⏳ Seu cadastro de corretor parceiro está aguardando aprovação da imobiliária. Você receberá acesso assim que for aprovado.'
+        : 'Sua conta foi desativada. Contate o administrador da imobiliária.');
       return;
     }
 
@@ -932,6 +934,9 @@ async function renderApp() {
     g.style.display = algumVisivel ? '' : 'none';
   });
 
+  // Corretores aguardando aprovação (badge no menu)
+  if (State.tenant && podeVerSecao('corretores')) atualizarBadgeCorretoresPendentes();
+
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
   enableSidebarDnD();
@@ -1071,10 +1076,13 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'rede' && State.tenant) {
     loadRede();
+    loadMinhasComissoes();
   }
   if (name === 'corretores' && State.tenant) {
     loadCorretores();
     loadConfigRede();
+    loadProgramaParceiros();
+    loadComissoesPorCorretor();
   }
   if (name === 'contratos' && State.tenant) {
     loadContratos();
@@ -8874,6 +8882,7 @@ function onNegociacaoImovelChange() {
   info.style.display = 'block';
   info.textContent = `${endStr || 'sem endereço'} · ${IMOVEL_STATUS_LABEL[imovel.status] || imovel.status}`;
   info.style.color = imovel.status === 'alugado' ? 'var(--warning)' : 'var(--text-muted)';
+  sugerirCaptadorNegociacao(imovel); // comissão dividida (rede.js)
 }
 
 async function openNegociacaoModal(id) {
@@ -8896,11 +8905,13 @@ async function openNegociacaoModal(id) {
   invalidateCompradoresCache();
 
   let selected = null;
+  let negDoc = null;
   if (id) {
     try {
       const snap = await tenantPath().collection('negociacoes').doc(id).get();
       if (snap.exists) {
         const n = snap.data();
+        negDoc = n;
         selected = { imovelId: n.imovelId, vendedorId: n.vendedorId, compradorId: n.compradorId };
         $('negociacao-status').value = n.status || 'rascunho';
         $('negociacao-motivo-status').value = n.motivoStatus || '';
@@ -8922,6 +8933,7 @@ async function openNegociacaoModal(id) {
     $('negociacao-docs-section').style.display = 'none';
   }
   await populateNegociacaoSelects(selected);
+  await prepararComissaoNegociacao(negDoc); // divisão captador × quem fechou × escritório (rede.js)
   onNegociacaoImovelChange();
 
   // Status ZapSign da negociação (carrega assíncrono)
@@ -8966,8 +8978,11 @@ async function saveNegociacao() {
     dataPosse: $('negociacao-data-posse').value || null,
     clausulas: $('negociacao-clausulas').value.trim() || null,
     obs: $('negociacao-obs').value.trim() || null,
+    divisaoComissao: lerComissaoNegociacao(),
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  const erroComissao = validarComissaoNegociacao(data.divisaoComissao);
+  if (erroComissao) { showAlert('negociacao-alert', erroComissao); return; }
 
   const btn = $('btn-save-negociacao');
   btn.disabled = true; btn.textContent = 'Salvando…';
@@ -8986,6 +9001,11 @@ async function saveNegociacao() {
       negociacaoId = docRef.id;
       logAuditoria('create', 'negociacao', negociacaoId, { numero: data.numero, status: data.status, valor: data.valor });
     }
+    // Extrato de comissão dos corretores envolvidos (antes de invalidar o cache de imóveis)
+    try {
+      const negSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
+      await sincronizarComissao(negociacaoId, negSnap.data() || data);
+    } catch (e) { console.warn('Extrato de comissão não sincronizado:', e); }
     await syncImovelStatusFromNegociacao(imovelId, status, statusAnterior);
     invalidateImoveisCache();
     if (!id) {
@@ -9033,6 +9053,7 @@ async function deleteNegociacao() {
       const list = await folderRef.listAll();
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
+    await tenantPath().collection('comissoes').doc(id).delete().catch(() => {}); // extrato dos corretores
     await tenantPath().collection('negociacoes').doc(id).delete();
     logAuditoria('delete', 'negociacao', id);
     closeNegociacaoModal();
@@ -10149,6 +10170,8 @@ async function onTogglePublicoImovel() {
       linkPublico: ativo,
       linkPublicoEm: ativo ? firebase.firestore.FieldValue.serverTimestamp() : null,
     });
+    // Cópia pública (vitrine/{id}) — é ela que o site e o feed dos portais leem
+    sincronizarFichaRede(imovelId).catch(e => console.warn('Vitrine não sincronizada:', e));
     updateLinkPublicoUI(ativo, imovelId);
   } catch (err) {
     console.error('Erro ao atualizar publicação:', err);

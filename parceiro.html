@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seja corretor parceiro — DRG-Rently</title>
+  <link rel="icon" href="icones/favicon.ico?v=20260801" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
+  <meta name="description" id="meta-desc" content="Cadastre seus imóveis captados na nossa rede e divida comissões">
+  <meta property="og:type" content="website">
+  <meta property="og:title" id="og-title" content="Seja corretor parceiro">
+  <meta property="og:description" id="og-desc" content="Cadastre seus imóveis captados na nossa rede">
+  <meta property="og:image" id="og-image" content="logo.png">
+
+  <link rel="stylesheet" href="styles.css?v=20261011c-parceiros">
+  <link rel="stylesheet" href="public.css?v=20260514aa">
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  <script src="firebase-config.js?v=20260510b"></script>
+  <style>
+    .pp-wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .pp-card { background: #fff; border: 1px solid #E2E8F0; border-radius: 12px; padding: 22px; }
+    .pp-beneficios { list-style: none; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 10px; }
+    .pp-beneficios li { padding-left: 28px; position: relative; line-height: 1.45; }
+    .pp-beneficios li::before { content: '✅'; position: absolute; left: 0; }
+    .pp-split { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 18px; text-align: center; }
+    .pp-split div { background: #F0FDFA; border-radius: 10px; padding: 12px 6px; }
+    .pp-split strong { display: block; font-size: 22px; color: #0F766E; }
+    .pp-split span { font-size: 12px; color: #475569; }
+    .pp-ok { text-align: center; padding: 30px 10px; }
+    .pp-ok h2 { margin-bottom: 8px; }
+    @media (max-width: 760px) { .pp-wrap { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="public-page">
+
+  <div id="loading" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Carregando…</p>
+  </div>
+
+  <div id="error-state" class="error-state" style="display:none;">
+    <img src="logo.png" alt="" class="error-logo">
+    <h1 id="error-titulo">Página indisponível</h1>
+    <p id="error-msg">O link pode estar incorreto ou o programa de parceiros está fechado no momento.</p>
+  </div>
+
+  <main id="content" style="display:none;">
+    <header class="public-header">
+      <div class="public-header-inner">
+        <img src="logo.png" alt="" class="public-logo">
+        <div class="public-header-text">
+          <h2 id="header-empresa">—</h2>
+          <p>Programa de corretores parceiros</p>
+        </div>
+      </div>
+    </header>
+
+    <section class="public-hero">
+      <div class="public-container">
+        <div class="public-breadcrumb">Seja parceiro</div>
+        <h1 id="pp-titulo">Seja corretor parceiro</h1>
+      </div>
+    </section>
+
+    <div class="pp-wrap">
+      <div class="pp-card">
+        <h3>Por que fazer parte</h3>
+        <ul class="pp-beneficios" id="pp-beneficios"></ul>
+        <h4 style="margin-top:22px;">Como a comissão é dividida</h4>
+        <div class="pp-split">
+          <div><strong id="pp-pct-captador">—</strong><span>quem captou</span></div>
+          <div><strong id="pp-pct-vendedor">—</strong><span>quem fechou</span></div>
+          <div><strong id="pp-pct-escritorio">—</strong><span>escritório</span></div>
+        </div>
+        <p class="muted" style="font-size:12px; margin-top:10px;">Percentuais da comissão total de cada negócio. Captou e fechou? Você recebe as duas partes.</p>
+      </div>
+
+      <div class="pp-card" id="pp-form-card">
+        <h3>Quero me cadastrar</h3>
+        <div id="pp-alert" class="alert alert-error" style="display:none;"></div>
+        <form id="pp-form" onsubmit="event.preventDefault(); enviarCadastroParceiro();">
+          <div class="form-group"><label class="required">Nome completo</label><input type="text" id="f-nome" required></div>
+          <div class="form-group"><label class="required" id="f-creci-label">CRECI</label><input type="text" id="f-creci"></div>
+          <div class="form-group"><label class="required">Telefone / WhatsApp</label><input type="tel" id="f-telefone" required></div>
+          <div class="form-group"><label class="required">E-mail (será seu login)</label><input type="email" id="f-email" required></div>
+          <div class="form-group"><label class="required">Senha</label><input type="password" id="f-senha" minlength="6" required></div>
+          <div class="form-group"><label class="required">Confirme a senha</label><input type="password" id="f-senha2" minlength="6" required></div>
+          <div class="form-group">
+            <label class="toggle-row" style="cursor:pointer; align-items:flex-start;">
+              <input type="checkbox" id="f-aceite" required>
+              <span style="font-size:13px;">Li e aceito participar do programa de parceiros nas condições acima. Meus dados serão usados apenas para a gestão da parceria.</span>
+            </label>
+          </div>
+          <button class="btn btn-primary" id="btn-enviar" type="submit" style="width:100%;">Enviar cadastro</button>
+          <p class="muted" style="font-size:12px; margin-top:10px;">Seu acesso é liberado depois que a imobiliária aprovar o cadastro.</p>
+        </form>
+        <div id="pp-ok" class="pp-ok" style="display:none;">
+          <h2>✅ Cadastro enviado!</h2>
+          <p>Recebemos seus dados. Assim que a imobiliária aprovar, você poderá entrar com seu e-mail e senha em:</p>
+          <p><a id="pp-link-login" href="./" style="font-weight:600;">Acessar o sistema</a></p>
+        </div>
+      </div>
+    </div>
+
+    <footer class="public-footer">
+      <p>© <span id="ano-rodape"></span> <span id="footer-empresa">—</span></p>
+    </footer>
+  </main>
+
+  <script src="parceiro.js?v=20261011a"></script>
+</body>
+</html>

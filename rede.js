@@ -211,12 +211,66 @@ async function sincronizarFichaRede(imovelId) {
     ...montarDadosRede(im, REDE_TODOS_CAMPOS, ctx),
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   });
+
+  await sincronizarVitrine(imovelId, im, ctx);
+}
+
+// ---------- Vitrine pública (site + feed dos portais) ----------
+// tenants/{tid}/vitrine/{id} — leitura PÚBLICA. Só entra imóvel publicado
+// (linkPublico) e só com campos seguros: nada de proprietário, número/complemento,
+// matrícula, IPTU nem observações internas. Respeita os toggles "publicacao".
+function montarDadosVitrine(im, ctx) {
+  const pub = im.publicacao || {};
+  const end = im.endereco || {};
+  const mostrarBairro = pub.mostrarBairro !== false;
+  const v = {
+    linkPublico: true,
+    apelido: im.apelido || null,
+    tipo: im.tipo || null,
+    subtipo: im.subtipo || null,
+    finalidade: im.finalidade || 'locacao',
+    status: im.status || 'disponivel',
+    publicacao: pub,
+    endereco: mostrarBairro
+      ? { cep: end.cep || null, logradouro: end.logradouro || null, bairro: end.bairro || null, cidade: end.cidade || null, uf: end.uf || null }
+      : { cidade: end.cidade || null, uf: end.uf || null },
+    aceitaFinanciamento: im.aceitaFinanciamento || null,
+    permiteFGTS: im.permiteFGTS || null,
+    descricaoLonga: im.descricaoLonga || null,
+    videoUrl: im.videoUrl || null,
+    tourUrl: im.tourUrl || null,
+    tags: im.tags || [],
+    vitrineFeed: im.vitrineFeed !== false,
+    coverUrl: (ctx.fotos || [])[0] || null,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  if (pub.mostrarValor !== false) Object.assign(v, {
+    aluguelSugerido: im.aluguelSugerido ?? null, valorVenda: im.valorVenda ?? null,
+    valorCondominio: im.valorCondominio ?? null, valorIPTU: im.valorIPTU ?? null,
+  });
+  if (pub.mostrarArea !== false) Object.assign(v, { areaUtil: im.areaUtil ?? null, areaTotal: im.areaTotal ?? null });
+  if (pub.mostrarComodos !== false) Object.assign(v, {
+    quartos: im.quartos ?? 0, banheiros: im.banheiros ?? 0, vagas: im.vagas ?? 0,
+    andar: im.andar || null, mobiliado: im.mobiliado || null,
+  });
+  return v;
+}
+
+async function sincronizarVitrine(imovelId, im, ctx) {
+  const ref = tenantPath().collection('vitrine').doc(imovelId);
+  if (im.linkPublico === true && !im.rascunho) {
+    await ref.set(montarDadosVitrine(im, ctx));
+  } else if (!isCorretor()) {
+    // corretor não publica nem despublica — só a equipe remove da vitrine
+    await ref.delete();
+  }
 }
 
 async function removerFichaRede(imovelId) {
   const fichaRef = tenantPath().collection('imoveisRede').doc(imovelId);
   try { await fichaRef.collection('completo').doc('dados').delete(); } catch (_) {}
   try { await fichaRef.delete(); } catch (_) {}
+  try { await tenantPath().collection('vitrine').doc(imovelId).delete(); } catch (_) {}
 }
 
 async function reaplicarTodasFichasRede() {
@@ -226,7 +280,7 @@ async function reaplicarTodasFichasRede() {
     const snap = await tenantPath().collection('imoveis').get();
     let ok = 0, falhas = 0;
     for (const d of snap.docs) {
-      showInlineStatus(SID, `🔄 Atualizando fichas… ${ok + falhas + 1}/${snap.size}`, 'info');
+      showInlineStatus(SID, `🔄 Atualizando fichas e vitrine… ${ok + falhas + 1}/${snap.size}`, 'info');
       try { await sincronizarFichaRede(d.id); ok++; }
       catch (e) { falhas++; console.warn('Ficha falhou', d.id, e); }
     }
@@ -665,3 +719,297 @@ window.saveCorretor = saveCorretor;
 window.definirStatusCorretor = definirStatusCorretor;
 window.salvarConfigRede = salvarConfigRede;
 window.reaplicarTodasFichasRede = reaplicarTodasFichasRede;
+
+// =============================================================
+// PROGRAMA DE PARCEIROS ("Seja corretor parceiro") + COMISSÃO DIVIDIDA
+// =============================================================
+// Config fica no PRÓPRIO doc do tenant (tenants/{tid}.programaParceiros),
+// que já é de leitura pública — a página parceiro.html lê dali o convite e a
+// regra de comissão. Nada de token/segredo nesse objeto.
+//   { ativo, titulo, texto, exigeCreci,
+//     comissao: { captadorPct, vendedorPct, escritorioPct } }  (soma = 100)
+
+const COMISSAO_PADRAO = { captadorPct: 30, vendedorPct: 30, escritorioPct: 40 };
+
+function regraComissao() {
+  const c = State.tenant?.programaParceiros?.comissao || {};
+  return {
+    captadorPct: Number.isFinite(c.captadorPct) ? c.captadorPct : COMISSAO_PADRAO.captadorPct,
+    vendedorPct: Number.isFinite(c.vendedorPct) ? c.vendedorPct : COMISSAO_PADRAO.vendedorPct,
+    escritorioPct: Number.isFinite(c.escritorioPct) ? c.escritorioPct : COMISSAO_PADRAO.escritorioPct,
+  };
+}
+
+function linkProgramaParceiros() {
+  const t = State.tenant || {};
+  const base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  return `${base}parceiro.html?t=${encodeURIComponent(t.slug || t.id || '')}`;
+}
+
+async function loadProgramaParceiros() {
+  if (!$('pp-ativo')) return;
+  try {
+    const snap = await db.collection('tenants').doc(State.tenant.id).get();
+    if (snap.exists) State.tenant = { id: snap.id, ...snap.data() };
+  } catch (_) {}
+  const pp = State.tenant.programaParceiros || {};
+  const r = regraComissao();
+  $('pp-ativo').checked = pp.ativo === true;
+  $('pp-titulo').value = pp.titulo || `Cadastre seus imóveis na rede ${State.tenant.nome || ''}`.trim();
+  $('pp-texto').value = pp.texto || [
+    'Seus imóveis captados ganham vitrine no nosso site e nos principais portais.',
+    'Você continua dono da sua captação: só você e a imobiliária veem os dados do proprietário.',
+    'Fechou negócio com imóvel da rede? A comissão é dividida entre quem captou, quem vendeu e o escritório — tudo registrado no sistema.',
+    'CRM gratuito para organizar seus imóveis.',
+  ].join('\n');
+  $('pp-exige-creci').checked = pp.exigeCreci !== false;
+  $('pp-captador').value = r.captadorPct;
+  $('pp-vendedor').value = r.vendedorPct;
+  $('pp-escritorio').value = r.escritorioPct;
+  $('pp-link').value = linkProgramaParceiros();
+  atualizarSomaComissaoPP();
+}
+
+function atualizarSomaComissaoPP() {
+  const soma = ['pp-captador', 'pp-vendedor', 'pp-escritorio'].reduce((s, id) => s + (parseFloat($(id).value) || 0), 0);
+  const el = $('pp-soma');
+  el.textContent = `Soma: ${soma}%`;
+  el.style.color = Math.abs(soma - 100) < 0.01 ? 'var(--success, #15803d)' : 'var(--danger)';
+}
+
+async function salvarProgramaParceiros() {
+  const comissao = {
+    captadorPct: parseFloat($('pp-captador').value) || 0,
+    vendedorPct: parseFloat($('pp-vendedor').value) || 0,
+    escritorioPct: parseFloat($('pp-escritorio').value) || 0,
+  };
+  const soma = comissao.captadorPct + comissao.vendedorPct + comissao.escritorioPct;
+  if (Math.abs(soma - 100) > 0.01) {
+    showInlineStatus('pp-status', `⚠️ Os percentuais precisam somar 100% (hoje: ${soma}%).`, 'error');
+    return;
+  }
+  const programaParceiros = {
+    ativo: $('pp-ativo').checked,
+    titulo: $('pp-titulo').value.trim() || null,
+    texto: $('pp-texto').value.trim() || null,
+    exigeCreci: $('pp-exige-creci').checked,
+    comissao,
+  };
+  try {
+    await db.collection('tenants').doc(State.tenant.id).update({
+      programaParceiros,
+      atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    State.tenant.programaParceiros = programaParceiros;
+    logAuditoria('update', 'config', 'programaParceiros', programaParceiros);
+    showInlineStatus('pp-status', programaParceiros.ativo
+      ? '✅ Salvo. A página de cadastro está NO AR — divulgue o link abaixo.'
+      : '✅ Salvo. A página de cadastro está DESLIGADA (ninguém consegue se cadastrar).', 'success', 8000);
+  } catch (err) {
+    console.error('Erro ao salvar programa de parceiros:', err);
+    showInlineStatus('pp-status', `❌ ${err.message}`, 'error');
+  }
+}
+
+function copiarLinkParceiro() {
+  const v = $('pp-link').value;
+  navigator.clipboard.writeText(v)
+    .then(() => showInlineStatus('pp-status', '📋 Link copiado.', 'success', 3000))
+    .catch(() => { $('pp-link').select(); document.execCommand('copy'); });
+}
+
+// Badge no menu com quantos corretores aguardam aprovação
+async function atualizarBadgeCorretoresPendentes() {
+  const link = document.querySelector('.nav-link[data-section="corretores"]');
+  if (!link || !State.tenant) return;
+  try {
+    const snap = await tenantPath().collection('corretores').where('status', '==', 'pendente').get();
+    let badge = link.querySelector('.nav-badge-pendentes');
+    if (snap.empty) { if (badge) badge.remove(); return; }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'nav-badge-pendentes';
+      link.appendChild(badge);
+    }
+    badge.textContent = snap.size;
+    badge.title = `${snap.size} corretor(es) aguardando aprovação`;
+  } catch (_) {}
+}
+
+// ---------- Comissão dividida na Negociação ----------
+
+let _negCorretores = [];
+
+async function prepararComissaoNegociacao(neg) {
+  if (!$('neg-com-captador')) return;
+  let corretores = [];
+  try { _corretoresAtivosCache = null; corretores = await listarCorretoresAtivos(); } catch (_) {}
+  _negCorretores = corretores;
+  const opts = '<option value="">🏢 Escritório (sem corretor)</option>'
+    + corretores.map(c => `<option value="${c.uid}">${escapeHtml(c.nome || c.email || c.uid)}</option>`).join('');
+  $('neg-com-captador').innerHTML = opts;
+  $('neg-com-vendedor').innerHTML = opts;
+
+  const d = neg?.divisaoComissao;
+  const r = regraComissao();
+  $('neg-com-captador').value = d?.captadorUid || '';
+  $('neg-com-vendedor').value = d?.vendedorUid || '';
+  $('neg-com-captador-pct').value = d?.captadorPct ?? r.captadorPct;
+  $('neg-com-vendedor-pct').value = d?.vendedorPct ?? r.vendedorPct;
+  $('neg-com-escritorio-pct').value = d?.escritorioPct ?? r.escritorioPct;
+  $('neg-com-captador').dataset.manual = d ? '1' : '';
+  recalcularComissaoNegociacao();
+}
+
+// Ao escolher o imóvel, sugere o captador (quem cadastrou), se for corretor
+function sugerirCaptadorNegociacao(imovel) {
+  const sel = $('neg-com-captador');
+  if (!sel || sel.dataset.manual === '1' || !imovel) return;
+  sel.value = _negCorretores.some(c => c.uid === imovel.criadoPor) ? imovel.criadoPor : '';
+  recalcularComissaoNegociacao();
+}
+
+function lerComissaoNegociacao() {
+  const valor = parseFloat($('negociacao-valor')?.value) || 0;
+  const comissaoPct = parseFloat($('negociacao-comissao')?.value) || 0;
+  const total = Math.round(valor * comissaoPct) / 100;
+  const pct = id => parseFloat($(id).value) || 0;
+  const nome = uid => uid ? (_negCorretores.find(c => c.uid === uid)?.nome || null) : null;
+  const captadorUid = $('neg-com-captador').value || null;
+  const vendedorUid = $('neg-com-vendedor').value || null;
+  const captadorPct = pct('neg-com-captador-pct');
+  const vendedorPct = pct('neg-com-vendedor-pct');
+  const escritorioPct = pct('neg-com-escritorio-pct');
+  const parte = p => Math.round(total * p) / 100;
+  return {
+    base: valor, comissaoPct, total,
+    captadorUid, captadorNome: nome(captadorUid), captadorPct, captadorValor: parte(captadorPct),
+    vendedorUid, vendedorNome: nome(vendedorUid), vendedorPct, vendedorValor: parte(vendedorPct),
+    escritorioPct, escritorioValor: parte(escritorioPct),
+  };
+}
+
+function recalcularComissaoNegociacao() {
+  if (!$('neg-com-resumo')) return;
+  const d = lerComissaoNegociacao();
+  const soma = d.captadorPct + d.vendedorPct + d.escritorioPct;
+  const ok = Math.abs(soma - 100) < 0.01;
+  $('neg-com-resumo').innerHTML = `
+    Comissão total: <strong>${fmtBRL(d.total)}</strong> (${d.comissaoPct}% de ${fmtBRL(d.base)})<br>
+    Captador: <strong>${fmtBRL(d.captadorValor)}</strong> · Quem fechou: <strong>${fmtBRL(d.vendedorValor)}</strong> · Escritório: <strong>${fmtBRL(d.escritorioValor)}</strong>
+    ${ok ? '' : `<br><span style="color:var(--danger);">⚠️ Percentuais somam ${soma}% — precisam somar 100%.</span>`}`;
+}
+
+function onComissaoCaptadorManual() {
+  $('neg-com-captador').dataset.manual = '1';
+  recalcularComissaoNegociacao();
+}
+
+function validarComissaoNegociacao(d) {
+  const soma = d.captadorPct + d.vendedorPct + d.escritorioPct;
+  return Math.abs(soma - 100) < 0.01 ? null : `A divisão da comissão precisa somar 100% (hoje: ${soma}%).`;
+}
+
+// Espelho da comissão pros corretores envolvidos verem (comissoes/{negId}).
+// Corretor não lê negociações — só o próprio extrato aqui (regra: participantes).
+async function sincronizarComissao(negociacaoId, neg) {
+  const d = neg.divisaoComissao;
+  const ref = tenantPath().collection('comissoes').doc(negociacaoId);
+  const participantes = [d?.captadorUid, d?.vendedorUid].filter(Boolean);
+  if (!d || participantes.length === 0) { await ref.delete().catch(() => {}); return; }
+  const im = (_imoveisCache || []).find(i => i.id === neg.imovelId) || {};
+  await ref.set({
+    origem: 'negociacao',
+    negociacaoId,
+    numero: neg.numero || null,
+    imovelId: neg.imovelId || null,
+    imovelApelido: im.apelido || null,
+    status: neg.status || null,
+    ...d,
+    participantes,
+    atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+// ---------- Extratos de comissão ----------
+
+const COMISSAO_STATUS_LABEL = {
+  rascunho: '📝 Rascunho', em_negociacao: '💬 Em negociação', aceita: '✅ Aceita (previsto)',
+  fechada: '🏆 Fechada', recusada: '❌ Recusada',
+};
+
+// Corretor: "Minhas comissões" (na tela Imóveis da Rede)
+async function loadMinhasComissoes() {
+  const box = $('minhas-comissoes');
+  if (!box) return;
+  const card = $('card-minhas-comissoes');
+  if (!isCorretor()) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  try {
+    const uid = State.user.uid;
+    const snap = await tenantPath().collection('comissoes').where('participantes', 'array-contains', uid).get();
+    if (snap.empty) { box.innerHTML = '<p class="empty">Nenhuma comissão registrada ainda.</p>'; return; }
+    let fechado = 0, previsto = 0;
+    const rows = snap.docs.map(d => d.data()).map(c => {
+      const papeis = [];
+      let valor = 0;
+      if (c.captadorUid === uid) { papeis.push('Captação'); valor += c.captadorValor || 0; }
+      if (c.vendedorUid === uid) { papeis.push('Venda'); valor += c.vendedorValor || 0; }
+      if (c.status === 'fechada') fechado += valor;
+      else if (c.status === 'aceita') previsto += valor;
+      return `<tr>
+        <td>${escapeHtml(c.numero || '—')}</td>
+        <td>${escapeHtml(c.imovelApelido || '—')}</td>
+        <td>${papeis.join(' + ')}</td>
+        <td>${COMISSAO_STATUS_LABEL[c.status] || escapeHtml(c.status || '—')}</td>
+        <td><strong>${fmtBRL(valor)}</strong></td>
+      </tr>`;
+    });
+    box.innerHTML = `
+      <p>🏆 Fechado: <strong>${fmtBRL(fechado)}</strong> · ✅ Previsto (propostas aceitas): <strong>${fmtBRL(previsto)}</strong></p>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Nº</th><th>Imóvel</th><th>Sua parte</th><th>Status</th><th>Valor</th></tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table></div>`;
+  } catch (err) {
+    console.error('Erro ao carregar comissões:', err);
+    box.innerHTML = `<p class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// Admin: comissões por corretor (na tela Corretores)
+async function loadComissoesPorCorretor() {
+  const tbody = $('tbody-comissoes-corretor');
+  if (!tbody) return;
+  try {
+    const snap = await tenantPath().collection('comissoes').get();
+    const tot = {};
+    const somar = (uid, nome, valor, status) => {
+      if (!uid) return;
+      const t = tot[uid] || (tot[uid] = { nome: nome || uid, fechado: 0, previsto: 0, negocios: 0 });
+      t.negocios++;
+      if (status === 'fechada') t.fechado += valor || 0;
+      else if (status === 'aceita') t.previsto += valor || 0;
+    };
+    let escritorio = 0;
+    snap.docs.forEach(d => {
+      const c = d.data();
+      somar(c.captadorUid, c.captadorNome, c.captadorValor, c.status);
+      somar(c.vendedorUid, c.vendedorNome, c.vendedorValor, c.status);
+      if (c.status === 'fechada') escritorio += c.escritorioValor || 0;
+    });
+    const lista = Object.values(tot).sort((a, b) => b.fechado - a.fechado);
+    tbody.innerHTML = lista.length
+      ? lista.map(t => `<tr><td>${escapeHtml(t.nome)}</td><td>${t.negocios}</td><td>${fmtBRL(t.previsto)}</td><td><strong>${fmtBRL(t.fechado)}</strong></td></tr>`).join('')
+        + `<tr><td><em>🏢 Escritório</em></td><td>—</td><td>—</td><td><strong>${fmtBRL(escritorio)}</strong></td></tr>`
+      : '<tr><td colspan="4" class="empty">Nenhuma negociação com divisão de comissão ainda.</td></tr>';
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+window.salvarProgramaParceiros = salvarProgramaParceiros;
+window.copiarLinkParceiro = copiarLinkParceiro;
+window.atualizarSomaComissaoPP = atualizarSomaComissaoPP;
+window.recalcularComissaoNegociacao = recalcularComissaoNegociacao;
+window.onComissaoCaptadorManual = onComissaoCaptadorManual;

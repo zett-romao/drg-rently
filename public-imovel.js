@@ -73,11 +73,18 @@ const SUBTIPO_LABEL = {
     if (!tenantId) { showError('Imobiliária não encontrada.'); return; }
 
     // Carrega imóvel + tenant em paralelo
-    const [imSnap, tSnap, fotosSnap] = await Promise.all([
-      db.collection('tenants').doc(tenantId).collection('imoveis').doc(imovelId).get(),
+    // vitrine/{id} = cópia pública do imóvel publicado (sem dados internos)
+    let [imSnap, tSnap, fotosSnap] = await Promise.all([
+      db.collection('tenants').doc(tenantId).collection('vitrine').doc(imovelId).get().catch(() => ({ exists: false })),
       db.collection('tenants').doc(tenantId).get(),
       db.collection('tenants').doc(tenantId).collection('imoveis').doc(imovelId).collection('fotos').orderBy('ordem').get(),
     ]);
+    if (!imSnap.exists) {
+      // Fallback do modelo antigo (só enquanto a vitrine não foi gerada)
+      try {
+        imSnap = await db.collection('tenants').doc(tenantId).collection('imoveis').doc(imovelId).get();
+      } catch (_) { showError('Este imóvel não está publicado.'); return; }
+    }
 
     if (!imSnap.exists) { showError('Imóvel não encontrado.'); return; }
     const im = imSnap.data();

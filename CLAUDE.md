@@ -407,9 +407,29 @@ Fotos que ele grava precisam ter URL do `firebasestorage.googleapis.com`.
 **Consultas do corretor precisam bater com a regra** (Firestore não filtra) → use
 `queryDoUsuario()` (filtra `criadoPor`) em vez de `.collection(x).get()`.
 
-**Próximas etapas:** (2) página pública "Seja corretor parceiro" com autocadastro →
-nasce `ativo:false, status:'pendente'` (regras já aceitam) → admin aprova em Corretores.
-(3) comissão dividida captador × quem fecha × escritório (percentuais configuráveis).
+**Programa "Seja corretor parceiro"** (`parceiro.html` + `parceiro.js`, público):
+config em `tenants/{tid}.programaParceiros` = `{ ativo, titulo, texto, exigeCreci,
+comissao:{captadorPct, vendedorPct, escritorioPct} }` — fica no doc do tenant porque ele
+já é público (a página lê dali; **nunca** pôr segredo nesse objeto). Autocadastro cria
+`users/{uid}` (`role:'corretor', ativo:false, status:'pendente'`) + `corretores/{uid}`
+(`tipo:'parceiro', status:'pendente'`); regras só aceitam com `programaParceiros.ativo`.
+Admin aprova em Corretores (badge vermelho no menu = pendentes). Login de pendente mostra
+"aguardando aprovação". Editado no card "Programa Seja corretor parceiro".
+
+**Comissão dividida** (negociações de venda): bloco "Divisão da comissão" no modal da
+negociação → `negociacoes/{id}.divisaoComissao` (captador/quem fechou/escritório: uid,
+nome, %, R$; base = valor × comissão%). Padrão vem de `programaParceiros.comissao`
+(30/30/40 se não configurado). Espelho `comissoes/{negId}` com `participantes:[uids]` —
+corretor lê só o dele ("Minhas comissões" na tela Imóveis da Rede); admin vê o total por
+corretor na tela Corretores. Contratos de locação ainda NÃO têm divisão (fazer se pedirem).
+
+**Vitrine pública segura:** `tenants/{tid}/vitrine/{id}` = cópia pública do imóvel
+publicado (gerada em `sincronizarVitrine()`, junto com a ficha da rede). Sem proprietário,
+número/complemento, matrícula, IPTU, observações; respeita os toggles `publicacao`.
+`imoveis.html`/`imovel.html` e o Worker `drg-rently-feed` leem `vitrine` (com fallback
+pro modelo antigo só enquanto a vitrine estiver vazia). Feed não manda mais `obs` aos portais.
+**Pendente de limpeza:** apagar a linha `allow read: if resource.data.linkPublico == true`
+de `imoveis` nas regras **depois** de redeployar o Worker do feed.
 
 ## Histórico de decisões
 

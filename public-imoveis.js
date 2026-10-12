@@ -61,10 +61,18 @@ let _allImoveis = []; // cache pra filtros
     tenantId = await resolveTenantId(tenantIdOrSlug);
     if (!tenantId) { showError('Imobiliária não encontrada.'); return; }
 
-    const [tSnap, imSnap] = await Promise.all([
+    // vitrine/{id} = cópia pública e enxuta do imóvel publicado (sem dados internos).
+    // Fallback pro modelo antigo só enquanto a vitrine ainda não foi gerada.
+    const [tSnap, vitSnap] = await Promise.all([
       db.collection('tenants').doc(tenantId).get(),
-      db.collection('tenants').doc(tenantId).collection('imoveis').where('linkPublico', '==', true).get(),
+      db.collection('tenants').doc(tenantId).collection('vitrine').get().catch(() => ({ empty: true, docs: [] })),
     ]);
+    let imSnap = vitSnap;
+    if (vitSnap.empty) {
+      try {
+        imSnap = await db.collection('tenants').doc(tenantId).collection('imoveis').where('linkPublico', '==', true).get();
+      } catch (_) { /* regra antiga já removida → vitrine vazia mesmo */ }
+    }
 
     if (!tSnap.exists) { showError('Imobiliária não encontrada.'); return; }
     const tenant = tSnap.data();
@@ -95,6 +103,7 @@ let _allImoveis = []; // cache pra filtros
     // Carrega imóveis + suas primeiras fotos
     _allImoveis = await Promise.all(imSnap.docs.map(async (doc) => {
       const data = { id: doc.id, ...doc.data() };
+      if (data.coverUrl) return data; // vitrine já traz a capa
       try {
         const fotoSnap = await db.collection('tenants').doc(tenantId)
           .collection('imoveis').doc(doc.id).collection('fotos')
