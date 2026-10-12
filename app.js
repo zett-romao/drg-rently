@@ -13329,9 +13329,20 @@ async function loadEquipeDRGUsuarios() {
       db.collection('users').where('role', '==', 'super_admin').get(),
       db.collection('users').where('role', '==', 'operador_drg').get(),
     ]);
-    const docs = [...snapSA.docs, ...snapOP.docs];
+    const todos = [...snapSA.docs, ...snapOP.docs];
+    // Visão atual: equipe (sem situacao) | arquivado | lixeira
+    const situacaoDe = d => d.data().situacao || 'equipe';
+    const contagem = { equipe: 0, arquivado: 0, lixeira: 0 };
+    todos.forEach(d => { contagem[situacaoDe(d)] = (contagem[situacaoDe(d)] || 0) + 1; });
+    document.querySelectorAll('#equipe-drg-filtros .papel-filtro-btn').forEach(b => {
+      const rot = { equipe: '👥 Equipe', arquivado: '🗄 Arquivo', lixeira: '🗑 Lixeira' }[b.dataset.vis];
+      b.textContent = `${rot} (${contagem[b.dataset.vis] || 0})`;
+      b.classList.toggle('active', b.dataset.vis === _visaoEquipeDRG);
+    });
+    const docs = todos.filter(d => situacaoDe(d) === _visaoEquipeDRG);
     if (docs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum membro cadastrado.</td></tr>`;
+      const vazio = { equipe: 'Nenhum membro cadastrado.', arquivado: 'Arquivo vazio.', lixeira: 'Lixeira vazia.' }[_visaoEquipeDRG];
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">${vazio}</td></tr>`;
       return;
     }
 
@@ -13353,17 +13364,32 @@ async function loadEquipeDRGUsuarios() {
         : '<span class="badge-status suspenso">Desativado</span>';
       const toggleLabel = ativo ? 'Desativar' : 'Reativar';
       const toggleClass = ativo ? 'btn-danger' : 'btn-primary';
+      // Ações por visão (arquivar/lixeira/excluir só pro Super Admin, nunca em si mesmo)
+      const id = doc.id;
+      let acoes = '';
+      if (_visaoEquipeDRG === 'equipe') {
+        acoes = `<button class="btn btn-sm ${toggleClass}" onclick="toggleDRGUsuarioAtivo('${id}', ${!ativo})">${toggleLabel}</button>`;
+        if (State.isDRGMaster) acoes += `
+          <button class="btn btn-sm btn-secondary" onclick="moverMembroDRG('${id}', 'arquivado')" title="Tira da equipe e bloqueia o acesso; dá pra restaurar">🗄 Arquivar</button>
+          <button class="btn btn-sm btn-secondary" onclick="moverMembroDRG('${id}', 'lixeira')" title="Manda pra lixeira; de lá pode excluir definitivamente">🗑 Lixeira</button>`;
+      } else if (_visaoEquipeDRG === 'arquivado' && State.isDRGMaster) {
+        acoes = `
+          <button class="btn btn-sm btn-primary" onclick="moverMembroDRG('${id}', null)" title="Volta pra equipe (desativado — reative quando quiser)">↩ Restaurar</button>
+          <button class="btn btn-sm btn-secondary" onclick="moverMembroDRG('${id}', 'lixeira')">🗑 Lixeira</button>`;
+      } else if (_visaoEquipeDRG === 'lixeira' && State.isDRGMaster) {
+        acoes = `
+          <button class="btn btn-sm btn-secondary" onclick="moverMembroDRG('${id}', 'arquivado')" title="Tira da lixeira e manda pro arquivo">↩ Restaurar</button>
+          <button class="btn btn-sm btn-danger" onclick="excluirMembroDRGDefinitivo('${id}')">❌ Excluir definitivamente</button>`;
+      }
       return `
         <tr>
-          <td><strong>${u.nome || '—'}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}</td>
-          <td>${u.email || '—'}</td>
+          <td><strong>${escapeHtml(u.nome || '—')}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}</td>
+          <td>${escapeHtml(u.email || '—')}</td>
           <td>${roleLabel}</td>
           <td style="font-size:12px;">${perfilLabel}</td>
           <td>${statusBadge}</td>
           <td>
-            ${isSelf ? '<span class="muted" style="font-size:11px;">—</span>' : `
-              <button class="btn btn-sm ${toggleClass}" onclick="toggleDRGUsuarioAtivo('${doc.id}', ${!ativo})">${toggleLabel}</button>
-            `}
+            <div class="action-btns">${isSelf || !acoes ? '<span class="muted" style="font-size:11px;">—</span>' : acoes}</div>
           </td>
         </tr>
       `;
@@ -13373,6 +13399,63 @@ async function loadEquipeDRGUsuarios() {
     tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
   }
 }
+
+// ----- Arquivo / Lixeira da equipe DRG -----
+// users/{uid}.situacao: ausente = na equipe | 'arquivado' | 'lixeira'.
+// Arquivo e lixeira sempre desativam o acesso (ativo:false). Excluir de vez só
+// a partir da lixeira — apaga o cadastro (users/{uid}); sem ele o login é recusado.
+let _visaoEquipeDRG = 'equipe';
+
+function setVisaoEquipeDRG(visao) {
+  _visaoEquipeDRG = visao || 'equipe';
+  loadEquipeDRGUsuarios();
+}
+
+async function moverMembroDRG(uid, destino) {
+  if (!State.isDRGMaster) return;
+  if (uid === State.user.uid) return;
+  const textos = {
+    arquivado: { titulo: 'Enviar para o arquivo?', msg: 'O membro sai da equipe e perde o acesso na hora. Você pode restaurar depois.', btn: '🗄 Arquivar' },
+    lixeira:   { titulo: 'Enviar para a lixeira?', msg: 'O membro perde o acesso na hora. Da lixeira ele pode ser restaurado ou excluído definitivamente.', btn: '🗑 Mover pra lixeira' },
+    null:      { titulo: 'Restaurar para a equipe?', msg: 'O membro volta pra lista da equipe <strong>desativado</strong> — clique em Reativar quando quiser liberar o acesso.', btn: '↩ Restaurar' },
+  }[destino];
+  if (!(await confirmar({ titulo: textos.titulo, mensagem: textos.msg, confirmar: textos.btn, aviso: destino !== null }))) return;
+  try {
+    const agora = firebase.firestore.FieldValue.serverTimestamp();
+    await db.collection('users').doc(uid).update(destino
+      ? { situacao: destino, ativo: false, situacaoEm: agora, situacaoPor: State.user.uid }
+      : { situacao: firebase.firestore.FieldValue.delete(), ativo: false, situacaoEm: agora, situacaoPor: State.user.uid });
+    logAuditoria('situacao', 'usuario_drg', uid, { situacao: destino || 'equipe' });
+    loadEquipeDRGUsuarios();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function excluirMembroDRGDefinitivo(uid) {
+  if (!State.isDRGMaster || uid === State.user.uid) return;
+  let u = {};
+  try { u = (await db.collection('users').doc(uid).get()).data() || {}; } catch (_) {}
+  if (u.situacao !== 'lixeira') { alert('Só é possível excluir definitivamente quem está na lixeira.'); return; }
+  if (!(await confirmar({
+    titulo: 'Excluir definitivamente?',
+    mensagem: `Apagar o cadastro de <strong>${escapeHtml(u.nome || u.email || uid)}</strong> de vez.`,
+    detalhe: '⚠️ Esta ação <strong>não pode ser desfeita</strong>.<br>O registro de auditoria das ações dele continua guardado.',
+    confirmar: '❌ Excluir definitivamente',
+    perigo: true,
+  }))) return;
+  try {
+    await db.collection('users').doc(uid).delete();
+    logAuditoria('delete', 'usuario_drg', uid, { nome: u.nome || null, email: u.email || null });
+    loadEquipeDRGUsuarios();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+window.setVisaoEquipeDRG = setVisaoEquipeDRG;
+window.moverMembroDRG = moverMembroDRG;
+window.excluirMembroDRGDefinitivo = excluirMembroDRGDefinitivo;
 
 async function toggleDRGUsuarioAtivo(uid, novoAtivo) {
   const acao = novoAtivo ? 'reativar' : 'desativar';

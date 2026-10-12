@@ -1174,6 +1174,11 @@
               <strong>Super Admin:</strong> acesso total ao painel DRG.<br>
               <strong>Operador DRG:</strong> acesso limitado pelas permissões do perfil vinculado.
             </p>
+            <div class="papel-filtros" id="equipe-drg-filtros" style="margin-bottom:10px;">
+              <button type="button" class="papel-filtro-btn active" data-vis="equipe" onclick="setVisaoEquipeDRG('equipe')">👥 Equipe</button>
+              <button type="button" class="papel-filtro-btn" data-vis="arquivado" onclick="setVisaoEquipeDRG('arquivado')">🗄 Arquivo</button>
+              <button type="button" class="papel-filtro-btn" data-vis="lixeira" onclick="setVisaoEquipeDRG('lixeira')">🗑 Lixeira</button>
+            </div>
             <div class="table-wrap" style="margin-bottom:14px;">
               <table class="table" style="font-size:13px;">
                 <thead>
@@ -5314,7 +5319,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261011g-telefone"></script>
+  <script src="app.js?v=20261011h-lixeira"></script>
   <script src="rede.js?v=20261011f-authfix"></script>
 </body>
 </html>
