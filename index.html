@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261011e-banco">
+  <link rel="stylesheet" href="styles.css?v=20261012a-representante">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1994,7 +1994,7 @@
             <h4 class="form-section-title">Cláusulas padrão dos contratos</h4>
             <p class="muted" style="font-size:12px; margin-bottom:14px;">
               Esses textos servem de base e são preenchidos automaticamente nos contratos gerados.
-              Use variáveis para puxar dados: <code>{{locador.nome}}</code>, <code>{{locatario.nome}}</code>,
+              Use variáveis para puxar dados: <code>{{locador.nome}}</code>, <code>{{locador.representante}}</code> (imobiliária/procurador, se houver), <code>{{locatario.nome}}</code>,
               <code>{{imovel.apelido}}</code>, <code>{{imovel.enderecoCompleto}}</code>,
               <code>{{contrato.aluguel}}</code>, <code>{{contrato.prazo}}</code>,
               <code>{{contrato.multa}}</code>, <code>{{contrato.taxaAdm}}</code>,
@@ -2444,6 +2444,175 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-group">
             <label>UF</label>
             <input type="text" id="locador-uf" maxlength="2" style="text-transform:uppercase;">
+          </div>
+        </div>
+
+        <!-- Administração por terceiros: imóveis do proprietário geridos por
+             imobiliária ou procurador. A seção Representante só aparece marcada. -->
+        <div class="papeis-box" style="margin-top:14px;">
+          <label class="papel-check" style="min-width:0;">
+            <input type="checkbox" id="locador-adm-terceiros" onchange="onLocadorAdmTerceirosChange()">
+            <span class="papel-emoji">🏢</span>
+            <span class="papel-label">Imóveis administrados por terceiros <small>(imobiliária ou procurador representa o proprietário)</small></span>
+          </label>
+        </div>
+
+        <div id="locador-rep-section" class="rep-section" style="display:none;">
+          <h4 class="form-section-title">Representante</h4>
+          <p class="muted" style="font-size:12px; margin:-4px 0 10px;">Empresa ou pessoa que administra os imóveis deste proprietário e responde por ele.</p>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo</label>
+              <select id="locador-rep-tipo" onchange="onLocadorRepTipoChange()">
+                <option value="PJ">Pessoa Jurídica (imobiliária)</option>
+                <option value="PF">Pessoa Física (corretor / procurador)</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label id="locador-rep-nome-label" class="required">Razão social</label>
+              <input type="text" id="locador-rep-nome">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label id="locador-rep-doc-label" class="required">CNPJ</label>
+              <input type="text" id="locador-rep-documento" placeholder="00.000.000/0000-00">
+              <span id="locador-rep-doc-status" class="input-status" style="display:none;"></span>
+            </div>
+            <div class="form-group" id="locador-rep-fantasia-group">
+              <label>Nome fantasia</label>
+              <input type="text" id="locador-rep-fantasia">
+            </div>
+            <div class="form-group">
+              <label>CRECI</label>
+              <input type="text" id="locador-rep-creci" placeholder="Ex: 12345-J">
+            </div>
+          </div>
+
+          <div class="form-row" id="locador-rep-pj-extra">
+            <div class="form-group">
+              <label>Inscrição estadual</label>
+              <input type="text" id="locador-rep-ie" placeholder="Isento, se for o caso">
+            </div>
+            <div class="form-group">
+              <label>Inscrição municipal</label>
+              <input type="text" id="locador-rep-im">
+            </div>
+          </div>
+
+          <div class="form-row" id="locador-rep-pf-extra" style="display:none;">
+            <div class="form-group">
+              <label>RG</label>
+              <input type="text" id="locador-rep-rg">
+            </div>
+            <div class="form-group">
+              <label>Estado civil</label>
+              <select id="locador-rep-estado-civil">
+                <option value="">—</option>
+                <option value="solteiro">Solteiro(a)</option>
+                <option value="casado">Casado(a)</option>
+                <option value="divorciado">Divorciado(a)</option>
+                <option value="viuvo">Viúvo(a)</option>
+                <option value="uniao_estavel">União Estável</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Profissão</label>
+              <input type="text" id="locador-rep-profissao">
+            </div>
+            <div class="form-group">
+              <label>Nacionalidade</label>
+              <input type="text" id="locador-rep-nacionalidade" value="Brasileira">
+            </div>
+          </div>
+
+          <!-- PJ: quem assina pela empresa -->
+          <div id="locador-rep-resp-group">
+            <p class="muted" style="font-size:12px; margin:4px 0 6px;">Responsável legal (quem assina pela empresa)</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="required">Nome</label>
+                <input type="text" id="locador-rep-resp-nome">
+              </div>
+              <div class="form-group">
+                <label class="required">CPF</label>
+                <input type="text" id="locador-rep-resp-cpf" placeholder="000.000.000-00">
+              </div>
+              <div class="form-group">
+                <label>Cargo</label>
+                <input type="text" id="locador-rep-resp-cargo" placeholder="Sócio, diretor, gerente…">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="required">E-mail</label>
+              <input type="email" id="locador-rep-email">
+            </div>
+            <div class="form-group">
+              <label class="required">Telefone</label>
+              <input type="text" id="locador-rep-telefone" placeholder="(00) 00000-0000">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>CEP</label>
+              <input type="text" id="locador-rep-cep" placeholder="00000-000" maxlength="9" onblur="buscarCEPRepresentante()">
+              <span id="locador-rep-cep-status" class="input-status" style="display:none;"></span>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Logradouro</label>
+              <input type="text" id="locador-rep-logradouro">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Número</label>
+              <input type="text" id="locador-rep-numero">
+            </div>
+            <div class="form-group">
+              <label>Complemento</label>
+              <input type="text" id="locador-rep-complemento">
+            </div>
+            <div class="form-group">
+              <label>Bairro</label>
+              <input type="text" id="locador-rep-bairro">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Cidade</label>
+              <input type="text" id="locador-rep-cidade">
+            </div>
+            <div class="form-group">
+              <label>UF</label>
+              <input type="text" id="locador-rep-uf" maxlength="2" style="text-transform:uppercase;">
+            </div>
+          </div>
+
+          <p class="muted" style="font-size:12px; margin:4px 0 6px;">Instrumento de representação</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tipo</label>
+              <select id="locador-rep-instrumento">
+                <option value="contrato_administracao">Contrato de administração</option>
+                <option value="procuracao">Procuração</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Data de assinatura</label>
+              <input type="date" id="locador-rep-instr-data">
+            </div>
+            <div class="form-group">
+              <label>Válido até</label>
+              <input type="date" id="locador-rep-instr-validade">
+              <span class="muted" style="font-size:11px;">Vazio = prazo indeterminado</span>
+            </div>
           </div>
         </div>
 
@@ -5377,7 +5546,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261012a-novocliente"></script>
+  <script src="app.js?v=20261012b-representante"></script>
   <script src="rede.js?v=20261011i-portais"></script>
 </body>
 </html>

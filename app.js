@@ -2718,6 +2718,12 @@ async function exportarLocadores() {
     { header: 'PIX', key: 'pix' },
     { header: 'Cidade', key: 'endereco', formatter: (e) => e?.cidade || '' },
     { header: 'UF', key: 'endereco', formatter: (e) => e?.uf || '' },
+    { header: 'Administrado por terceiros', key: 'administradoTerceiros', formatter: (v) => (v ? 'Sim' : 'Não') },
+    { header: 'Representante', key: 'representante', formatter: (r) => r?.nome || '' },
+    { header: 'Representante CPF/CNPJ', key: 'representante', formatter: (r) => r?.documento || '' },
+    { header: 'Representante CRECI', key: 'representante', formatter: (r) => r?.creci || '' },
+    { header: 'Representante Email', key: 'representante', formatter: (r) => r?.email || '' },
+    { header: 'Representante Telefone', key: 'representante', formatter: (r) => r?.telefone || '' },
   ]);
 }
 
@@ -3721,6 +3727,9 @@ function renderLocadoresTable() {
     if (p.locador && p.vendedor) chip = '<span class="papel-chip ambos">🏠 + 💼 ambos</span>';
     else if (p.locador) chip = '<span class="papel-chip locador">🏠 locador</span>';
     else if (p.vendedor) chip = '<span class="papel-chip vendedor">💼 vendedor</span>';
+    if (l.administradoTerceiros && l.representante?.nome) {
+      chip += ` <span class="papel-chip" title="Administrado por terceiros">🏢 via ${escapeHtml(l.representante.nome)}</span>`;
+    }
     return `
       <tr>
         <td>${i + 1}</td>
@@ -3891,6 +3900,245 @@ function onLocadorTipoChange() {
   onLocadorDocumentoInput();
 }
 
+// =============================================================
+// Representante do locador — imóveis administrados por terceiros
+// (imobiliária PJ ou corretor/procurador PF). Fica em locador.representante;
+// a seção só aparece com o checkbox "administrado por terceiros" marcado.
+// =============================================================
+const REP_CAMPOS_TEXTO = ['nome', 'documento', 'fantasia', 'creci', 'ie', 'im', 'rg', 'profissao',
+  'resp-nome', 'resp-cpf', 'resp-cargo', 'email', 'telefone',
+  'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'cidade', 'uf',
+  'instr-data', 'instr-validade'];
+
+function onLocadorAdmTerceirosChange() {
+  const on = $('locador-adm-terceiros').checked;
+  $('locador-rep-section').style.display = on ? 'block' : 'none';
+  if (on) setTimeout(() => $('locador-rep-nome').focus(), 0);
+}
+
+function onLocadorRepTipoChange() {
+  const isPJ = $('locador-rep-tipo').value === 'PJ';
+  $('locador-rep-nome-label').textContent = isPJ ? 'Razão social' : 'Nome completo';
+  $('locador-rep-doc-label').textContent = isPJ ? 'CNPJ' : 'CPF';
+  $('locador-rep-documento').placeholder = isPJ ? '00.000.000/0000-00' : '000.000.000-00';
+  $('locador-rep-fantasia-group').style.display = isPJ ? 'block' : 'none';
+  $('locador-rep-pj-extra').style.display = isPJ ? 'grid' : 'none';
+  $('locador-rep-resp-group').style.display = isPJ ? 'block' : 'none';
+  $('locador-rep-pf-extra').style.display = isPJ ? 'none' : 'grid';
+  const doc = $('locador-rep-documento');
+  doc.value = isPJ ? maskCNPJ(doc.value) : maskCPF(doc.value);
+  onLocadorRepDocumentoInput();
+}
+
+function onLocadorRepDocumentoInput() {
+  const isPJ = $('locador-rep-tipo').value === 'PJ';
+  const digits = $('locador-rep-documento').value.replace(/\D/g, '');
+  const status = $('locador-rep-doc-status');
+  if (!digits) { status.style.display = 'none'; return; }
+  status.style.display = 'block';
+  const max = isPJ ? 14 : 11;
+  if (digits.length < max) {
+    status.textContent = `${digits.length}/${max} dígitos`;
+    status.style.color = 'var(--text-muted)';
+  } else if (isPJ ? isCNPJValid(digits) : isCPFValid(digits)) {
+    status.textContent = `✓ ${isPJ ? 'CNPJ' : 'CPF'} válido`;
+    status.style.color = 'var(--success)';
+  } else {
+    status.textContent = `✗ ${isPJ ? 'CNPJ' : 'CPF'} inválido`;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+// CNPJ do representante → BrasilAPI preenche razão social, fantasia e endereço
+// (só os campos vazios; o que o usuário digitou não é sobrescrito).
+async function onLocadorRepDocumentoBlur() {
+  if ($('locador-rep-tipo').value !== 'PJ') return;
+  const digits = $('locador-rep-documento').value.replace(/\D/g, '');
+  if (digits.length !== 14 || !isCNPJValid(digits)) return;
+  const status = $('locador-rep-doc-status');
+  status.style.display = 'block';
+  status.textContent = '⏳ Buscando na Receita… aguarde';
+  status.style.color = 'var(--primary)';
+  try {
+    const d = await fetchCNPJ(digits);
+    const setSeVazio = (campo, valor) => {
+      const el = $('locador-rep-' + campo);
+      if (valor && !el.value.trim()) el.value = valor;
+    };
+    setSeVazio('nome', d.razao_social);
+    setSeVazio('fantasia', d.nome_fantasia);
+    setSeVazio('logradouro', d.logradouro);
+    setSeVazio('numero', d.numero);
+    setSeVazio('complemento', d.complemento);
+    setSeVazio('bairro', d.bairro);
+    setSeVazio('cidade', d.municipio);
+    setSeVazio('uf', d.uf);
+    if (d.cep) setSeVazio('cep', maskCEP(String(d.cep)));
+    setSeVazio('email', d.email);
+    if (d.ddd_telefone_1) setSeVazio('telefone', maskTelefone(String(d.ddd_telefone_1)));
+    const situacao = (d.descricao_situacao_cadastral || '').toUpperCase();
+    status.textContent = situacao && situacao !== 'ATIVA' ? `⚠ Situação na Receita: ${situacao}` : '✓ CNPJ ativo na Receita';
+    status.style.color = situacao && situacao !== 'ATIVA' ? 'var(--warning)' : 'var(--success)';
+  } catch (err) {
+    console.error('Erro BrasilAPI (representante):', err);
+    status.textContent = 'Não foi possível consultar a Receita: ' + err.message;
+    status.style.color = 'var(--danger)';
+  }
+}
+
+async function buscarCEPRepresentante() {
+  const input = $('locador-rep-cep');
+  const status = $('locador-rep-cep-status');
+  const cep = (input.value || '').replace(/\D/g, '');
+  if (!cep) { status.style.display = 'none'; return; }
+  status.style.display = 'inline';
+  if (cep.length !== 8) {
+    status.textContent = 'CEP deve ter 8 dígitos';
+    status.style.color = 'var(--danger)';
+    return;
+  }
+  input.value = maskCEP(cep);
+  status.textContent = '⏳ Buscando…';
+  status.style.color = 'var(--primary)';
+  try {
+    const data = await (await fetch(`https://viacep.com.br/ws/${cep}/json/`)).json();
+    if (data.erro) {
+      status.textContent = 'CEP não encontrado';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    if (data.logradouro) $('locador-rep-logradouro').value = data.logradouro;
+    if (data.bairro) $('locador-rep-bairro').value = data.bairro;
+    if (data.localidade) $('locador-rep-cidade').value = data.localidade;
+    if (data.uf) $('locador-rep-uf').value = data.uf;
+    status.textContent = '✓';
+    status.style.color = 'var(--success)';
+    $('locador-rep-numero').focus();
+  } catch (err) {
+    console.error('Erro CEP (representante):', err);
+    status.textContent = 'Erro de conexão';
+    status.style.color = 'var(--danger)';
+  }
+}
+
+function limparRepresentanteLocador() {
+  $('locador-adm-terceiros').checked = false;
+  REP_CAMPOS_TEXTO.forEach(c => $('locador-rep-' + c).value = '');
+  $('locador-rep-tipo').value = 'PJ';
+  $('locador-rep-estado-civil').value = '';
+  $('locador-rep-nacionalidade').value = 'Brasileira';
+  $('locador-rep-instrumento').value = 'contrato_administracao';
+  $('locador-rep-cep-status').style.display = 'none';
+  onLocadorRepTipoChange();
+  onLocadorAdmTerceirosChange();
+}
+
+function preencherRepresentanteLocador(l) {
+  const r = l.administradoTerceiros && l.representante;
+  if (!r) return;
+  const isPJ = r.tipo !== 'PF';
+  $('locador-adm-terceiros').checked = true;
+  $('locador-rep-tipo').value = isPJ ? 'PJ' : 'PF';
+  $('locador-rep-nome').value = r.nome || '';
+  $('locador-rep-documento').value = r.documento ? (isPJ ? maskCNPJ(r.documento) : maskCPF(r.documento)) : '';
+  $('locador-rep-fantasia').value = r.nomeFantasia || '';
+  $('locador-rep-creci').value = r.creci || '';
+  $('locador-rep-ie').value = r.inscricaoEstadual || '';
+  $('locador-rep-im').value = r.inscricaoMunicipal || '';
+  $('locador-rep-rg').value = r.rg || '';
+  $('locador-rep-estado-civil').value = r.estadoCivil || '';
+  $('locador-rep-profissao').value = r.profissao || '';
+  $('locador-rep-nacionalidade').value = r.nacionalidade || 'Brasileira';
+  const resp = r.responsavel || {};
+  $('locador-rep-resp-nome').value = resp.nome || '';
+  $('locador-rep-resp-cpf').value = resp.cpf ? maskCPF(resp.cpf) : '';
+  $('locador-rep-resp-cargo').value = resp.cargo || '';
+  $('locador-rep-email').value = r.email || '';
+  $('locador-rep-telefone').value = r.telefone ? maskTelefone(r.telefone) : '';
+  const end = r.endereco || {};
+  $('locador-rep-cep').value = end.cep ? maskCEP(end.cep) : '';
+  $('locador-rep-logradouro').value = end.logradouro || '';
+  $('locador-rep-numero').value = end.numero || '';
+  $('locador-rep-complemento').value = end.complemento || '';
+  $('locador-rep-bairro').value = end.bairro || '';
+  $('locador-rep-cidade').value = end.cidade || '';
+  $('locador-rep-uf').value = end.uf || '';
+  const instr = r.instrumento || {};
+  $('locador-rep-instrumento').value = instr.tipo || 'contrato_administracao';
+  $('locador-rep-instr-data').value = instr.data || '';
+  $('locador-rep-instr-validade').value = instr.validade || '';
+  onLocadorRepTipoChange();
+  onLocadorAdmTerceirosChange();
+}
+
+// Lê e valida a seção. Retorna { erro } ou { representante } (null se desmarcado).
+function lerRepresentanteLocador() {
+  if (!$('locador-adm-terceiros').checked) return { representante: null };
+  const v = (c) => $('locador-rep-' + c).value.trim();
+  const isPJ = $('locador-rep-tipo').value === 'PJ';
+  const doc = v('documento').replace(/\D/g, '');
+  const respCpf = v('resp-cpf').replace(/\D/g, '');
+
+  if (!v('nome')) return { erro: `Representante: ${isPJ ? 'razão social' : 'nome'} é obrigatório.`, foco: 'nome' };
+  if (!(isPJ ? isCNPJValid(doc) : isCPFValid(doc))) return { erro: `Representante: ${isPJ ? 'CNPJ' : 'CPF'} inválido.`, foco: 'documento' };
+  if (isPJ && !v('resp-nome')) return { erro: 'Representante: informe o responsável legal que assina pela empresa.', foco: 'resp-nome' };
+  if (isPJ && !isCPFValid(respCpf)) return { erro: 'Representante: CPF do responsável legal inválido.', foco: 'resp-cpf' };
+  if (!v('email')) return { erro: 'Representante: e-mail é obrigatório.', foco: 'email' };
+  if (v('telefone').replace(/\D/g, '').length < 10) return { erro: 'Representante: telefone com DDD é obrigatório.', foco: 'telefone' };
+  const instrData = v('instr-data'), instrValidade = v('instr-validade');
+  if (instrData && instrValidade && instrValidade < instrData) return { erro: 'Representante: a validade do instrumento é anterior à data de assinatura.', foco: 'instr-validade' };
+
+  return {
+    representante: {
+      tipo: isPJ ? 'PJ' : 'PF',
+      nome: v('nome'),
+      documento: doc,
+      nomeFantasia: isPJ ? (v('fantasia') || null) : null,
+      creci: v('creci') || null,
+      inscricaoEstadual: isPJ ? (v('ie') || null) : null,
+      inscricaoMunicipal: isPJ ? (v('im') || null) : null,
+      rg: isPJ ? null : (v('rg') || null),
+      estadoCivil: isPJ ? null : ($('locador-rep-estado-civil').value || null),
+      profissao: isPJ ? null : (v('profissao') || null),
+      nacionalidade: isPJ ? null : (v('nacionalidade') || null),
+      responsavel: isPJ ? { nome: v('resp-nome'), cpf: respCpf, cargo: v('resp-cargo') || null } : null,
+      email: v('email'),
+      telefone: v('telefone').replace(/\D/g, ''),
+      endereco: {
+        cep: v('cep').replace(/\D/g, '') || null,
+        logradouro: v('logradouro') || null,
+        numero: v('numero') || null,
+        complemento: v('complemento') || null,
+        bairro: v('bairro') || null,
+        cidade: v('cidade') || null,
+        uf: v('uf').toUpperCase() || null,
+      },
+      instrumento: {
+        tipo: $('locador-rep-instrumento').value,
+        data: instrData || null,
+        validade: instrValidade || null,
+      },
+    },
+  };
+}
+
+// Qualificação pronta para contrato: "neste ato representado(a) por …"
+function qualificacaoRepresentante(r) {
+  if (!r) return '';
+  const end = typeof formatEnderecoCompleto === 'function' ? formatEnderecoCompleto(r.endereco) : '';
+  const instr = { contrato_administracao: 'contrato de administração', procuracao: 'procuração' }[r.instrumento?.tipo] || 'instrumento de representação';
+  const creci = r.creci ? `, CRECI ${r.creci}` : '';
+  if (r.tipo === 'PF') {
+    return `${r.nome}, ${r.nacionalidade || 'brasileiro(a)'}, inscrito(a) no CPF sob o nº ${maskCPF(r.documento)}${creci}${end ? `, com endereço em ${end}` : ''}, na forma de ${instr}`;
+  }
+  const resp = r.responsavel?.nome ? `, neste ato por seu(sua) ${r.responsavel.cargo || 'representante legal'} ${r.responsavel.nome}, CPF ${maskCPF(r.responsavel.cpf || '')}` : '';
+  return `${r.nome}, inscrita no CNPJ sob o nº ${maskCNPJ(r.documento)}${creci}${end ? `, com sede em ${end}` : ''}${resp}, na forma de ${instr}`;
+}
+
+window.onLocadorAdmTerceirosChange = onLocadorAdmTerceirosChange;
+window.onLocadorRepTipoChange = onLocadorRepTipoChange;
+window.buscarCEPRepresentante = buscarCEPRepresentante;
+
 async function openLocadorModal(id) {
   clearAlert('locador-alert');
 
@@ -3914,6 +4162,7 @@ async function openLocadorModal(id) {
   $('locador-papel-locador').checked = true;
   $('locador-papel-vendedor').checked = true;
   onLocadorTipoChange();
+  limparRepresentanteLocador();
 
   if (id) {
     try {
@@ -3955,6 +4204,7 @@ async function openLocadorModal(id) {
         const papeis = l.papeis || { locador: true, vendedor: true };
         $('locador-papel-locador').checked = papeis.locador !== false;
         $('locador-papel-vendedor').checked = papeis.vendedor !== false;
+        preencherRepresentanteLocador(l);
       }
     } catch (err) {
       console.error('Erro ao carregar locador:', err);
@@ -4010,6 +4260,13 @@ async function saveLocador() {
     showAlert('locador-alert', 'Marque pelo menos um papel: Locador ou Vendedor.');
     return;
   }
+  const rep = lerRepresentanteLocador();
+  if (rep.erro) {
+    showAlert('locador-alert', rep.erro);
+    const el = $('locador-rep-' + rep.foco);
+    if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus(); }
+    return;
+  }
 
   const data = {
     tipo: $('locador-tipo').value,
@@ -4035,13 +4292,16 @@ async function saveLocador() {
     pix: $('locador-pix').value.trim() || null,
     ...lerDadosBancariosLocador(),
     obs: $('locador-obs').value.trim() || null,
+    administradoTerceiros: !!rep.representante,
+    representante: rep.representante,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
   const btn = $('btn-save-locador');
   btn.disabled = true;
-  btn.textContent = 'Salvando…';
+  btn.textContent = '⏳ Salvando... aguarde';
 
+  let salvou = false;
   try {
     if (id) {
       await tenantPath().collection('locadores').doc(id).update(data);
@@ -4060,15 +4320,26 @@ async function saveLocador() {
       loadLocadores();
       return;
     }
+    // Sucesso visível antes de fechar (regra nº 1); botão segue travado até a tela trocar
+    salvou = true;
     invalidateLocadoresCache();
-    closeLocadorModal();
+    btn.textContent = '✓ Salvo';
+    showAlert('locador-alert', '✓ Cadastro salvo.', 'success');
     loadLocadores();
+    setTimeout(() => {
+      closeLocadorModal();
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+    }, 900);
   } catch (err) {
     console.error('Erro ao salvar:', err);
     showAlert('locador-alert', 'Erro: ' + err.message);
+    $('locador-alert').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Salvar';
+    if (!salvou) {
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
+    }
   }
 }
 
@@ -11932,6 +12203,7 @@ async function gerarContratoLocacao() {
         email: locador.email || '—',
         telefone: locador.telefone ? maskTelefone(locador.telefone) : '—',
         enderecoCompleto: formatEnderecoCompleto(locador.endereco),
+        representante: locador.administradoTerceiros && locador.representante ? qualificacaoRepresentante(locador.representante) : '',
       },
       locatario: {
         nome: locatario.nome || '—',
@@ -15613,6 +15885,14 @@ document.addEventListener('DOMContentLoaded', () => {
   $('locador-documento').addEventListener('input', onLocadorDocumentoInput);
   $('locador-documento').addEventListener('blur', onLocadorDocumentoBlur);
 
+  // Máscaras e validação — Representante do locador (administração por terceiros)
+  bindMask('locador-rep-documento', (v) => $('locador-rep-tipo').value === 'PJ' ? maskCNPJ(v) : maskCPF(v));
+  bindMask('locador-rep-resp-cpf', maskCPF);
+  bindMask('locador-rep-telefone', maskTelefone);
+  bindMask('locador-rep-cep', maskCEP);
+  $('locador-rep-documento').addEventListener('input', onLocadorRepDocumentoInput);
+  $('locador-rep-documento').addEventListener('blur', onLocadorRepDocumentoBlur);
+
   // Máscaras e validação — Locatário
   bindMask('locatario-documento', (v) => $('locatario-tipo').value === 'PJ' ? maskCNPJ(v) : maskCPF(v));
   bindMask('locatario-telefone', maskTelefone);
@@ -17311,6 +17591,8 @@ function elabFormatarEntidade(e, colecao) {
     estadoCivil_or: e.estadoCivil || 'estado civil não informado',
     profissao_or: e.profissao || 'profissão não informada',
     rg_or: e.rg || 's/n',
+    // Representante (só locador administrado por terceiros): {{#if locador.representante_qualificacao}}
+    representante_qualificacao: e.administradoTerceiros && e.representante ? qualificacaoRepresentante(e.representante) : '',
   };
 }
 
@@ -17713,6 +17995,8 @@ const TPL_PLACEHOLDERS = {
     { ph: '{{locador.nome}}', d: 'Nome do locador' },
     { ph: '{{locador.documento_fmt}}', d: 'CPF/CNPJ formatado' },
     { ph: '{{locador.endereco_completo}}', d: 'Endereço completo do locador' },
+    { ph: '{{locador.representante_qualificacao}}', d: 'Representante do locador (imobiliária/procurador) — vazio se não houver' },
+    { ph: '{{locador.representante.nome}}', d: 'Nome / razão social do representante' },
     { ph: '{{locatario.nome}}', d: 'Nome do locatário' },
     { ph: '{{locatario.documento_fmt}}', d: 'CPF/CNPJ formatado' },
     { ph: '{{imovel.endereco_completo}}', d: 'Endereço do imóvel' },

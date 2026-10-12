@@ -4041,3 +4041,16 @@ details.card > summary:hover {
 .modal-body .form-row-banco {
   grid-template-columns: 2fr 1fr 1.4fr 1.3fr;
 }
+
+/* Representante do locador (administração por terceiros) */
+.rep-section {
+  border-left: 3px solid var(--primary);
+  padding: 2px 0 4px 14px;
+  margin: 10px 0 6px;
+}
+@media (max-width: 600px) {
+  .rep-section { padding-left: 10px; }
+}
+
+/* Regra nº 1: todo botão responde ao toque */
+.btn:active:not(:disabled) { transform: scale(.98); filter: brightness(.92); }
