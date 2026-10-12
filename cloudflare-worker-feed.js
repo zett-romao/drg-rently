@@ -148,6 +148,12 @@ export default {
           xml = gerarOlxXml(tenant, imoveis); break;
         case 'imovelweb':
           xml = gerarImovelwebXml(tenant, imoveis); break;
+        case 'facebook':
+        case 'meta':
+        case 'instagram': {
+          const site = (env.SITE_URL || 'https://zett-romao.github.io/drg-rently/').replace(/\/?$/, '/');
+          xml = gerarFacebookXml(tenant, imoveis, site, tenant?.slug || tenantId); break;
+        }
         case 'wimoveis':
         case 'chavesnamao':
         default:
@@ -462,6 +468,72 @@ ${items}
 </propiedades>`;
 }
 
+// --- FACEBOOK / INSTAGRAM (catálogo de imóveis da Meta — Home Listing) ---
+// Obrigatórios pela Meta: id, nome, disponibilidade, endereço (cidade, estado,
+// país, CEP), latitude/longitude, preço "valor MOEDA", imagem e link.
+// Lat/long vêm de vitrine.geo (aproximada pelo CEP — ver rede.js). Imóvel sem
+// geo, sem foto ou sem preço é pulado (a Meta rejeitaria). "Ambos" vira 2 anúncios.
+const UF_NOME = {
+  AC: 'Acre', AL: 'Alagoas', AP: 'Amapá', AM: 'Amazonas', BA: 'Bahia', CE: 'Ceará',
+  DF: 'Distrito Federal', ES: 'Espírito Santo', GO: 'Goiás', MA: 'Maranhão',
+  MT: 'Mato Grosso', MS: 'Mato Grosso do Sul', MG: 'Minas Gerais', PA: 'Pará',
+  PB: 'Paraíba', PR: 'Paraná', PE: 'Pernambuco', PI: 'Piauí', RJ: 'Rio de Janeiro',
+  RN: 'Rio Grande do Norte', RS: 'Rio Grande do Sul', RO: 'Rondônia', RR: 'Roraima',
+  SC: 'Santa Catarina', SP: 'São Paulo', SE: 'Sergipe', TO: 'Tocantins',
+};
+
+function gerarFacebookXml(tenant, imoveis, site, tenantRef) {
+  const listings = [];
+  imoveis.forEach(im => {
+    const end = im.endereco || {};
+    const geo = im.geo || {};
+    const fotos = (im.fotos || []).slice(0, 20);
+    if (!Number.isFinite(geo.lat) || !Number.isFinite(geo.lng) || fotos.length === 0) return;
+    if (!end.cidade || !end.uf || !end.cep) return;
+
+    const ofertas = [];
+    const fin = im.finalidade || 'locacao';
+    if (fin !== 'venda' && im.aluguelSugerido) ofertas.push({ sufixo: fin === 'ambos' ? '-aluguel' : '', disp: 'for_rent', preco: im.aluguelSugerido });
+    if (fin !== 'locacao' && im.valorVenda) ofertas.push({ sufixo: fin === 'ambos' ? '-venda' : '', disp: 'for_sale', preco: im.valorVenda });
+
+    const link = `${site}imovel.html?id=${encodeURIComponent(im.id)}&t=${encodeURIComponent(tenantRef)}`;
+    const nome = im.apelido || [end.bairro, end.cidade].filter(Boolean).join(', ') || 'Imóvel';
+    const imagens = fotos.map(f => `      <image><url>${esc(f.url)}</url></image>`).join('\n');
+
+    ofertas.forEach(o => {
+      listings.push(`  <listing>
+    <home_listing_id>${esc(im.id + o.sufixo)}</home_listing_id>
+    <name>${cdata(nome)}</name>
+    <availability>${o.disp}</availability>
+    <description>${cdata(im.descricaoLonga || nome)}</description>
+    <address format="simple">
+      <component name="addr1">${esc(end.logradouro || end.bairro || end.cidade)}</component>
+      <component name="city">${esc(end.cidade)}</component>
+      <component name="region">${esc(UF_NOME[String(end.uf).toUpperCase()] || end.uf)}</component>
+      <component name="country">Brazil</component>
+      <component name="postal_code">${esc(String(end.cep).replace(/\D/g, '').replace(/^(\d{5})(\d{3})$/, '$1-$2'))}</component>
+    </address>
+    ${end.bairro ? `<neighborhood>${esc(end.bairro)}</neighborhood>` : ''}
+    <latitude>${geo.lat}</latitude>
+    <longitude>${geo.lng}</longitude>
+${imagens}
+    <price>${Math.round(o.preco)} BRL</price>
+    <url>${esc(link)}</url>
+    ${im.quartos ? `<num_beds>${im.quartos}</num_beds>` : ''}
+    ${im.banheiros ? `<num_baths>${im.banheiros}</num_baths>` : ''}
+    ${im.areaUtil ? `<area_size>${im.areaUtil}</area_size><area_unit>sq_m</area_unit>` : ''}
+    <property_type>${esc({ apartamento: 'apartment', casa: 'house', sobrado: 'townhouse', kitnet: 'apartment', terreno: 'land' }[im.subtipo] || (im.tipo === 'comercial' ? 'other' : 'house'))}</property_type>
+  </listing>`);
+    });
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<listings>
+  <title>${esc(tenantInfo(tenant).nome)}</title>
+${listings.join('\n')}
+</listings>`;
+}
+
 // =============================================================
 // Página de ajuda quando acessa sem ?tenant=
 // =============================================================
@@ -497,6 +569,7 @@ function htmlHelp() {
     <tr><td><code>zap</code></td><td>ZAP Imóveis, Viva Real</td><td><code>?tenant=xxx&format=zap</code></td></tr>
     <tr><td><code>olx</code></td><td>OLX Imóveis</td><td><code>?tenant=xxx&format=olx</code></td></tr>
     <tr><td><code>imovelweb</code></td><td>Imovelweb</td><td><code>?tenant=xxx&format=imovelweb</code></td></tr>
+    <tr><td><code>facebook</code></td><td>Facebook / Instagram (catálogo Meta)</td><td><code>?tenant=xxx&format=facebook</code></td></tr>
   </table>
 
   <h2>Cache</h2>

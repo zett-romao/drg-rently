@@ -256,10 +256,29 @@ function montarDadosVitrine(im, ctx) {
   return v;
 }
 
+// Coordenada aproximada pelo CEP (BrasilAPI, grátis) — exigida pelo catálogo de
+// imóveis da Meta (feed "facebook"). Nível de CEP, nunca o número da casa.
+async function coordenadaPorCep(cep) {
+  const d = String(cep || '').replace(/\D/g, '');
+  if (d.length !== 8) return null;
+  try {
+    const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${d}`);
+    if (!res.ok) return null;
+    const c = (await res.json())?.location?.coordinates || {};
+    const lat = parseFloat(c.latitude), lng = parseFloat(c.longitude);
+    return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+  } catch (_) { return null; }
+}
+
 async function sincronizarVitrine(imovelId, im, ctx) {
   const ref = tenantPath().collection('vitrine').doc(imovelId);
   if (im.linkPublico === true && !im.rascunho) {
-    await ref.set(montarDadosVitrine(im, ctx));
+    const dados = montarDadosVitrine(im, ctx);
+    // Bairro oculto = não divulga localização (nem aproximada)
+    if ((im.publicacao || {}).mostrarBairro !== false) {
+      dados.geo = await coordenadaPorCep(im.endereco?.cep);
+    }
+    await ref.set(dados);
   } else if (!isCorretor()) {
     // corretor não publica nem despublica — só a equipe remove da vitrine
     await ref.delete();
