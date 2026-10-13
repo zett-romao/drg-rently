@@ -52,6 +52,11 @@ async function reservarCodigoAnuncioSeguro() {
   catch (e) { console.warn('Código do anúncio não reservado:', e); return null; }
 }
 
+// Selo PERMUTA: só vale para imóvel à venda (venda ou venda+locação)
+function temPermuta(im) {
+  return im && im.aceitaPermuta === 'sim' && (im.finalidade || im.finalidadeFiltro || 'locacao') !== 'locacao';
+}
+
 function normalizarCodigo(s) {
   return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
@@ -63,7 +68,7 @@ function imovelBateBusca(im, termo) {
   const tn = normalizarCodigo(t);
   if (tn && normalizarCodigo(im.codigoAnuncio).includes(tn)) return true;
   const end = im.endereco || {};
-  return [im.apelido, im.tituloAnuncio, end.bairro, end.cidade, end.logradouro, ...(im.tags || [])]
+  return [im.apelido, im.tituloAnuncio, end.bairro, end.cidade, end.logradouro, temPermuta(im) ? 'permuta' : '', ...(im.tags || [])]
     .filter(Boolean).join(' ').toLowerCase().includes(t.toLowerCase());
 }
 
@@ -486,6 +491,8 @@ function dadosDoFormularioImovel() {
   if (fin !== 'locacao') Object.assign(d, {
     aceitaFinanciamento: v('imovel-aceita-financiamento') || null,
     permiteFGTS: v('imovel-permite-fgts') || null,
+    aceitaPermuta: v('imovel-aceita-permuta') === 'sim' ? 'sim' : 'nao',
+    permutaObs: v('imovel-aceita-permuta') === 'sim' ? (v('imovel-permuta-obs') || null) : null,
   });
   if (pub.mostrarValor) Object.assign(d, {
     aluguelMensal: fin !== 'venda' ? num('imovel-aluguel-sugerido') : null,

@@ -184,8 +184,9 @@ function renderImovel(im, tenant, fotos) {
   if (fotos.length === 0) {
     galeriaEl.innerHTML = '<p class="empty">Sem fotos disponíveis no momento.</p>';
   } else {
-    galeriaEl.innerHTML = fotos.map(f => `
-      <div class="galeria-item" onclick="openLightbox('${f.url}')">
+    const seloPermuta = im.aceitaPermuta === 'sim' && finalidade !== 'locacao';
+    galeriaEl.innerHTML = fotos.map((f, i) => `
+      <div class="galeria-item" onclick="openLightbox('${f.url}')">${i === 0 && seloPermuta ? '<span class="selo-permuta">Permuta</span>' : ''}
         <img src="${f.url}" alt="${(im.apelido || 'Foto').replace(/"/g, '&quot;')}" loading="lazy">
       </div>
     `).join('');
@@ -206,6 +207,7 @@ function renderImovel(im, tenant, fotos) {
   if (finalidade !== 'locacao') {
     if (im.aceitaFinanciamento) features.push({ ico: '🏦', label: 'Financiamento', val: im.aceitaFinanciamento === 'sim' ? 'Aceita' : 'Não aceita' });
     if (im.permiteFGTS) features.push({ ico: '💼', label: 'FGTS', val: im.permiteFGTS === 'sim' ? 'Aceita' : 'Não aceita' });
+    if (im.aceitaPermuta === 'sim') features.push({ ico: '🔁', label: 'Permuta', val: im.permutaObs || 'Aceita' });
   }
 
   const featuresEl = $$('features-grid');

@@ -134,7 +134,11 @@ export default {
       }
       imoveis.forEach(im => {
         im._titulo = im.tituloAnuncio || im.apelido || '';
-        const desc = im.descricaoLonga || im._titulo;
+        let desc = im.descricaoLonga || im._titulo;
+        // Permuta não tem campo padrão nos XMLs dos portais: vai no texto
+        if (im.aceitaPermuta === 'sim' && (im.finalidade || 'locacao') !== 'locacao' && !/permuta/i.test(desc)) {
+          desc += `\n\nAceita permuta${im.permutaObs ? `: ${im.permutaObs}` : '.'}`;
+        }
         im._descricao = im.codigoAnuncio ? `${desc}\n\nCódigo do anúncio: ${im.codigoAnuncio}` : desc;
         const nivel = temMapa(im)
           ? (im.anuncioPortais[portalParam] || im.anuncioPortais.zap || im.anuncioPortais.vivareal || null)

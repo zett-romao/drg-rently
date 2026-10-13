@@ -197,7 +197,7 @@ function applyFiltros() {
     if (quartosMin && (im.quartos || 0) < quartosMin) return false;
     if (busca) {
       const end = im.endereco || {};
-      const haystack = [im.codigoAnuncio, im.tituloAnuncio, im.apelido, end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
+      const haystack = [im.codigoAnuncio, im.tituloAnuncio, im.apelido, im.aceitaPermuta === 'sim' ? 'permuta' : '', end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
       if (!haystack.includes(busca)) return false;
     }
     return true;
@@ -259,7 +259,7 @@ function renderLista(imoveis) {
 
     return `
       <a class="vitrine-card" href="imovel.html?id=${im.id}&t=${tenantId}">
-        <div class="vitrine-card-cover">${cover}${badge}</div>
+        <div class="vitrine-card-cover">${cover}${badge}${im.aceitaPermuta === 'sim' && finalidade !== 'locacao' ? '<span class="selo-permuta">Permuta</span>' : ''}</div>
         <div class="vitrine-card-body">
           <div class="vitrine-card-tipo">${subt}${cidadeUf ? ' · ' + cidadeUf : ''}</div>
           <div class="vitrine-card-title">${textoSeguro(im.tituloAnuncio || im.apelido || 'Imóvel')}</div>

@@ -143,6 +143,7 @@ function montarDadosRede(im, campos, ctx) {
   if (tem('descricao')) Object.assign(f, { descricaoLonga: im.descricaoLonga || null, tags: im.tags || [] });
   if (tem('condicoes')) Object.assign(f, {
     aceitaFinanciamento: im.aceitaFinanciamento || null, permiteFGTS: im.permiteFGTS || null,
+    aceitaPermuta: im.aceitaPermuta || null, permutaObs: im.permutaObs || null,
   });
   if (tem('midia')) Object.assign(f, { videoUrl: im.videoUrl || null, tourUrl: im.tourUrl || null });
   if (tem('captador')) f.captador = ctx.captador || null;
@@ -242,6 +243,8 @@ function montarDadosVitrine(im, ctx) {
       : { cidade: end.cidade || null, uf: end.uf || null },
     aceitaFinanciamento: im.aceitaFinanciamento || null,
     permiteFGTS: im.permiteFGTS || null,
+    aceitaPermuta: im.aceitaPermuta === 'sim' ? 'sim' : null,
+    permutaObs: im.aceitaPermuta === 'sim' ? (im.permutaObs || null) : null,
     descricaoLonga: im.descricaoLonga || null,
     videoUrl: im.videoUrl || null,
     tourUrl: im.tourUrl || null,
@@ -727,6 +730,7 @@ function renderRede() {
       f._meu ? '<span class="papel-chip" style="background:#CCFBF1;color:#0F766E;">⭐ Meu</span>' : '',
       !f._meu && f._completo && isCorretor() ? '<span class="papel-chip" style="background:#DBEAFE;color:#1E40AF;">🔓 Completo liberado</span>' : '',
       !f.visivel ? '<span class="papel-chip" style="background:#E5E7EB;color:#374151;">🔒 Privado</span>' : '',
+      temPermuta(f) ? '<span class="selo-permuta-chip">PERMUTA</span>' : '',
     ].join(' ');
     return `
       <div class="rede-card" onclick="abrirFichaRede('${f._id}')">
@@ -777,6 +781,7 @@ async function abrirFichaRede(id) {
       ${linha('Área', [f.areaUtil ? `${f.areaUtil} m² útil` : '', f.areaTotal ? `${f.areaTotal} m² total` : ''].filter(Boolean).join(' · '))}
       ${linha('Cômodos', f.quartos !== undefined ? `${f.quartos} quarto(s) · ${f.banheiros || 0} banheiro(s) · ${f.vagas || 0} vaga(s)` : '')}
       ${linha('Andar', escapeHtml(f.andar || ''))}
+      ${linha('Permuta', f.aceitaPermuta === 'sim' ? `Aceita${f.permutaObs ? ' — ' + escapeHtml(f.permutaObs) : ''}` : '')}
       ${linha('Financiamento / FGTS', [f.aceitaFinanciamento, f.permiteFGTS].some(Boolean) ? `${escapeHtml(f.aceitaFinanciamento || '—')} / ${escapeHtml(f.permiteFGTS || '—')}` : '')}
       ${linha('Matrícula', escapeHtml(f.matricula || ''))}
       ${linha('IPTU', escapeHtml(f.iptu || ''))}

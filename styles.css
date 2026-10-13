@@ -4211,3 +4211,7 @@ details.card > summary:hover {
   .gerador-res-fotos { grid-template-columns: 1fr; }
   .anuncio-topo .btn-ia { width: 100%; }
 }
+
+/* Selo PERMUTA (lista de Imóveis e Rede) */
+.selo-permuta-chip { display: inline-block; padding: 1px 7px; border: 1.5px solid #B91C1C; border-radius: 4px;
+  color: #B91C1C; font-size: 10px; font-weight: 800; letter-spacing: .8px; transform: rotate(-4deg); vertical-align: middle; }

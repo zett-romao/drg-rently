@@ -10624,7 +10624,7 @@ function renderImoveisTable() {
     return `
       <tr ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
         <td>${i + 1}</td>
-        <td>${im.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(im.codigoAnuncio)}</span> ` : ''}<strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
+        <td>${im.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(im.codigoAnuncio)}</span> ` : ''}<strong>${escapeHtml(im.apelido || '—')}</strong>${temPermuta(im) ? ' <span class="selo-permuta-chip">PERMUTA</span>' : ''}${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
         <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
         <td>${finBadge[finalidade] || finalidade}</td>
         <td>${escapeHtml(locNome)}</td>
@@ -10672,6 +10672,12 @@ function onImovelFinalidadeChange() {
   const fin = $('imovel-finalidade').value;
   $('imovel-loc-fields').style.display = (fin === 'venda') ? 'none' : 'grid';
   $('imovel-venda-fields').style.display = (fin === 'locacao') ? 'none' : 'grid';
+  onPermutaChange();
+}
+
+function onPermutaChange() {
+  const g = $('imovel-permuta-obs-group');
+  if (g) g.style.display = $('imovel-aceita-permuta')?.value === 'sim' ? '' : 'none';
 }
 
 async function buscarCEPImovel() {
@@ -10721,7 +10727,7 @@ const IMOVEL_CAMPOS_AUTOSAVE = [
   'imovel-matricula', 'imovel-iptu',
   'imovel-quartos', 'imovel-banheiros', 'imovel-vagas', 'imovel-mobiliado',
   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
-  'imovel-aceita-financiamento', 'imovel-permite-fgts',
+  'imovel-aceita-financiamento', 'imovel-permite-fgts', 'imovel-aceita-permuta', 'imovel-permuta-obs',
   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url',
 ];
 
@@ -10737,7 +10743,7 @@ async function openImovelModal(id) {
    'imovel-area-util', 'imovel-area-total', 'imovel-andar',
    'imovel-matricula', 'imovel-iptu',
    'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
-   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url'].forEach(f => {
+   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url', 'imovel-permuta-obs'].forEach(f => {
      const el = $(f); if (el) el.value = '';
    });
   // Toggle do feed XML (default ON)
@@ -10748,6 +10754,7 @@ async function openImovelModal(id) {
   $('imovel-finalidade').value = 'locacao';
   $('imovel-aceita-financiamento').value = 'sim';
   $('imovel-permite-fgts').value = 'sim';
+  $('imovel-aceita-permuta').value = 'nao';
   $('imovel-quartos').value = '0';
   $('imovel-banheiros').value = '0';
   $('imovel-vagas').value = '0';
@@ -10800,6 +10807,8 @@ async function openImovelModal(id) {
         $('imovel-valor-venda').value = im.valorVenda ?? '';
         $('imovel-aceita-financiamento').value = im.aceitaFinanciamento || 'sim';
         $('imovel-permite-fgts').value = im.permiteFGTS || 'sim';
+        $('imovel-aceita-permuta').value = im.aceitaPermuta === 'sim' ? 'sim' : 'nao';
+        $('imovel-permuta-obs').value = im.permutaObs || '';
         $('imovel-obs').value = im.obs || '';
         onImovelFinalidadeChange();
 
@@ -10959,6 +10968,9 @@ async function saveImovel() {
     valorVenda: parseFloat($('imovel-valor-venda').value) || null,
     aceitaFinanciamento: $('imovel-aceita-financiamento').value,
     permiteFGTS: $('imovel-permite-fgts').value,
+    // Permuta: selo PERMUTA no site e linha "Aceita permuta" no texto dos portais
+    aceitaPermuta: $('imovel-aceita-permuta').value === 'sim' ? 'sim' : 'nao',
+    permutaObs: $('imovel-aceita-permuta').value === 'sim' ? ($('imovel-permuta-obs').value.trim() || null) : null,
     publicacao: {
       mostrarValor:   $('pub-mostrar-valor').checked,
       mostrarBairro:  $('pub-mostrar-bairro').checked,

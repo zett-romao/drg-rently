@@ -735,3 +735,14 @@ body.public-page {
 .public-codigo { display: inline-block; margin: 2px 0 10px; padding: 3px 10px; border-radius: 999px;
   background: rgba(255,255,255,.18); font-size: 13px; font-weight: 600; letter-spacing: .5px; }
 .vitrine-card-codigo { font-size: 11px; color: #64748B; letter-spacing: .4px; margin-top: 2px; }
+
+/* Selo PERMUTA — carimbo sobre a foto (só no site; nos portais vai no texto) */
+.galeria-item { position: relative; }
+.selo-permuta {
+  position: absolute; top: 44px; left: 10px; z-index: 2; pointer-events: none;
+  padding: 5px 14px; border: 3px double #fff; border-radius: 6px;
+  background: rgba(185, 28, 28, .92); color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35);
+  font-size: 13px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase;
+  transform: rotate(-14deg);
+}
+.galeria-item .selo-permuta { top: 18px; left: 14px; font-size: 16px; }
