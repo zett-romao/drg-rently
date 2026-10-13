@@ -358,7 +358,7 @@ DESCRIÇÃO (campo "descricao"): 900 a 1.600 caracteres, 4 a 6 parágrafos curto
   2) ambientes e acabamento (metragem, quartos, suítes, vagas, andar, mobília — o que houver);
   3) condomínio/lazer/segurança (só se houver nos DADOS ou nas fotos);
   4) localização e rotina (use PONTOS DA REGIÃO);
-  5) condições (financiamento, FGTS, mobiliado, aceita pet — só se houver) e convite para agendar visita.
+  5) condições (mobiliado, aceita pet…) e convite para agendar visita. Financiamento e FGTS SÓ se DADOS.aceitaFinanciamento / DADOS.permiteFGTS vierem "sim" — em locação, nunca.
 Tom pedido em DADOS.tom; público em DADOS.publico (se houver).
 
 FOTOS (campo "fotos", um item para CADA foto recebida, mesmo índice):
