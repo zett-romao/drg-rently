@@ -375,6 +375,15 @@ service cloud.firestore {
         allow update: if maisUm('visitas') || maisUm('favoritos') || maisUm('contatos') || maisUm('compartilhamentos');
       }
 
+      // Auditoria: o corretor também deixa rastro (só cria, em nome próprio; nunca lê/altera/apaga).
+      // Antes ele ficava fora da regra genérica e as ações dele não eram registradas.
+      match /auditoria/{logId} {
+        allow create: if isCorretorOf(tenantId)
+                      && request.resource.data.userId == request.auth.uid
+                      && request.resource.data.userRole == 'corretor'
+                      && request.resource.data.timestamp == request.time;
+      }
+
       // Endereço do Worker da IA (sem segredo): o corretor precisa para o gerador de anúncios
       match /config/ia {
         allow read: if isCorretorOf(tenantId);

@@ -1,13 +1,26 @@
 # Testes das regras do Firestore
 
-`teste-regras.mjs` roda as regras de `../firestore.rules` no **emulador** do Firebase
-(nada toca a produção). Precisa de Java 21+ e Node.
+Tudo roda em **emuladores locais** do Firebase — nada toca a produção, nenhuma senha real.
+Precisa de Java 21+ e Node.
 
 ```bash
-npm i -D firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10
-cp ../firestore.rules . && echo '{"firestore":{"rules":"firestore.rules"}}' > firebase.json
-npx firebase emulators:exec --only firestore --project demo-rently "node teste-regras.mjs"
+npm i -D firebase-tools@13 @firebase/rules-unit-testing@3 firebase@10 playwright
+cp ../firestore.rules . && echo '{"firestore":{"rules":"firestore.rules"},"emulators":{"firestore":{"port":8080},"auth":{"port":9099}}}' > firebase.json
 ```
 
+1. **`teste-regras.mjs`** — 52 cenários de permissão (perfis 3.0/2.0/lista/sem perfil, admin,
+   corretor, visitante do site, fraude em contadores e leads):
+   `npx firebase emulators:exec --only firestore --project demo-rently "node teste-regras.mjs"`
+
+2. **`teste-telas.mjs`** — o **app de verdade** (servido em `localhost:5503`) contra Firestore+Auth
+   emulados: entra com admin, operador sem perfil, operador restrito e corretor (contas
+   fictícias do emulador), abre **todas as telas do menu** e faz as gravações principais,
+   acusando qualquer "permission denied". O `firebase-config.js` é trocado em tempo real para
+   apontar ao emulador e as chamadas à produção são bloqueadas.
+   ```bash
+   (cd .. && python -m http.server 5503 &)
+   PLAYWRIGHT_PATH=$(npm root -g)/playwright npx firebase emulators:exec --only firestore,auth --project drg-rently "node teste-telas.mjs"
+   ```
+
 Rode **antes de colar regras novas no Console**. Mudou um efeito colateral no app
-(algo que grava fora do próprio módulo)? Acrescente o cenário aqui.
+(algo que grava fora do próprio módulo)? Acrescente o cenário.

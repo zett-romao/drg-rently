@@ -85,6 +85,9 @@ await caso('corretor: cria imóvel próprio (regra dele)', true, () => setDoc(R(
 await caso('corretor: mexe em contrato BLOQUEIA', false, () => setDoc(R(db('cor1'), 'contratos', 'c8'), { status: 'x' }));
 await caso('corretor: soma +1 no contador do código', true, () => updateDoc(R(db('cor1'), 'contadores', 'anuncios'), { seq: 6 }));
 await caso('corretor: pula número do contador BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'contadores', 'anuncios'), { seq: 50 }));
+await caso('corretor: registra a própria auditoria', true, () => addDoc(collection(db('cor1'), 'tenants', T, 'auditoria'), { acao: 'login', userId: 'cor1', userRole: 'corretor', timestamp: serverTimestamp() }));
+await caso('corretor: auditoria em nome de outro BLOQUEIA', false, () => addDoc(collection(db('cor1'), 'tenants', T, 'auditoria'), { acao: 'login', userId: 'admin1', userRole: 'corretor', timestamp: serverTimestamp() }));
+await caso('corretor: lê auditoria BLOQUEIA', false, () => getDoc(R(db('cor1'), 'auditoria', 'x')));
 await caso('corretor: lê config/ia (endereço da IA)', true, () => getDoc(R(db('cor1'), 'config', 'ia')));
 await caso('corretor: lê config/site (tokens) BLOQUEIA', false, () => getDoc(R(db('cor1'), 'config', 'site')));
 
