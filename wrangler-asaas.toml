@@ -18,3 +18,6 @@
 name = "drg-rently-asaas"
 main = "cloudflare-worker-asaas.js"
 compatibility_date = "2024-09-01"
+
+# Preserva variáveis cadastradas no painel da Cloudflare a cada deploy automático
+keep_vars = true

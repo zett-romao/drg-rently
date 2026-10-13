@@ -8,3 +8,6 @@
 name = "drg-rently-gemini"
 main = "cloudflare-worker-gemini.js"
 compatibility_date = "2024-09-01"
+
+# Preserva variáveis cadastradas no painel da Cloudflare a cada deploy automático
+keep_vars = true

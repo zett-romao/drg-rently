@@ -13,6 +13,7 @@
 name = "drg-rently-legis-monitor"
 main = "cloudflare-worker-legis-monitor.js"
 compatibility_date = "2024-09-01"
+keep_vars = true   # preserva variáveis do painel a cada deploy automático
 
 # Cron diário às 10h UTC (7h Brasília)
 [triggers]
@@ -22,3 +23,11 @@ crons = ["0 10 * * *"]
 [[kv_namespaces]]
 binding = "LEGIS_KV"
 id = "e826d3cd0571422691aca35600b9ecc4"
+
+
+# Variáveis (não são segredo) — antes só no painel, e o deploy automático as apagava
+# (sem RESEND_WORKER_URL o monitor deixa de mandar e-mail em silêncio).
+[vars]
+RESEND_WORKER_URL = "https://drg-rently-resend.zett-romao.workers.dev"
+EMAIL_DESTINATARIO = "zett.romao@gmail.com"
+FROM_NAME = "DRG-Rently Legis Monitor"
