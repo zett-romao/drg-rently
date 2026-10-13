@@ -600,7 +600,7 @@ async function enviarEmailAcessoCorretor(nome, email, senha) {
       <p>Você agora faz parte da rede de corretores de <strong>${escapeHtml(State.tenant.nome)}</strong>.
          Cadastre seus imóveis captados e acesse as fichas compartilhadas pela rede.</p>
       <table style="border-collapse:collapse;margin:14px 0;">
-        <tr><td style="${td}background:#f0f0f0;"><strong>Link</strong></td><td style="${td}"><a href="https://zett-romao.github.io/drg-rently/">https://zett-romao.github.io/drg-rently/</a></td></tr>
+        <tr><td style="${td}background:#f0f0f0;"><strong>Link</strong></td><td style="${td}"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
         <tr><td style="${td}background:#f0f0f0;"><strong>E-mail</strong></td><td style="${td}">${escapeHtml(email)}</td></tr>
         <tr><td style="${td}background:#f0f0f0;"><strong>Senha inicial</strong></td><td style="${td}font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
       </table>

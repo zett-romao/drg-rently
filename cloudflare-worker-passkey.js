@@ -171,6 +171,18 @@ async function createFirebaseCustomToken(env, uid) {
   return `${unsigned}.${sigB64}`;
 }
 
+// Login por biometria é preso ao domínio (RP ID). Durante a troca para
+// rently.dev.br os dois endereços funcionam: o RP sai da origem da chamada e
+// cada credencial vale no domínio onde foi cadastrada. Origem desconhecida = RP_ID/ORIGIN do painel.
+const RPS_EXTRAS = {
+  'https://rently.dev.br': 'rently.dev.br',
+  'https://www.rently.dev.br': 'rently.dev.br',
+};
+function rpDe(req, env) {
+  const o = req.headers.get('Origin') || '';
+  return RPS_EXTRAS[o] ? { rpID: RPS_EXTRAS[o], origin: o } : { rpID: env.RP_ID, origin: env.ORIGIN };
+}
+
 // -----------------------------------------------------------------------------
 // Handlers
 // -----------------------------------------------------------------------------
@@ -182,7 +194,7 @@ async function handleRegisterBegin(req, env) {
   const existing = await listCredentials(env, uid);
   const options = await generateRegistrationOptions({
     rpName: env.RP_NAME || 'DRG-Rently',
-    rpID: env.RP_ID,
+    rpID: rpDe(req, env).rpID,
     userID: new TextEncoder().encode(uid),
     userName: email,
     userDisplayName: displayName || email,
@@ -212,8 +224,8 @@ async function handleRegisterComplete(req, env) {
     verification = await verifyRegistrationResponse({
       response: attestationResponse,
       expectedChallenge,
-      expectedOrigin: env.ORIGIN,
-      expectedRPID: env.RP_ID,
+      expectedOrigin: rpDe(req, env).origin,
+      expectedRPID: rpDe(req, env).rpID,
       requireUserVerification: false,
     });
   } catch (e) {
@@ -255,7 +267,7 @@ async function handleLoginBegin(req, env) {
     allowCredentials = creds.map(c => ({ id: c.id, type: 'public-key', transports: c.transports }));
   }
   const options = await generateAuthenticationOptions({
-    rpID: env.RP_ID,
+    rpID: rpDe(req, env).rpID,
     allowCredentials,
     userVerification: 'preferred',
   });
@@ -282,8 +294,8 @@ async function handleLoginComplete(req, env) {
     verification = await verifyAuthenticationResponse({
       response: assertionResponse,
       expectedChallenge,
-      expectedOrigin: env.ORIGIN,
-      expectedRPID: env.RP_ID,
+      expectedOrigin: rpDe(req, env).origin,
+      expectedRPID: rpDe(req, env).rpID,
       credential: {
         id: found.credential.id,
         publicKey: base64UrlToBuf(found.credential.publicKey),

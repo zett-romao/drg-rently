@@ -39,6 +39,8 @@ const IDWALL_BGCHECK_URL = 'https://api-v3.idwall.co/relatorios';
 
 const ALLOWED_ORIGINS = [
   'https://zett-romao.github.io',
+  'https://rently.dev.br',      // domínio próprio (2026-10)
+  'https://www.rently.dev.br',
   'http://localhost:5500',
   'http://127.0.0.1:5500',
 ];

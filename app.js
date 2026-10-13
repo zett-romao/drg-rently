@@ -1956,11 +1956,11 @@ async function saveNovoCliente() {
     logAuditoria('create', 'tenant', tenantRef.id, { nome, tipoPessoa: _tipoNovoCliente, plano, admin: email });
     closeNovoClienteModal();
     loadTenantsTable();
-    const acesso = `Acesso ao DRG-Rently\nLink: https://zett-romao.github.io/drg-rently/\nE-mail: ${email}\nSenha inicial: ${senha}`;
+    const acesso = `Acesso ao DRG-Rently\nLink: ${urlDoSistema()}\nE-mail: ${email}\nSenha inicial: ${senha}`;
     const copiar = await confirmar({
       titulo: '✅ Cliente cadastrado',
       mensagem: `<strong>${escapeHtml(nome)}</strong> já pode entrar no sistema.`,
-      detalhe: `Link: https://zett-romao.github.io/drg-rently/<br>E-mail: <strong>${escapeHtml(email)}</strong><br>Senha inicial: <strong>${escapeHtml(senha)}</strong><br><br>Envie esses dados ao cliente e peça para trocar a senha no primeiro acesso ("Esqueci minha senha").`,
+      detalhe: `Link: ${urlDoSistema()}<br>E-mail: <strong>${escapeHtml(email)}</strong><br>Senha inicial: <strong>${escapeHtml(senha)}</strong><br><br>Envie esses dados ao cliente e peça para trocar a senha no primeiro acesso ("Esqueci minha senha").`,
       confirmar: '📋 Copiar dados de acesso',
       cancelar: 'Fechar',
     });
@@ -11510,6 +11510,11 @@ async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
 
 // ---------- Publicação pública do Imóvel ----------
 
+// Endereço do sistema em uso (rently.dev.br ou o antigo github.io) — para e-mails e avisos
+function urlDoSistema() {
+  return window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+}
+
 function imovelPublicUrl(imovelId, tenantId) {
   const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
   const slugOrId = (State.tenant && State.tenant.slug) ? State.tenant.slug : tenantId;
@@ -14871,7 +14876,7 @@ async function saveUsuarioTenant() {
             <p>Você foi adicionado como <strong>${role === 'admin' ? 'administrador' : 'operador'}</strong> da imobiliária <strong>${escapeHtml(State.tenant.nome)}</strong> no sistema DRG-Rently.</p>
             <p>Seus dados de acesso:</p>
             <table style="border-collapse:collapse;margin:14px 0;">
-              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="https://zett-romao.github.io/drg-rently/">https://zett-romao.github.io/drg-rently/</a></td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
               <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>E-mail</strong></td><td style="padding:6px 12px;border:1px solid #ccc;">${escapeHtml(email)}</td></tr>
               <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Senha inicial</strong></td><td style="padding:6px 12px;border:1px solid #ccc;font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
             </table>
@@ -15293,7 +15298,7 @@ async function saveDRGUsuario() {
             <p>Você foi adicionado à equipe interna da <strong>D.R. Global</strong> no sistema DRG-Rently como <strong>${roleLabel}</strong>.</p>
             <p>Seus dados de acesso:</p>
             <table style="border-collapse:collapse;margin:14px 0;">
-              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="https://zett-romao.github.io/drg-rently/">https://zett-romao.github.io/drg-rently/</a></td></tr>
+              <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Link</strong></td><td style="padding:6px 12px;border:1px solid #ccc;"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
               <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>E-mail</strong></td><td style="padding:6px 12px;border:1px solid #ccc;">${escapeHtml(email)}</td></tr>
               <tr><td style="padding:6px 12px;background:#f0f0f0;border:1px solid #ccc;"><strong>Senha inicial</strong></td><td style="padding:6px 12px;border:1px solid #ccc;font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
             </table>
