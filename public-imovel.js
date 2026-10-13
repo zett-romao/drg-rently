@@ -42,9 +42,66 @@ function showError(msg) {
   }
 }
 
-function openLightbox(src) {
-  $$('lightbox-img').src = src;
+// Lightbox: abre na foto i e navega pelas demais (setas, teclado, deslizar)
+let _fotosLightbox = [];
+let _fotoAtual = 0;
+function openLightbox(i) {
+  if (!_fotosLightbox.length) return;
+  _fotoAtual = Math.max(0, Math.min(_fotosLightbox.length - 1, Number(i) || 0));
+  $$('lightbox-img').src = _fotosLightbox[_fotoAtual];
+  $$('lightbox-contador').textContent = `${_fotoAtual + 1} / ${_fotosLightbox.length}`;
   $$('lightbox').style.display = 'flex';
+}
+function navLightbox(passo) {
+  if (!_fotosLightbox.length) return;
+  openLightbox((_fotoAtual + passo + _fotosLightbox.length) % _fotosLightbox.length);
+}
+document.addEventListener('keydown', (e) => {
+  if ($$('lightbox')?.style.display !== 'flex') return;
+  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'ArrowRight') navLightbox(1);
+  if (e.key === 'ArrowLeft') navLightbox(-1);
+});
+(() => {
+  let x0 = null;
+  document.addEventListener('touchstart', (e) => { if (e.target.closest('#lightbox')) x0 = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 50) navLightbox(dx < 0 ? 1 : -1);
+  }, { passive: true });
+})();
+
+// Carrossel: setas e contador acompanham o deslizar
+function moverCarrossel(passo) {
+  const trilho = document.querySelector('.carrossel-trilho');
+  if (trilho) trilho.scrollBy({ left: passo * trilho.clientWidth, behavior: 'smooth' });
+}
+function atualizarContadorCarrossel() {
+  const trilho = document.querySelector('.carrossel-trilho');
+  const cont = $$('carrossel-contador');
+  if (!trilho || !cont) return;
+  const i = Math.round(trilho.scrollLeft / Math.max(1, trilho.clientWidth));
+  cont.textContent = `${i + 1} / ${trilho.children.length}`;
+}
+
+// Compartilhar: menu nativo do celular; no computador copia o link
+async function compartilharImovel(btn) {
+  const dados = { title: document.title, text: $$('hero-apelido').textContent, url: location.href };
+  try {
+    if (navigator.share) { await navigator.share(dados); return; }
+    await navigator.clipboard.writeText(location.href);
+    const original = btn.textContent;
+    btn.textContent = '✓ Link copiado';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+  } catch (_) { /* usuário cancelou o compartilhamento */ }
+}
+
+function imprimirFicha() {
+  // abre a descrição inteira antes de imprimir
+  $$('descricao-texto')?.classList.remove('is-recolhida');
+  window.print();
 }
 
 function alternarDescricao() {
@@ -101,6 +158,7 @@ const SUBTIPO_LABEL = {
     renderImovel(im, tenant, fotosSnap.docs.map(d => d.data()));
     $$('loading').style.display = 'none';
     $$('content').style.display = 'block';
+    carregarSemelhantes(db, tenantId, im).catch(e => console.warn('Semelhantes:', e));
   } catch (err) {
     console.error('Erro ao carregar imóvel:', err);
     showError('Erro ao carregar: ' + err.message);
@@ -173,6 +231,20 @@ function renderImovel(im, tenant, fotos) {
   }
   heroPriceEl.innerHTML = priceHtml;
 
+  // Condomínio e IPTU mensais (só com "mostrar valor" ligado)
+  const custos = [];
+  if (mostrarValor && im.valorCondominio) custos.push(['Condomínio', fmtBRL(im.valorCondominio) + '/mês']);
+  if (mostrarValor && im.valorIPTU) custos.push(['IPTU', fmtBRL(im.valorIPTU) + '/mês']);
+  $$('hero-custos').innerHTML = custos.map(([l, v]) => `<span>${l} <strong>${v}</strong></span>`).join('');
+
+  // Cartão "Gostou do imóvel?": todos os valores juntos
+  const linhasValor = [];
+  if (finalidade !== 'locacao') linhasValor.push(['Venda', mostrarValor ? fmtBRL(im.valorVenda) : 'Sob consulta', true]);
+  if (finalidade !== 'venda') linhasValor.push(['Aluguel', mostrarValor ? fmtBRL(im.aluguelSugerido) + '/mês' : 'Sob consulta', true]);
+  custos.forEach(([l, v]) => linhasValor.push([l, v, false]));
+  $$('cartao-valores').innerHTML = linhasValor.map(([l, v, forte]) =>
+    `<div class="cartao-linha ${forte ? 'is-forte' : ''}"><span>${l}</span><span>${v}</span></div>`).join('');
+
   // SEO meta tags
   const partsSEO = [`${subtipoLabel} para ${finalidadeLabel.toLowerCase()}`];
   if (cidadeUf) partsSEO.push(`em ${cidadeUf}`);
@@ -187,15 +259,25 @@ function renderImovel(im, tenant, fotos) {
 
   // Galeria
   const galeriaEl = $$('galeria');
+  _fotosLightbox = fotos.map(f => f.url).filter(Boolean);
   if (fotos.length === 0) {
     galeriaEl.innerHTML = '<p class="empty">Sem fotos disponíveis no momento.</p>';
   } else {
     const seloPermuta = im.aceitaPermuta === 'sim' && finalidade !== 'locacao';
-    galeriaEl.innerHTML = fotos.map((f, i) => `
-      <div class="galeria-item" onclick="openLightbox('${f.url}')">${i === 0 && seloPermuta ? '<span class="selo-permuta">Permuta</span>' : ''}
-        <img src="${f.url}" alt="${(im.apelido || 'Foto').replace(/"/g, '&quot;')}" loading="lazy">
+    const alt = (im.tituloAnuncio || im.apelido || 'Foto').replace(/"/g, '&quot;');
+    const varias = fotos.length > 1;
+    galeriaEl.innerHTML = `
+      ${seloPermuta ? '<span class="selo-permuta">Permuta</span>' : ''}
+      <div class="carrossel-trilho" onscroll="atualizarContadorCarrossel()">
+        ${fotos.map((f, i) => `
+          <div class="carrossel-slide" onclick="openLightbox(${i})">
+            <img src="${f.url}" alt="${alt}${f.legenda ? ' — ' + String(f.legenda).replace(/"/g, '&quot;') : ''}" ${i ? 'loading="lazy"' : ''}>
+          </div>`).join('')}
       </div>
-    `).join('');
+      ${varias ? `
+        <button type="button" class="carrossel-seta carrossel-ant" onclick="moverCarrossel(-1)" aria-label="Foto anterior">‹</button>
+        <button type="button" class="carrossel-seta carrossel-prox" onclick="moverCarrossel(1)" aria-label="Próxima foto">›</button>` : ''}
+      <span id="carrossel-contador" class="carrossel-contador">1 / ${fotos.length}</span>`;
   }
 
   // Descrição do anúncio (texto puro; quebras de linha preservadas pelo CSS)
@@ -257,16 +339,75 @@ function renderImovel(im, tenant, fotos) {
     const tel = String(tenant.telefone).replace(/\D/g, '');
     const telDDI = (tel.length >= 12 && tel.startsWith('55')) ? tel : '55' + tel; // não duplica o 55
     const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` (cód. ${im.codigoAnuncio})` : ''))}`;
-    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
-    contatos.push(`<a href="tel:+55${tel}">📞 Ligar</a>`);
+    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener">💬 Fale com o corretor</a>`);
+    contatos.push(`<a href="tel:+${telDDI}">📞 Ligar</a>`);
+    const btnWhats = $$('btn-acao-whats');
+    if (btnWhats) { btnWhats.href = wpp; btnWhats.style.display = ''; }
   }
   if (tenant.emailContato) {
     const subj = encodeURIComponent('Interesse no imóvel ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` — cód. ${im.codigoAnuncio}` : ''));
     contatos.push(`<a href="mailto:${tenant.emailContato}?subject=${subj}">✉️ E-mail</a>`);
   }
+  // Na ficha impressa os botões somem: telefone e e-mail por extenso
+  const telImp = String(tenant.telefone || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
+  const telFmt = telImp.length >= 10 ? `(${telImp.slice(0, 2)}) ${telImp.slice(2, -4)}-${telImp.slice(-4)}` : '';
+  const impressao = [telFmt && `📞 ${telFmt}`, tenant.emailContato && `✉️ ${tenant.emailContato}`].filter(Boolean).join('   ·   ');
+  if (impressao) contatos.push(`<p class="so-impressao">${impressao.replace(/</g, '&lt;')}</p>`);
   $$('contato-actions').innerHTML = contatos.join('') ||
     '<p class="muted">Em breve a imobiliária divulgará os canais de contato.</p>';
   if (tenant.nome) {
     $$('contato-empresa').textContent = `Fale com a ${tenant.nome} para agendar visita e obter mais informações.`;
   }
+}
+
+// =============================================================
+// Imóveis semelhantes: mesma finalidade, priorizando tipo, bairro,
+// cidade e preço parecido. Lê a vitrine pública do mesmo tenant.
+// =============================================================
+async function carregarSemelhantes(db, tenantId, im) {
+  const snap = await db.collection('tenants').doc(tenantId).collection('vitrine')
+    .where('linkPublico', '==', true).limit(200).get();
+  const fin = im.finalidade || 'locacao';
+  const preco = x => (fin === 'venda' ? x.valorVenda : x.aluguelSugerido) || x.valorVenda || x.aluguelSugerido || 0;
+  const p0 = preco(im);
+  const end0 = im.endereco || {};
+  const casaFinalidade = f => fin === 'ambos' || f === 'ambos' || f === fin;
+  const lista = snap.docs
+    .filter(d => d.id !== imovelId)
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => casaFinalidade(x.finalidade || 'locacao'))
+    .map(x => {
+      const e = x.endereco || {};
+      let pts = 0;
+      if (x.subtipo && x.subtipo === im.subtipo) pts += 3;
+      if (e.bairro && e.bairro === end0.bairro) pts += 2;
+      if (e.cidade && e.cidade === end0.cidade) pts += 1;
+      const p = preco(x);
+      if (p0 && p) pts += Math.max(0, 2 - Math.abs(p - p0) / p0 * 4); // até 2 pontos por preço próximo
+      return { x, pts };
+    })
+    .filter(o => o.pts >= 1)
+    .sort((a, b) => b.pts - a.pts)
+    .slice(0, 4);
+  if (!lista.length) return;
+
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  $$('semelhantes-grid').innerHTML = lista.map(({ x }) => {
+    const e = x.endereco || {};
+    const mostrar = (x.publicacao || {}).mostrarValor !== false;
+    const p = preco(x);
+    const valor = !mostrar ? 'Sob consulta' : p ? fmtBRL(p) + ((x.finalidade || 'locacao') === 'locacao' ? '/mês' : '') : 'A consultar';
+    const local = [e.bairro, e.cidade].filter(Boolean).join(' · ');
+    return `
+      <a class="semelhante-card" href="imovel.html?id=${encodeURIComponent(x.id)}&t=${encodeURIComponent(tenantIdOrSlug)}">
+        <div class="semelhante-capa">${x.coverUrl ? `<img src="${esc(x.coverUrl)}" alt="" loading="lazy">` : '<span>🏠</span>'}
+          ${x.aceitaPermuta === 'sim' && (x.finalidade || 'locacao') !== 'locacao' ? '<span class="selo-permuta selo-mini">Permuta</span>' : ''}</div>
+        <div class="semelhante-corpo">
+          <strong>${esc(x.tituloAnuncio || x.apelido || SUBTIPO_LABEL[x.subtipo] || 'Imóvel')}</strong>
+          ${local ? `<span class="muted">${esc(local)}</span>` : ''}
+          <span class="semelhante-preco">${esc(valor)}</span>
+        </div>
+      </a>`;
+  }).join('');
+  $$('semelhantes-section').style.display = 'block';
 }

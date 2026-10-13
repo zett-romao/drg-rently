@@ -10727,6 +10727,7 @@ const IMOVEL_CAMPOS_AUTOSAVE = [
   'imovel-matricula', 'imovel-iptu',
   'imovel-quartos', 'imovel-banheiros', 'imovel-vagas', 'imovel-mobiliado',
   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
+  'imovel-valor-condominio', 'imovel-valor-iptu',
   'imovel-aceita-financiamento', 'imovel-permite-fgts', 'imovel-aceita-permuta', 'imovel-permuta-obs',
   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url',
 ];
@@ -10743,6 +10744,7 @@ async function openImovelModal(id) {
    'imovel-area-util', 'imovel-area-total', 'imovel-andar',
    'imovel-matricula', 'imovel-iptu',
    'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
+   'imovel-valor-condominio', 'imovel-valor-iptu',
    'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url', 'imovel-permuta-obs'].forEach(f => {
      const el = $(f); if (el) el.value = '';
    });
@@ -10805,6 +10807,8 @@ async function openImovelModal(id) {
         $('imovel-valor-mercado').value = im.valorMercado ?? '';
         $('imovel-aluguel-sugerido').value = im.aluguelSugerido ?? '';
         $('imovel-valor-venda').value = im.valorVenda ?? '';
+        $('imovel-valor-condominio').value = im.valorCondominio ?? '';
+        $('imovel-valor-iptu').value = im.valorIPTU ?? '';
         $('imovel-aceita-financiamento').value = im.aceitaFinanciamento || 'sim';
         $('imovel-permite-fgts').value = im.permiteFGTS || 'sim';
         $('imovel-aceita-permuta').value = im.aceitaPermuta === 'sim' ? 'sim' : 'nao';
@@ -10966,6 +10970,9 @@ async function saveImovel() {
     valorMercado: parseFloat($('imovel-valor-mercado').value) || null,
     aluguelSugerido: parseFloat($('imovel-aluguel-sugerido').value) || null,
     valorVenda: parseFloat($('imovel-valor-venda').value) || null,
+    // Custos mensais (site + portais: o feed já lia estes nomes)
+    valorCondominio: parseFloat($('imovel-valor-condominio').value) || null,
+    valorIPTU: parseFloat($('imovel-valor-iptu').value) || null,
     aceitaFinanciamento: $('imovel-aceita-financiamento').value,
     permiteFGTS: $('imovel-permite-fgts').value,
     // Permuta: selo PERMUTA no site e linha "Aceita permuta" no texto dos portais

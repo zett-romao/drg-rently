@@ -754,3 +754,115 @@ body.public-page {
   background: linear-gradient(rgba(255,255,255,0), var(--bg, #fff)); }
 .descricao-ver-mais { margin-top: 8px; background: none; border: 0; padding: 8px 0; font: inherit; font-weight: 700;
   color: var(--primary); cursor: pointer; min-height: 40px; }
+
+/* =========================================================
+   Página do imóvel 2.0 — carrossel, valores, ações, cartão,
+   semelhantes e ficha para impressão
+   ========================================================= */
+.hero-custos { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; color: rgba(255,255,255,.8); }
+.hero-custos strong { color: #fff; font-size: 14px; }
+
+.acoes-imovel { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 18px; }
+.acoes-imovel button, .acoes-imovel a {
+  min-height: 44px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.12); color: #fff; font: inherit; font-weight: 600; font-size: 14px;
+  cursor: pointer; text-decoration: none; display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.acoes-imovel .acao-whats { background: #16A34A; border-color: #16A34A; }
+.acoes-imovel button:active, .acoes-imovel a:active, .carrossel-seta:active, .descricao-ver-mais:active,
+.contato-actions a:active { transform: scale(.98); filter: brightness(.92); }
+
+/* Carrossel: scroll-snap nativo (desliza com o dedo) */
+.secao-fotos { padding-top: 18px; }
+.carrossel { position: relative; }
+.carrossel-trilho { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
+  border-radius: var(--radius-sm); box-shadow: var(--shadow); scrollbar-width: none; background: #0F172A; }
+.carrossel-trilho::-webkit-scrollbar { display: none; }
+.carrossel-slide { flex: 0 0 100%; scroll-snap-align: start; aspect-ratio: 4 / 3; max-height: 72vh; cursor: zoom-in; }
+.carrossel-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.carrossel-seta { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%;
+  border: 0; background: rgba(255,255,255,.88); color: #0F172A; font-size: 26px; line-height: 1; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25); z-index: 2; }
+.carrossel-ant { left: 10px; } .carrossel-prox { right: 10px; }
+.carrossel-contador { position: absolute; right: 10px; bottom: 10px; z-index: 2; padding: 3px 10px; border-radius: 999px;
+  background: rgba(15,23,42,.72); color: #fff; font-size: 12px; font-weight: 700; }
+.carrossel .selo-permuta { top: 16px; left: 14px; z-index: 3; font-size: 16px; }
+.carrossel .empty { padding: 30px; text-align: center; color: var(--text-light); background: white;
+  border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+
+/* Lightbox com navegação */
+.lightbox-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.12); color: #fff; font-size: 30px; cursor: pointer; }
+.lightbox-prev { left: 14px; } .lightbox-next { right: 14px; }
+.lightbox-contador { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: #fff; font-size: 13px; font-weight: 600; }
+
+/* Características em grade compacta (2 colunas no celular) */
+.features-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.feature-card { padding: 10px 12px; gap: 8px; }
+.feature-card .ft-ico { font-size: 20px; width: 28px; }
+.feature-card .ft-value { font-size: 15px; }
+
+/* Cartão "Gostou do imóvel?" */
+.cartao-interesse { background: #fff; border-radius: 14px; padding: 20px; box-shadow: 0 6px 24px rgba(15,23,42,.12); max-width: 560px; margin: 0 auto; }
+.cartao-interesse h3 { text-align: center; margin: 14px 0 4px; }
+.cartao-interesse .contato-empresa { text-align: center; font-size: 13px; color: var(--text-muted); }
+.cartao-valores { border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.cartao-linha { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; padding: 3px 0; color: var(--text-muted); }
+.cartao-linha.is-forte { font-size: 18px; font-weight: 700; color: var(--text); }
+.cartao-interesse .contato-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.cartao-interesse .contato-actions a { justify-content: center; min-height: 46px; }
+.cartao-interesse .contato-actions a:first-child { grid-column: 1 / -1; background: #16A34A; }
+
+/* Imóveis semelhantes */
+.semelhantes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.semelhante-card { display: flex; flex-direction: column; background: #fff; border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; text-decoration: none; color: inherit; box-shadow: var(--shadow); }
+.semelhante-capa { position: relative; aspect-ratio: 4 / 3; background: #E2E8F0; display: flex; align-items: center; justify-content: center; font-size: 34px; }
+.semelhante-capa img { width: 100%; height: 100%; object-fit: cover; }
+.semelhante-corpo { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; font-size: 14px; }
+.semelhante-corpo .muted { font-size: 12px; }
+.semelhante-preco { font-weight: 700; color: var(--primary-dark); }
+.selo-permuta.selo-mini { top: 10px; left: 8px; font-size: 11px; padding: 3px 9px; }
+
+@media (max-width: 640px) {
+  .carrossel-seta { display: none; } /* no celular desliza com o dedo */
+  .carrossel-slide { aspect-ratio: 4 / 3.2; }
+  .lightbox { padding: 10px; }
+}
+
+/* Ficha para impressão */
+@media print {
+  .acoes-imovel, .carrossel-seta, .carrossel-contador, .descricao-ver-mais, .whatsapp-fab,
+  #semelhantes-section, .contato-actions, .lightbox, .public-footer { display: none !important; }
+  .public-hero { background: #fff !important; color: #000 !important; padding: 10px 0 !important; }
+  .public-hero *, .hero-custos strong { color: #000 !important; }
+  .public-codigo { border: 1px solid #000; }
+  .carrossel-trilho { overflow: visible; box-shadow: none; background: none; }
+  .carrossel-slide { display: none; }
+  .carrossel-slide:first-child { display: block; flex-basis: 100%; max-height: 9cm; }
+  .descricao-texto.is-recolhida { max-height: none; }
+  .descricao-texto::after { display: none; }
+  .public-section { padding: 10px 0; break-inside: avoid; }
+  .cartao-interesse { box-shadow: none; border: 1px solid #ccc; }
+  .features-grid { grid-template-columns: repeat(3, 1fr); }
+  .feature-card { box-shadow: none; }
+}
+.acoes-imovel { grid-template-columns: repeat(3, 1fr); max-width: 720px; }
+.carrossel-slide { max-height: 560px; }
+@media (max-width: 640px) {
+  .acoes-imovel { grid-template-columns: 1fr 1fr; }
+  .acoes-imovel .acao-whats { grid-column: 1 / -1; }
+  /* semelhantes em lista: foto à esquerda, texto à direita */
+  .semelhantes-grid { grid-template-columns: 1fr; gap: 10px; }
+  .semelhante-card { flex-direction: row; min-height: 96px; }
+  .semelhante-capa { flex: 0 0 120px; aspect-ratio: auto; font-size: 26px; }
+  .semelhante-corpo { justify-content: center; }
+  .selo-permuta.selo-mini { top: 6px; left: 4px; font-size: 9px; padding: 2px 6px; letter-spacing: 1px; }
+  .public-footer { padding-bottom: 90px; } /* não fica atrás do botão do WhatsApp */
+}
+.so-impressao { display: none; }
+@media print {
+  .contato-actions { display: block !important; }
+  .contato-actions a { display: none !important; }
+  .so-impressao { display: block; text-align: center; font-size: 15px; font-weight: 700; margin-top: 8px; }
+}

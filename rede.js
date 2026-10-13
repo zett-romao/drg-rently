@@ -124,6 +124,7 @@ function montarDadosRede(im, campos, ctx) {
   if (tem('valores')) Object.assign(f, {
     aluguelSugerido: im.aluguelSugerido ?? null, valorVenda: im.valorVenda ?? null,
     valorMercado: im.valorMercado ?? null,
+    valorCondominio: im.valorCondominio ?? null, valorIPTU: im.valorIPTU ?? null,
   });
   if (tem('localizacao') || tem('rua') || tem('enderecoCompleto')) {
     f.endereco = {};

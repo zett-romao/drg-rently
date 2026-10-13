@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v14-20261013a-permuta';
+const CACHE_VERSION = 'drg-rently-v15-20261013c-pagina';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

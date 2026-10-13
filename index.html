@@ -4833,6 +4833,19 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
+        <!-- Custos mensais: aparecem no site e vão aos portais (condomínio/IPTU) -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>Condomínio (R$ por mês)</label>
+            <input type="number" id="imovel-valor-condominio" min="0" step="0.01" placeholder="0,00">
+          </div>
+          <div class="form-group">
+            <label>IPTU (R$ por mês)</label>
+            <input type="number" id="imovel-valor-iptu" min="0" step="0.01" placeholder="0,00">
+            <p class="muted" style="font-size:11px; margin-top:3px;">Valor anual? Divida por 12.</p>
+          </div>
+        </div>
+
         <h4 class="form-section-title">🏷 Tags / Etiquetas</h4>
         <div class="form-group">
           <label>Tags pra organizar e filtrar (separe com Enter ou vírgula)</label>
@@ -5732,8 +5745,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261013a-permuta"></script>
-  <script src="rede.js?v=20261013a-permuta"></script>
-  <script src="anuncios.js?v=20261013a-permuta"></script>
+  <script src="app.js?v=20261013b-custos"></script>
+  <script src="rede.js?v=20261013b-custos"></script>
+  <script src="anuncios.js?v=20261013b-custos"></script>
 </body>
 </html>

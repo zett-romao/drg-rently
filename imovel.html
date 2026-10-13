@@ -15,7 +15,7 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
-  <link rel="stylesheet" href="public.css?v=20261013b-descricao">
+  <link rel="stylesheet" href="public.css?v=20261013c-pagina">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -59,14 +59,19 @@
           <span class="muted-label">Aluguel mensal a partir de</span>
           <strong id="hero-aluguel">—</strong>
         </div>
+        <div id="hero-custos" class="hero-custos"></div>
+        <div class="acoes-imovel">
+          <button type="button" id="btn-compartilhar" onclick="compartilharImovel(this)">📤 Compartilhar</button>
+          <button type="button" onclick="imprimirFicha()">🖨 Imprimir ficha</button>
+          <a id="btn-acao-whats" class="acao-whats" href="#" target="_blank" rel="noopener" style="display:none;">💬 Fale com o corretor</a>
+        </div>
       </div>
     </section>
 
-    <!-- Galeria de fotos -->
-    <section class="public-section">
+    <!-- Fotos: carrossel (desliza no celular; setas no computador) -->
+    <section class="public-section secao-fotos">
       <div class="public-container">
-        <h3>Fotos</h3>
-        <div id="galeria" class="galeria"></div>
+        <div id="galeria" class="carrossel"></div>
       </div>
     </section>
 
@@ -98,12 +103,23 @@
       </div>
     </section>
 
-    <!-- Contato -->
+    <!-- Contato: cartão "Gostou do imóvel?" -->
     <section class="public-section contato-section">
       <div class="public-container">
-        <h3>Tenho interesse</h3>
-        <p id="contato-empresa" class="contato-empresa">Entre em contato com a imobiliária para agendar visita e mais informações.</p>
-        <div id="contato-actions" class="contato-actions"></div>
+        <div class="cartao-interesse">
+          <div id="cartao-valores" class="cartao-valores"></div>
+          <h3>Gostou do imóvel?</h3>
+          <p id="contato-empresa" class="contato-empresa">Entre em contato com a imobiliária para agendar visita e mais informações.</p>
+          <div id="contato-actions" class="contato-actions"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Imóveis semelhantes -->
+    <section class="public-section" id="semelhantes-section" style="display:none;">
+      <div class="public-container">
+        <h3>Imóveis semelhantes</h3>
+        <div id="semelhantes-grid" class="semelhantes-grid"></div>
       </div>
     </section>
 
@@ -117,9 +133,12 @@
   </main>
 
   <!-- Lightbox da galeria -->
-  <div id="lightbox" class="lightbox" style="display:none;" onclick="closeLightbox()">
-    <button class="lightbox-close" onclick="closeLightbox()">×</button>
+  <div id="lightbox" class="lightbox" style="display:none;" onclick="if (event.target === this) closeLightbox()">
+    <button class="lightbox-close" onclick="closeLightbox()" aria-label="Fechar">×</button>
+    <button class="lightbox-nav lightbox-prev" onclick="navLightbox(-1)" aria-label="Foto anterior">‹</button>
     <img id="lightbox-img" src="" alt="">
+    <button class="lightbox-nav lightbox-next" onclick="navLightbox(1)" aria-label="Próxima foto">›</button>
+    <div id="lightbox-contador" class="lightbox-contador"></div>
   </div>
 
   <!-- WhatsApp FAB (botão flutuante) -->
@@ -129,6 +148,6 @@
     </svg>
   </a>
 
-  <script src="public-imovel.js?v=20261013b-descricao"></script>
+  <script src="public-imovel.js?v=20261013c-pagina"></script>
 </body>
 </html>

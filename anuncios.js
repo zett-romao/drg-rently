@@ -497,6 +497,8 @@ function dadosDoFormularioImovel() {
   if (pub.mostrarValor) Object.assign(d, {
     aluguelMensal: fin !== 'venda' ? num('imovel-aluguel-sugerido') : null,
     valorVenda: fin !== 'locacao' ? num('imovel-valor-venda') : null,
+    condominioMensal: num('imovel-valor-condominio'),
+    iptuMensal: num('imovel-valor-iptu'),
   });
   d.temVideo = !!v('imovel-video-url');
   d.temTour360 = !!v('imovel-tour-url');
