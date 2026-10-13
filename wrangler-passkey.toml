@@ -11,10 +11,10 @@
 #      → Cole o JSON COMPLETO de uma service account com permissão
 #        "Firebase Authentication Admin" (Firebase Console → Configurações
 #        do projeto → Contas de serviço → Gerar nova chave privada).
-#   3. Cadastrar Variables (Settings → Variables and Secrets):
-#      - RP_ID = "zett-romao.github.io"    (sem protocolo, sem path)
-#      - RP_NAME = "DRG-Rently"
-#      - ORIGIN = "https://zett-romao.github.io"
+#   3. RP_ID / RP_NAME / ORIGIN ficam AQUI em [vars] (antes eram cadastradas
+#      no painel e cada deploy automático as apagava). O domínio rently.dev.br
+#      é tratado no código (RPS_EXTRAS) — RP_ID/ORIGIN abaixo valem para o
+#      endereço antigo e para qualquer origem não listada.
 # =============================================================
 name = "drg-rently-passkey"
 main = "cloudflare-worker-passkey.js"
@@ -25,3 +25,9 @@ compatibility_flags = ["nodejs_compat"]
 [[kv_namespaces]]
 binding = "PASSKEYS_KV"
 id = "3832a2f3ed7d4209b9d5ce716cef6a74"
+
+# Variáveis (não são segredo). Mudou o domínio principal? Mude aqui.
+[vars]
+RP_ID = "zett-romao.github.io"
+RP_NAME = "DRG-Rently"
+ORIGIN = "https://zett-romao.github.io"
