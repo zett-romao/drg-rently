@@ -919,3 +919,31 @@ body.menu-publico-aberto { overflow: hidden; }
 @media print { .btn-todas-fotos, .btn-menu-publico, .nav-publica, .menu-publico, .todas-fotos { display: none !important; } }
 .carrossel-contador { top: 10px; bottom: auto; }          /* embaixo fica atrás do botão do WhatsApp */
 .rodape-colunas .muted { color: rgba(255,255,255,.7); }
+
+/* ---------- Favoritos ---------- */
+.acoes-imovel { grid-template-columns: repeat(4, 1fr); max-width: 900px; }
+.acoes-imovel #btn-favoritar.is-fav { background: #fff; color: #BE123C; border-color: #fff; }
+@media (max-width: 640px) {
+  .acoes-imovel { grid-template-columns: repeat(3, 1fr); }
+  .acoes-imovel button { font-size: 13px; padding: 8px 6px; }
+}
+.btn-fav { position: absolute; top: 8px; right: 8px; z-index: 3; width: 42px; height: 42px; border-radius: 50%; border: 0;
+  background: rgba(255,255,255,.92); color: #BE123C; font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.btn-fav.is-fav { background: #BE123C; color: #fff; }
+.btn-fav:active, .banner-btn:active { transform: scale(.94); filter: brightness(.92); }
+.contador-fav { display: inline-flex; min-width: 22px; height: 22px; padding: 0 6px; margin-left: 6px; border-radius: 999px;
+  background: #BE123C; color: #fff; font-size: 12px; font-weight: 800; align-items: center; justify-content: center; }
+.banner-lista { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px;
+  padding: 14px 16px; border-radius: 12px; background: #FFF1F2; border: 1px solid #FECDD3; }
+.banner-lista strong { font-size: 16px; color: #9F1239; }
+.banner-lista p { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+.banner-acoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; flex: 1 1 320px; }
+.banner-btn { min-height: 44px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border); background: #fff;
+  font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; color: var(--text); }
+.banner-btn.is-whats { background: #16A34A; border-color: #16A34A; color: #fff; }
+.banner-btn:disabled { opacity: .75; cursor: default; }
+.aviso-publico { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 4000; display: none;
+  width: min(92vw, 480px); padding: 12px 16px; border-radius: 10px; background: #14532D; color: #fff; font-size: 14px;
+  font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); text-align: center; }
+.aviso-publico.is-erro { background: #991B1B; }
+@media print { .btn-fav, .aviso-publico, #btn-favoritar { display: none !important; } }

@@ -362,6 +362,24 @@ function renderImovel(im, tenant, fotos) {
 
   // Menu ☰ + rodapé com contato (public-shell.js)
   montarMenuERodape(tenant, tenantIdOrSlug);
+  pintarBotaoFavorito();
+}
+
+function pintarBotaoFavorito() {
+  const btn = $$('btn-favoritar');
+  if (!btn) return;
+  const fav = ehFavorito(imovelId);
+  btn.textContent = fav ? '♥ Favoritado' : '♡ Favoritar';
+  btn.classList.toggle('is-fav', fav);
+}
+
+function favoritarEsteImovel() {
+  const r = alternarFavorito(imovelId);
+  if (!r.ok) { avisoFavoritoNaoGuardado(); return; }
+  pintarBotaoFavorito();
+  mostrarAvisoPublico(r.favorito
+    ? '♥ Guardado nos favoritos — veja em ☰ Meus favoritos e envie a lista para quem vai decidir com você.'
+    : 'Removido dos favoritos.');
 }
 
 // "Veja todas as fotos": grade com todas; tocar abre em tela cheia

@@ -7,6 +7,9 @@
 const params = new URLSearchParams(window.location.search);
 const tenantIdOrSlug = params.get('t');
 const finalidadeInicial = (params.get('finalidade') || '').toLowerCase();
+// Favoritos: ?favoritos=1 (os deste aparelho) | ?lista=id1,id2 (lista enviada por alguém)
+const _listaRecebida = (params.get('lista') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 60);
+let _modoLista = params.get('favoritos') === '1' ? 'favoritos' : (_listaRecebida.length ? 'recebida' : null);
 let tenantId = null; // será resolvido no init
 let _finalidadeAtiva = ''; // '', 'locacao' ou 'venda'
 
@@ -180,6 +183,9 @@ function ativarTab(finalidade) {
     document.title = `${($$('header-empresa').textContent || 'DRG-Rently')} — Imóveis disponíveis`;
   }
 
+  if (_modoLista === 'favoritos' && titulo) titulo.textContent = '♥ Meus favoritos';
+  if (_modoLista === 'recebida' && titulo) titulo.textContent = '📋 Imóveis separados para você';
+
   applyFiltros();
 }
 
@@ -189,7 +195,9 @@ function applyFiltros() {
   const tipo = $$('filtro-tipo').value;
   const quartosMin = parseInt($$('filtro-quartos').value, 10) || 0;
 
+  const idsLista = _modoLista === 'favoritos' ? lerFavoritos() : _modoLista === 'recebida' ? _listaRecebida : null;
   const filtered = _allImoveis.filter(im => {
+    if (idsLista && !idsLista.includes(im.id)) return false;
     if (tipo && im.tipo !== tipo) return false;
     if (finalidade) {
       const f = im.finalidade || 'locacao';
@@ -208,7 +216,87 @@ function applyFiltros() {
   });
 
   $$('vitrine-count').textContent = filtered.length;
+  renderBannerLista(filtered.length);
   renderLista(filtered);
+}
+
+// ---------- Favoritos na vitrine ----------
+function linkDaLista(ids) {
+  return `${location.origin}${location.pathname}?t=${encodeURIComponent(tenantIdOrSlug)}&lista=${ids.map(encodeURIComponent).join(',')}`;
+}
+
+function renderBannerLista(qtd) {
+  const el = $$('banner-lista');
+  if (!el) return;
+  if (!_modoLista) { el.style.display = 'none'; return; }
+  const verTodos = `<button type="button" class="banner-btn" onclick="sairDoModoLista()">🏘️ Ver todos os imóveis</button>`;
+  if (_modoLista === 'favoritos') {
+    const n = lerFavoritos().length;
+    el.innerHTML = n
+      ? `<div><strong>♥ Meus favoritos (${n})</strong>
+           <p>Guardados neste aparelho. Vai decidir com alguém? Envie a lista — a pessoa abre e vê os mesmos imóveis.</p></div>
+         <div class="banner-acoes">
+           <button type="button" class="banner-btn is-whats" onclick="enviarListaWhatsApp()">💬 Enviar lista por WhatsApp</button>
+           <button type="button" class="banner-btn" onclick="copiarLinkLista(this)">🔗 Copiar link da lista</button>
+           ${verTodos}
+         </div>`
+      : `<div><strong>♥ Meus favoritos</strong>
+           <p>Você ainda não guardou nenhum imóvel. Toque no ♡ de um imóvel para ele aparecer aqui.</p></div>
+         <div class="banner-acoes">${verTodos}</div>`;
+  } else {
+    el.innerHTML = `<div><strong>📋 Imóveis que separaram para você (${qtd})</strong>
+        <p>Gostou? Guarde nos seus favoritos para ver com calma depois.</p></div>
+      <div class="banner-acoes">
+        <button type="button" class="banner-btn is-whats" onclick="salvarListaRecebida(this)">♥ Guardar todos nos meus favoritos</button>
+        ${verTodos}
+      </div>`;
+  }
+  el.style.display = 'flex';
+}
+
+function sairDoModoLista() {
+  _modoLista = null;
+  history.replaceState(null, '', `${location.pathname}?t=${encodeURIComponent(tenantIdOrSlug)}`);
+  applyFiltros();
+}
+
+function enviarListaWhatsApp() {
+  const ids = lerFavoritos();
+  if (!ids.length) return;
+  const txt = `Separei ${ids.length} imóve${ids.length > 1 ? 'is' : 'l'} para a gente ver juntos: ${linkDaLista(ids)}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank', 'noopener');
+}
+
+async function copiarLinkLista(btn) {
+  const ids = lerFavoritos();
+  if (!ids.length) return;
+  try {
+    await navigator.clipboard.writeText(linkDaLista(ids));
+    mostrarAvisoPublico('✓ Link da lista copiado — cole numa conversa ou e-mail.');
+  } catch (_) {
+    prompt('Copie o link da lista:', linkDaLista(ids));
+  }
+}
+
+function salvarListaRecebida(btn) {
+  const atuais = lerFavoritos();
+  const novos = _listaRecebida.filter(id => _allImoveis.some(im => im.id === id) && !atuais.includes(id));
+  if (!gravarFavoritos([...novos, ...atuais])) { avisoFavoritoNaoGuardado(); return; }
+  atualizarContadorFavoritos();
+  btn.textContent = '✓ Guardados nos favoritos';
+  btn.disabled = true;
+  mostrarAvisoPublico(novos.length ? `♥ ${novos.length} imóve${novos.length > 1 ? 'is guardados' : 'l guardado'} nos seus favoritos.` : 'Esses imóveis já estavam nos seus favoritos.');
+  applyFiltros();
+}
+
+function clicarFavCard(btn, id) {
+  const r = alternarFavorito(id);
+  if (!r.ok) { avisoFavoritoNaoGuardado(); return; }
+  btn.classList.toggle('is-fav', r.favorito);
+  btn.textContent = r.favorito ? '♥' : '♡';
+  btn.setAttribute('aria-label', r.favorito ? 'Remover dos favoritos' : 'Guardar nos favoritos');
+  mostrarAvisoPublico(r.favorito ? '♥ Guardado nos favoritos (☰ → Meus favoritos).' : 'Removido dos favoritos.');
+  if (_modoLista === 'favoritos') applyFiltros();
 }
 
 function renderLista(imoveis) {
@@ -263,7 +351,7 @@ function renderLista(imoveis) {
 
     return `
       <a class="vitrine-card" href="imovel.html?id=${im.id}&t=${tenantId}">
-        <div class="vitrine-card-cover">${cover}${badge}${im.aceitaPermuta === 'sim' && finalidade !== 'locacao' ? '<span class="selo-permuta">Permuta</span>' : ''}</div>
+        <div class="vitrine-card-cover">${cover}${badge}<button type="button" class="btn-fav ${ehFavorito(im.id) ? 'is-fav' : ''}" aria-label="${ehFavorito(im.id) ? 'Remover dos favoritos' : 'Guardar nos favoritos'}" onclick="event.preventDefault(); event.stopPropagation(); clicarFavCard(this, '${im.id}')">${ehFavorito(im.id) ? '♥' : '♡'}</button>${im.aceitaPermuta === 'sim' && finalidade !== 'locacao' ? '<span class="selo-permuta">Permuta</span>' : ''}</div>
         <div class="vitrine-card-body">
           <div class="vitrine-card-tipo">${subt}${cidadeUf ? ' · ' + cidadeUf : ''}</div>
           <div class="vitrine-card-title">${textoSeguro(im.tituloAnuncio || im.apelido || 'Imóvel')}</div>

@@ -26,5 +26,5 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
 }
 
 window.db = firebase.firestore();
-window.storage = firebase.storage();
-window.auth = firebase.auth();
+window.storage = firebase.storage ? firebase.storage() : null; // páginas públicas não carregam o SDK de Storage
+window.auth = firebase.auth ? firebase.auth() : null;       // nem o de Auth

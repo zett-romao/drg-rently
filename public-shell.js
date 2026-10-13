@@ -21,8 +21,57 @@ function _telefonePub(t) {
   };
 }
 
+// ---------- Favoritos ----------
+// Guardados no próprio aparelho (sem conta). Para decidir junto com outra
+// pessoa, a lista vira um link (imoveis.html?t=…&lista=id1,id2) enviado por WhatsApp.
+let _favRef = '';
+function _chaveFav() { return 'drg-favoritos-' + _favRef; }
+function lerFavoritos() {
+  try {
+    const a = JSON.parse(localStorage.getItem(_chaveFav()) || '[]');
+    return Array.isArray(a) ? a.filter(x => typeof x === 'string' && x) : [];
+  } catch (_) { return []; }
+}
+function gravarFavoritos(lista) {
+  try { localStorage.setItem(_chaveFav(), JSON.stringify(lista)); return true; } catch (_) { return false; }
+}
+function ehFavorito(id) { return lerFavoritos().includes(id); }
+// Liga/desliga. Retorna { favorito, ok } — ok=false quando o navegador não deixa guardar
+function alternarFavorito(id) {
+  const lista = lerFavoritos();
+  const i = lista.indexOf(id);
+  if (i >= 0) lista.splice(i, 1); else lista.unshift(id);
+  const ok = gravarFavoritos(lista);
+  atualizarContadorFavoritos();
+  return { favorito: i < 0, ok };
+}
+function atualizarContadorFavoritos() {
+  const n = lerFavoritos().length;
+  document.querySelectorAll('.contador-fav').forEach(el => { el.textContent = n ? n : ''; el.style.display = n ? '' : 'none'; });
+}
+function avisoFavoritoNaoGuardado() {
+  mostrarAvisoPublico('⚠️ Este navegador não deixou guardar (aba anônima?). Use "Compartilhar" para enviar o imóvel para você mesmo.', 'erro');
+}
+
+// Aviso rápido no rodapé da tela (regra nº 1: toda ação responde)
+function mostrarAvisoPublico(msg, tipo) {
+  let el = document.getElementById('aviso-publico');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'aviso-publico';
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+  }
+  el.className = 'aviso-publico' + (tipo === 'erro' ? ' is-erro' : '');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
 function montarMenuERodape(tenant, tenantRef) {
   tenant = tenant || {};
+  _favRef = String(tenantRef || '');
   const t = encodeURIComponent(tenantRef || '');
   const naVitrine = /imoveis\.html$/.test(location.pathname) || !!document.getElementById('lista-imoveis');
   const anunciar = naVitrine && typeof abrirAnunciarImovel === 'function'
@@ -32,6 +81,7 @@ function montarMenuERodape(tenant, tenantRef) {
     ['🏠', 'Início', `href="imoveis.html?t=${t}"`],
     ['🔑', 'Alugar', `href="imoveis.html?t=${t}&finalidade=locacao"`],
     ['💼', 'Comprar', `href="imoveis.html?t=${t}&finalidade=venda"`],
+    ['♥', 'Meus favoritos <span class="contador-fav"></span>', `href="imoveis.html?t=${t}&favoritos=1"`],
     ['📤', 'Anuncie seu imóvel', anunciar],
   ];
   if (tenant.programaParceiros && tenant.programaParceiros.ativo) links.push(['🤝', 'Seja corretor parceiro', `href="parceiro.html?t=${t}"`]);
@@ -76,15 +126,16 @@ function montarMenuERodape(tenant, tenantRef) {
         </div>
         <div>
           <h4>Navegue</h4>
-          ${links.filter(([, txt]) => txt !== 'Contato').map(([, txt, attr]) => `<p><a ${attr}>${txt}</a></p>`).join('')}
+          ${links.filter(([, txt]) => txt !== 'Contato').map(([, txt, attr]) => `<p><a ${attr}>${txt.replace(/<span[^>]*><\/span>/, '')}</a></p>`).join('')}
         </div>
       </div>
       <p class="rodape-copy">© ${new Date().getFullYear()} ${_escPub(tenant.nome || 'DRG-Rently')} · Todos os direitos reservados</p>
       <p class="muted rodape-copy" style="font-size:11px;">Powered by <a href="https://github.com/zett-romao/drg-rently" target="_blank" rel="noopener">DRG-Rently</a></p>`;
   }
+  atualizarContadorFavoritos();
 }
 
-function abrirMenuPublico() { document.body.classList.add('menu-publico-aberto'); }
+function abrirMenuPublico() { atualizarContadorFavoritos(); document.body.classList.add('menu-publico-aberto'); }
 function fecharMenuPublico() { document.body.classList.remove('menu-publico-aberto'); }
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.body.classList.contains('menu-publico-aberto')) fecharMenuPublico();
