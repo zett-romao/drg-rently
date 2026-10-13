@@ -93,6 +93,10 @@ let _allImoveis = []; // cache pra filtros
     window._publicTenantId = tenantId;
     window._publicTenantNome = tenant.nome || 'DRG-Rently';
     configurarWhatsAppFab(tenant);
+    // Menu ☰ + rodapé com contato (public-shell.js)
+    montarMenuERodape(tenant, tenantIdOrSlug);
+    // "Anuncie seu imóvel" vindo do menu de outra página
+    if (params.get('anunciar') === '1') setTimeout(() => abrirAnunciarImovel(), 300);
 
     // SEO
     document.title = `${tenant.nome || 'DRG-Rently'} — Imóveis disponíveis`;

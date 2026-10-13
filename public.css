@@ -866,3 +866,56 @@ body.public-page {
   .contato-actions a { display: none !important; }
   .so-impressao { display: block; text-align: center; font-size: 15px; font-weight: 700; margin-top: 8px; }
 }
+
+/* =========================================================
+   Menu (☰ no celular, links no computador) + rodapé com contato
+   ========================================================= */
+.nav-publica { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.nav-publica a { color: rgba(255,255,255,.85); text-decoration: none; font-size: 14px; font-weight: 600; padding: 8px 10px; border-radius: 8px; }
+.nav-publica a:hover { background: rgba(255,255,255,.1); color: #fff; }
+.public-header-inner .btn-anunciar-imovel { margin-left: 8px; }
+.btn-menu-publico { display: none; margin-left: auto; width: 46px; height: 46px; border-radius: 10px; border: 1px solid rgba(255,255,255,.3);
+  background: rgba(255,255,255,.08); color: #fff; font-size: 24px; cursor: pointer; }
+.btn-menu-publico:active, .menu-publico-item:active, .btn-todas-fotos:active { transform: scale(.98); filter: brightness(.92); }
+
+.menu-publico { position: fixed; inset: 0; z-index: 3000; background: rgba(15,23,42,.45); display: none; }
+body.menu-publico-aberto .menu-publico { display: block; }
+body.menu-publico-aberto { overflow: hidden; }
+.menu-publico-painel { position: absolute; top: 0; right: 0; bottom: 0; width: min(320px, 86vw); background: #fff;
+  padding: 64px 16px 20px; display: flex; flex-direction: column; gap: 10px; box-shadow: -8px 0 24px rgba(0,0,0,.2);
+  overflow-y: auto; animation: menuEntra .2s ease-out; }
+@keyframes menuEntra { from { transform: translateX(100%); } to { transform: none; } }
+.menu-publico-item { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); text-decoration: none; font-size: 16px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.menu-publico-x { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
+  background: #fff; font-size: 24px; line-height: 1; cursor: pointer; color: var(--text); }
+
+@media (max-width: 900px) {
+  .nav-publica { display: none; }
+  .btn-menu-publico { display: inline-flex; align-items: center; justify-content: center; }
+  .public-header-inner .btn-anunciar-imovel { display: none; } /* fica dentro do menu */
+}
+
+.rodape-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px 40px; text-align: left; padding: 8px 0 18px;
+  border-bottom: 1px solid rgba(255,255,255,.12); margin-bottom: 14px; }
+.rodape-colunas h4 { color: #fff; font-size: 17px; margin-bottom: 10px; }
+.rodape-colunas p { margin: 0 0 8px; font-size: 15px; }
+.rodape-colunas a { color: rgba(255,255,255,.85); text-decoration: none; display: inline-block; min-height: 32px; line-height: 32px; }
+.rodape-colunas a:hover { color: #fff; text-decoration: underline; }
+.rodape-copy { text-align: center; }
+
+/* "Veja todas as fotos" */
+.btn-todas-fotos { position: absolute; left: 10px; bottom: 10px; z-index: 2; min-height: 40px; padding: 0 14px; border-radius: 8px; border: 0;
+  background: rgba(15,23,42,.8); color: #fff; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.todas-fotos { position: fixed; inset: 0; z-index: 1900; background: rgba(15,23,42,.6); align-items: stretch; justify-content: center; }
+.todas-fotos-painel { background: #fff; width: min(1100px, 100%); height: 100%; overflow-y: auto; }
+.todas-fotos-topo { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; background: #fff; border-bottom: 1px solid var(--border); min-height: 64px; }
+.todas-fotos-topo .menu-publico-x { position: static; }
+.todas-fotos-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; padding: 12px 16px 24px; }
+.todas-fotos-item { padding: 0; border: 0; background: #E2E8F0; aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; cursor: zoom-in; }
+.todas-fotos-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+@media (max-width: 640px) { .todas-fotos-grade { grid-template-columns: 1fr; } }
+@media print { .btn-todas-fotos, .btn-menu-publico, .nav-publica, .menu-publico, .todas-fotos { display: none !important; } }
+.carrossel-contador { top: 10px; bottom: auto; }          /* embaixo fica atrás do botão do WhatsApp */
+.rodape-colunas .muted { color: rgba(255,255,255,.7); }

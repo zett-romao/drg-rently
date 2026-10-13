@@ -15,7 +15,7 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
-  <link rel="stylesheet" href="public.css?v=20261013c-pagina">
+  <link rel="stylesheet" href="public.css?v=20261013d-menu">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -132,6 +132,17 @@
 
   </main>
 
+  <!-- Todas as fotos em grade -->
+  <div id="todas-fotos" class="todas-fotos" style="display:none;" onclick="if (event.target === this) fecharTodasFotos()">
+    <div class="todas-fotos-painel">
+      <div class="todas-fotos-topo">
+        <strong id="todas-fotos-titulo">Fotos</strong>
+        <button type="button" class="menu-publico-x" onclick="fecharTodasFotos()" aria-label="Fechar">×</button>
+      </div>
+      <div id="todas-fotos-grade" class="todas-fotos-grade"></div>
+    </div>
+  </div>
+
   <!-- Lightbox da galeria -->
   <div id="lightbox" class="lightbox" style="display:none;" onclick="if (event.target === this) closeLightbox()">
     <button class="lightbox-close" onclick="closeLightbox()" aria-label="Fechar">×</button>
@@ -148,6 +159,7 @@
     </svg>
   </a>
 
-  <script src="public-imovel.js?v=20261013c-pagina"></script>
+  <script src="public-shell.js?v=20261013b"></script>
+  <script src="public-imovel.js?v=20261013d-menu"></script>
 </body>
 </html>

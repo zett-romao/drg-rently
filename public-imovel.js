@@ -277,7 +277,8 @@ function renderImovel(im, tenant, fotos) {
       ${varias ? `
         <button type="button" class="carrossel-seta carrossel-ant" onclick="moverCarrossel(-1)" aria-label="Foto anterior">‹</button>
         <button type="button" class="carrossel-seta carrossel-prox" onclick="moverCarrossel(1)" aria-label="Próxima foto">›</button>` : ''}
-      <span id="carrossel-contador" class="carrossel-contador">1 / ${fotos.length}</span>`;
+      <span id="carrossel-contador" class="carrossel-contador">1 / ${fotos.length}</span>
+      ${varias ? `<button type="button" class="btn-todas-fotos" onclick="abrirTodasFotos()">🖼 Veja todas as ${fotos.length} fotos</button>` : ''}`;
   }
 
   // Descrição do anúncio (texto puro; quebras de linha preservadas pelo CSS)
@@ -358,7 +359,27 @@ function renderImovel(im, tenant, fotos) {
   if (tenant.nome) {
     $$('contato-empresa').textContent = `Fale com a ${tenant.nome} para agendar visita e obter mais informações.`;
   }
+
+  // Menu ☰ + rodapé com contato (public-shell.js)
+  montarMenuERodape(tenant, tenantIdOrSlug);
 }
+
+// "Veja todas as fotos": grade com todas; tocar abre em tela cheia
+function abrirTodasFotos() {
+  $$('todas-fotos-titulo').textContent = `${_fotosLightbox.length} foto${_fotosLightbox.length > 1 ? 's' : ''}`;
+  $$('todas-fotos-grade').innerHTML = _fotosLightbox.map((u, i) =>
+    `<button type="button" class="todas-fotos-item" onclick="openLightbox(${i})"><img src="${u}" alt="Foto ${i + 1}" loading="lazy"></button>`).join('');
+  $$('todas-fotos').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function fecharTodasFotos() {
+  $$('todas-fotos').style.display = 'none';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', (e) => {
+  // Esc fecha primeiro a foto em tela cheia; depois a grade
+  if (e.key === 'Escape' && $$('lightbox')?.style.display !== 'flex' && $$('todas-fotos')?.style.display === 'flex') fecharTodasFotos();
+});
 
 // =============================================================
 // Imóveis semelhantes: mesma finalidade, priorizando tipo, bairro,

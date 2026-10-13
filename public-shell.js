@@ -1,0 +1,91 @@
+// =============================================================
+// DRG-Rently — public-shell.js
+// Menu (☰ no celular, links no computador) e rodapé com contato das
+// páginas públicas (imoveis.html e imovel.html). Lê só o doc público do tenant.
+// Uso: montarMenuERodape(tenant, tenantIdOrSlug) depois de carregar o tenant.
+// =============================================================
+
+function _escPub(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Telefone com ou sem 55 → { exibir: "(15) 99185-9779", ddi: "5515991859779" }
+function _telefonePub(t) {
+  const d = String(t || '').replace(/\D/g, '');
+  if (d.length < 10) return null;
+  const local = (d.length >= 12 && d.startsWith('55')) ? d.slice(2) : d;
+  return {
+    exibir: `(${local.slice(0, 2)}) ${local.slice(2, -4)}-${local.slice(-4)}`,
+    ddi: '55' + local,
+    celular: local.length === 11,
+  };
+}
+
+function montarMenuERodape(tenant, tenantRef) {
+  tenant = tenant || {};
+  const t = encodeURIComponent(tenantRef || '');
+  const naVitrine = /imoveis\.html$/.test(location.pathname) || !!document.getElementById('lista-imoveis');
+  const anunciar = naVitrine && typeof abrirAnunciarImovel === 'function'
+    ? `href="#" onclick="fecharMenuPublico(); abrirAnunciarImovel(); return false;"`
+    : `href="imoveis.html?t=${t}&anunciar=1"`;
+  const links = [
+    ['🏠', 'Início', `href="imoveis.html?t=${t}"`],
+    ['🔑', 'Alugar', `href="imoveis.html?t=${t}&finalidade=locacao"`],
+    ['💼', 'Comprar', `href="imoveis.html?t=${t}&finalidade=venda"`],
+    ['📤', 'Anuncie seu imóvel', anunciar],
+  ];
+  if (tenant.programaParceiros && tenant.programaParceiros.ativo) links.push(['🤝', 'Seja corretor parceiro', `href="parceiro.html?t=${t}"`]);
+  links.push(['📞', 'Contato', `href="#rodape-contato" onclick="fecharMenuPublico()"`]);
+
+  // ---- Menu no cabeçalho ----
+  const header = document.querySelector('.public-header-inner');
+  if (header && !document.getElementById('menu-publico')) {
+    header.insertAdjacentHTML('beforeend', `
+      <nav class="nav-publica" aria-label="Menu">
+        ${links.filter(([, txt]) => !(txt === 'Anuncie seu imóvel' && header.querySelector('.btn-anunciar-imovel')))
+          .map(([, txt, attr]) => `<a ${attr}>${txt}</a>`).join('')}
+      </nav>
+      <button type="button" class="btn-menu-publico" onclick="abrirMenuPublico()" aria-label="Abrir menu">☰</button>`);
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="menu-publico" class="menu-publico" onclick="if (event.target === this) fecharMenuPublico()">
+        <div class="menu-publico-painel" role="dialog" aria-label="Menu">
+          <button type="button" class="menu-publico-x" onclick="fecharMenuPublico()" aria-label="Fechar menu">×</button>
+          ${links.map(([ico, txt, attr]) => `<a class="menu-publico-item" ${attr}><span>${ico}</span>${txt}</a>`).join('')}
+        </div>
+      </div>`);
+  }
+
+  // ---- Rodapé com contato ----
+  const footer = document.querySelector('.public-footer .public-container');
+  if (footer) {
+    const tel = _telefonePub(tenant.telefone);
+    // mesmo número do botão verde do WhatsApp (fixo também pode ser WhatsApp Business)
+    const whats = _telefonePub(tenant.whatsapp) || tel;
+    const contato = [
+      tenant.creci ? `<p class="muted">CRECI ${_escPub(tenant.creci)}</p>` : '',
+      whats ? `<p><a href="https://wa.me/${whats.ddi}" target="_blank" rel="noopener">💬 ${whats.exibir} (WhatsApp)</a></p>` : '',
+      tel && (!whats || tel.ddi !== whats.ddi) ? `<p><a href="tel:+${tel.ddi}">📞 ${tel.exibir}</a></p>` : '',
+      tel && whats && tel.ddi === whats.ddi ? `<p><a href="tel:+${tel.ddi}">📞 Ligar</a></p>` : '',
+      tenant.emailContato ? `<p><a href="mailto:${_escPub(tenant.emailContato)}">✉️ ${_escPub(tenant.emailContato)}</a></p>` : '',
+    ].join('');
+    footer.innerHTML = `
+      <div class="rodape-colunas">
+        <div id="rodape-contato">
+          <h4>${_escPub(tenant.nome || 'Contato')}</h4>
+          ${contato || '<p class="muted">Contato em breve.</p>'}
+        </div>
+        <div>
+          <h4>Navegue</h4>
+          ${links.filter(([, txt]) => txt !== 'Contato').map(([, txt, attr]) => `<p><a ${attr}>${txt}</a></p>`).join('')}
+        </div>
+      </div>
+      <p class="rodape-copy">© ${new Date().getFullYear()} ${_escPub(tenant.nome || 'DRG-Rently')} · Todos os direitos reservados</p>
+      <p class="muted rodape-copy" style="font-size:11px;">Powered by <a href="https://github.com/zett-romao/drg-rently" target="_blank" rel="noopener">DRG-Rently</a></p>`;
+  }
+}
+
+function abrirMenuPublico() { document.body.classList.add('menu-publico-aberto'); }
+function fecharMenuPublico() { document.body.classList.remove('menu-publico-aberto'); }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('menu-publico-aberto')) fecharMenuPublico();
+});
