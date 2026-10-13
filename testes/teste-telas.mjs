@@ -52,11 +52,12 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await S(['tenants', T, 'contadores', 'anuncios'], { seq: 1, prefixo: 'IT' });
   await S(['tenants', T, 'contratos', 'c1'], { status: 'vigente', imovelId: 'im1', locadorId: 'L1', locatarioId: 'LT1', valorAluguel: 2500 });
   await S(['tenants', T, 'leadsImoveis', 'lead1'], { origem: 'interesse_imovel', nome: 'Maria', telefone: '15991859779', imovelId: 'im1', status: 'novo', criadoEm: new Date() });
+  await S(['tenants', T, 'leadsImoveis', 'lead2'], { origem: 'manual', canal: 'whatsapp', tipoLead: 'cliente', nome: 'Joana', telefone: '11997347272', status: 'novo', criadoEm: new Date(), corretorUid: contas.cor, corretorNome: 'Corretor Teste', atribuidoEm: new Date(), historico: [] });
   await S(['tenants', T, 'estatisticas', 'im1_2026-10'], { imovelId: 'im1', mes: '2026-10', visitas: 12, favoritos: 3, contatos: 2 });
 });
 
 // ---------- navegador ----------
-const configOriginal = readFileSync('C:/Projetos/DRG-Rently/firebase-config.js', 'utf8');
+const configOriginal = readFileSync(process.env.FIREBASE_CONFIG_PATH || new URL('../firebase-config.js', import.meta.url), 'utf8');
 const configEmulador = configOriginal + `
 // TESTE: tudo no emulador local
 db.useEmulator('127.0.0.1', 8080);
@@ -132,7 +133,12 @@ const editarImovel = (id, apelido) => async (page) => {
   await page.fill('#imovel-apelido', apelido);
   { const b = page.getByRole('button', { name: 'Agora não' }); if (await b.isVisible().catch(() => false)) await b.click(); }
   try { await page.click('#btn-save-imovel', { timeout: 8000 }); } catch (e) { await page.screenshot({ path: 'falha-salvar.png' }); throw new Error(e.message.split(String.fromCharCode(10)).slice(0, 8).join(' | ')); }
-  await page.waitForTimeout(2500);
+  // Lê o aviso assim que aparece: no "🕓 com aprovação" o modal fecha sozinho em 1,8 s
+  await page.waitForFunction(() => {
+    const vis = el => el && el.style.display !== 'none' && el.innerText.trim();
+    return vis(document.getElementById('imovel-acoes-status')) || vis(document.getElementById('imovel-alert'))
+      || document.getElementById('modal-imovel').style.display === 'none';
+  }, null, { timeout: 15000, polling: 100 }).catch(() => {});
   return page.evaluate(() => {
     const s = document.getElementById('imovel-acoes-status');
     const a = document.getElementById('imovel-alert');
@@ -145,6 +151,23 @@ const direto = (codigo) => (page) => page.evaluate(async c => { try { await eval
 await sessao('Administrador', 'admin', [
   ['edita imóvel', editarImovel('im1', 'Casa Centro (adm)'), /salvo e fechou/],
   ['salva configurações (cria config/ia)', direto(`(async()=>{ await tenantPath().collection('config').doc('ia').set({workerGeminiUrl:'x'}); })()`), 'ok'],
+  ['repassa lead pelo modal (sugere captador)', async (page) => {
+    await page.evaluate(() => showSection('leads')); await page.waitForTimeout(1500);
+    await page.evaluate(() => openRepassarLead('lead1')); await page.waitForTimeout(1500);
+    const opcoes = await page.evaluate(() => [...document.querySelectorAll('#repasse-lead-corretor option')].map(o => o.value).filter(Boolean).length);
+    await page.selectOption('#repasse-lead-corretor', { index: 1 });
+    await page.fill('#repasse-lead-nota', 'cliente quer visitar sábado');
+    await page.evaluate(() => confirmarRepassarLead()); await page.waitForTimeout(2500);
+    return page.evaluate(n => { const t = document.getElementById('tbody-leads').innerText; return t.includes('Corretor Teste') ? `repassado (${n} corretor na lista)` : 'não apareceu: ' + t.slice(0, 120); }, opcoes);
+  }, /^repassado/],
+  ['cadastra lead manual', async (page) => {
+    await page.evaluate(() => openLeadManual()); await page.waitForTimeout(1200);
+    await page.fill('#lm-nome', 'Lead Manual Teste'); await page.fill('#lm-telefone', '11 99999-8888');
+    await page.evaluate(() => { salvarLeadManual(); }); // não espera: termina perguntando "Repassar agora?"
+    const depois = page.getByRole('button', { name: 'Depois' });
+    await depois.waitFor({ timeout: 15000 }); await depois.click(); await page.waitForTimeout(1000);
+    return page.evaluate(() => document.getElementById('tbody-leads').innerText.includes('Lead Manual Teste') ? 'cadastrado' : 'não apareceu');
+  }, 'cadastrado'],
   ['abre desempenho do imóvel', async (page) => { await page.evaluate(() => openImovelModal('im1')); await page.waitForTimeout(2500); return page.evaluate(() => document.getElementById('imovel-desempenho')?.innerText.includes('12') ? 'mostrou 12 visitas' : document.getElementById('imovel-desempenho')?.innerText || 'vazio'); }, 'mostrou 12 visitas'],
 ]);
 await sessao('Operador SEM perfil', 'op0', [
@@ -163,6 +186,17 @@ await sessao('Operador RESTRITO', 'op1', [
 await sessao('Corretor', 'cor', [
   ['cria imóvel próprio (recebe código)', novoImovel('Casa do Corretor', 'L2'), /criado|aprova/i],
   ['gerador de IA enxerga o endereço da IA', async (page) => { const u = await page.evaluate(() => urlWorkerIA()); return u ? 'ok' : 'vazio'; }, 'ok'],
+  ['"Meus leads" mostra só os dele', async (page) => {
+    await page.evaluate(() => showSection('meusleads')); await page.waitForTimeout(2000);
+    const t = await page.evaluate(() => document.getElementById('tbody-meus-leads').innerText);
+    return t.includes('Joana') && t.includes('Maria') && !t.includes('Lead Manual Teste') ? 'Joana e Maria (repassados), sem os outros' : t.slice(0, 160);
+  }, /^Joana e Maria/],
+  ['marca "Contatei" no lead', async (page) => {
+    await page.evaluate(() => atualizarMeuLead('lead2', 'contatado')); await page.waitForTimeout(2000);
+    return page.evaluate(() => (_meusLeads.find(l => l._id === 'lead2') || {}).status);
+  }, 'contatado'],
+  ['devolve lead com motivo', direto(`tenantPath().collection('leadsImoveis').doc('lead2').update({status:'devolvido',corretorUid:null,corretorNome:null,motivoDevolucao:'fora da minha região',historico:[]})`), 'ok'],
+  ['lead de fora da caixa dele é barrado', direto(`tenantPath().collection('leadsImoveis').doc('lead2').get()`), /NEGADO/],
 ]);
 
 await browser.close();

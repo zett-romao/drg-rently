@@ -834,6 +834,8 @@ function userPodeVerModulo(modulo) {
 function podeVerSecao(name) {
   if (name === 'aprovacoes') return pode('aprovarPagamentoLocador') || podeAprovarAlgumaAlteracao();
   if (name === 'equipe') return pode('gerenciarUsuariosPerfis');
+  // "Meus leads" é a caixa do corretor (leads que a imobiliária repassou a ele)
+  if (name === 'meusleads') return isCorretor();
   return userPodeVerModulo(name);
 }
 
@@ -1056,6 +1058,8 @@ async function renderApp() {
 
   // Corretores aguardando aprovação (badge no menu)
   if (State.tenant && podeVerSecao('corretores')) atualizarBadgeCorretoresPendentes();
+  // Corretor: contador de leads novos repassados a ele
+  if (State.tenant && isCorretor()) atualizarBadgeMeusLeads();
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
@@ -1135,6 +1139,7 @@ function showSection(name, _opts = {}) {
     contratos: 'Contratos',
     negociacoes: 'Negociações',
     leads: 'Leads (anúncios captados)',
+    meusleads: 'Meus leads',
     calendario: 'Calendário de vencimentos',
     balancetes: 'Balancetes Mensais',
     caixa: 'Livro Caixa — Conta Pool',
@@ -1181,6 +1186,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'leads' && State.tenant) {
     loadLeads();
+  }
+  if (name === 'meusleads' && State.tenant) {
+    loadMeusLeads(); // rede.js — leads repassados ao corretor
   }
   if (name === 'aprovacoes' && State.tenant) {
     $('card-aprovacoes-pagamento').style.display = pode('aprovarPagamentoLocador') ? '' : 'none';
@@ -9923,6 +9931,7 @@ const LEAD_STATUS_LABEL = {
   contatado: '📞 Contatado',
   convertido: '✅ Convertido',
   descartado: '🗑 Descartado',
+  devolvido: '↩ Devolvido',
 };
 
 const LEAD_FINALIDADE_LABEL = {
@@ -9945,7 +9954,10 @@ function renderLeadsTable() {
   if (!tbody) return;
 
   let lista = _leadsCarregados;
-  if (_filtroLeadStatus !== 'todos') {
+  if (_filtroLeadStatus === 'semcorretor') {
+    // Ainda pra distribuir: sem corretor e em aberto (inclui os devolvidos)
+    lista = lista.filter(l => !l.corretorUid && !['convertido', 'descartado'].includes(l.status || 'novo'));
+  } else if (_filtroLeadStatus !== 'todos') {
     lista = lista.filter(l => (l.status || 'novo') === _filtroLeadStatus);
   }
 
@@ -9957,7 +9969,9 @@ function renderLeadsTable() {
   if (statsEl) {
     if (totalGeral > 0) {
       statsEl.style.display = 'block';
-      statsEl.innerHTML = `📊 <strong>${totalGeral}</strong> lead(s) capturado(s) — <strong style="color:#92400e;">${novos}</strong> novos aguardando contato · <strong style="color:#166534;">${convertidos}</strong> convertidos em cliente`;
+      const semCorretor = _leadsCarregados.filter(l => !l.corretorUid && !['convertido', 'descartado'].includes(l.status || 'novo')).length;
+      statsEl.innerHTML = `📊 <strong>${totalGeral}</strong> lead(s) capturado(s) — <strong style="color:#92400e;">${novos}</strong> novos aguardando contato · <strong style="color:#166534;">${convertidos}</strong> convertidos em cliente`
+        + (semCorretor ? ` · <a onclick="setFiltroLeadStatus('semcorretor')" style="cursor:pointer; color:#991B1B; font-weight:700; text-decoration:underline;">👤 ${semCorretor} sem corretor</a>` : '');
     } else {
       statsEl.style.display = 'none';
     }
@@ -9967,7 +9981,7 @@ function renderLeadsTable() {
     const msg = totalGeral === 0
       ? `Nenhum lead capturado ainda. Aparecem aqui os pedidos de "📅 Agendar visita" das páginas dos imóveis e quem clicar em "📤 Anuncie seu imóvel" na sua <a onclick="openVitrinePublica()" style="cursor:pointer; color:var(--primary); text-decoration:underline;">vitrine pública</a>, aparece aqui.`
       : 'Nenhum lead corresponde ao filtro selecionado.';
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">${msg}</td></tr>`;
     return;
   }
 
@@ -9985,7 +9999,8 @@ function renderLeadsTable() {
       : '';
 
     // Pedido de visita/interesse feito na página de um imóvel (origem interesse_imovel)
-    const ehInteresse = l.origem === 'interesse_imovel';
+    // Interessado num imóvel (visita do site ou lead manual de cliente) × proprietário querendo anunciar
+    const ehInteresse = l.origem === 'interesse_imovel' || (l.origem === 'manual' && l.tipoLead === 'cliente');
     const msgWhats = ehInteresse
       ? `Olá ${l.nome || ''}! Aqui é da imobiliária. Recebemos seu pedido sobre o imóvel ${l.codigoAnuncio ? l.codigoAnuncio + ' — ' : ''}${l.tituloImovel || ''}. Quando podemos agendar a visita?`
       : `Olá ${l.nome || ''}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel...`;
@@ -10008,6 +10023,7 @@ function renderLeadsTable() {
       contatado: 'background:#FEF3C7; color:#92400E;',
       convertido: 'background:#DCFCE7; color:#166534;',
       descartado: 'background:#E5E7EB; color:#374151;',
+      devolvido: 'background:#FEE2E2; color:#991B1B;',
     }[status] || '';
 
     return `
@@ -10016,9 +10032,11 @@ function renderLeadsTable() {
         <td><strong>${escapeHtml(l.nome || '—')}</strong><br>${telLink}${emailLink}</td>
         <td><span class="papel-chip" style="${ehInteresse ? 'background:#DBEAFE; color:#1E40AF;' : 'background:#F1F5F9;'}">${ehInteresse ? '📅 Visita / interesse' : (LEAD_FINALIDADE_LABEL[finalidade] || finalidade)}</span></td>
         <td ${descTooltip}>${imovelDesc}${l.descricao ? ' <span style="color:var(--text-muted); font-size:11px;">💬</span>' : ''}</td>
+        <td>${celulaCorretorLead(l)}</td>
         <td><span class="papel-chip" style="${statusBadgeCor}">${LEAD_STATUS_LABEL[status] || status}</span></td>
         <td>
           <div class="action-btns" style="flex-wrap:wrap; gap:4px;">
+            ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm btn-primary" onclick="openRepassarLead('${l._id}')" title="Vincular este lead a um corretor">👤 ${l.corretorUid ? 'Trocar' : 'Repassar'}</button>` : ''}
             ${status === 'novo' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'contatado')" title="Marcar como contatado" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Contatei</button>` : ''}
             ${status !== 'convertido' && status !== 'descartado' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'convertido')" title="Virou cliente" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;">✅ Converti</button>` : ''}
             ${status !== 'descartado' ? `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'descartado')" title="Descartar">🗑 Descartar</button>` : `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'novo')" title="Reabrir">↻ Reabrir</button>`}
@@ -10033,14 +10051,14 @@ function renderLeadsTable() {
 async function loadLeads() {
   const tbody = $('tbody-leads');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
   try {
     const snap = await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get();
     _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     renderLeadsTable();
   } catch (err) {
     console.error('Erro ao carregar leads:', err);
-    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

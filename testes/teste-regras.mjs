@@ -1,6 +1,6 @@
 // Testes das regras do Firestore no emulador (DRG-Rently)
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
-import { doc, setDoc, updateDoc, deleteDoc, getDoc, addDoc, collection, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp, increment } from 'firebase/firestore';
 import { readFileSync } from 'fs';
 
 const T = 'tenantA';
@@ -40,6 +40,10 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'tenants', T, 'garantias', 'g1'), { tipo: 'caucao' });
   await setDoc(doc(db, 'tenants', T, 'contratos', 'c3'), { status: 'rascunho' });
   await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L1'), { status: 'novo', nome: 'x' });
+  await u('cor2', { role: 'corretor', tenantId: T, ativo: true });
+  await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L2'), { status: 'novo', nome: 'Ana', corretorUid: 'cor1', corretorNome: 'Cor 1', historico: [] });
+  await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L3'), { status: 'novo', nome: 'Beto', corretorUid: 'cor2', corretorNome: 'Cor 2', historico: [] });
+  await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L4'), { status: 'novo', nome: 'Caio', corretorUid: 'cor1', corretorNome: 'Cor 1', historico: [] });
   await setDoc(doc(db, 'tenants', T, 'balancetes', 'b1'), { status: 'fechado', total: 10 });
   await setDoc(doc(db, 'tenants', T, 'config', 'site'), { workerGeminiUrl: 'x', zapsignToken: 'segredo' });
   await setDoc(doc(db, 'tenants', T, 'config', 'ia'), { workerGeminiUrl: 'x' });
@@ -90,6 +94,23 @@ await caso('corretor: auditoria em nome de outro BLOQUEIA', false, () => addDoc(
 await caso('corretor: lê auditoria BLOQUEIA', false, () => getDoc(R(db('cor1'), 'auditoria', 'x')));
 await caso('corretor: lê config/ia (endereço da IA)', true, () => getDoc(R(db('cor1'), 'config', 'ia')));
 await caso('corretor: lê config/site (tokens) BLOQUEIA', false, () => getDoc(R(db('cor1'), 'config', 'site')));
+
+// ---------- Leads repassados ao corretor ("Meus leads") ----------
+const hist = [{ acao: 'x', em: '2026-10-13' }];
+await caso('corretor: lê lead repassado a ele', true, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L2')));
+await caso('corretor: lê lead de outro corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L3')));
+await caso('corretor: lê lead sem corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L1')));
+await caso('corretor: lista "Meus leads" (where corretorUid == eu)', true, () => getDocs(query(collection(db('cor1'), 'tenants', T, 'leadsImoveis'), where('corretorUid', '==', 'cor1'))));
+await caso('corretor: lista todos os leads BLOQUEIA', false, () => getDocs(collection(db('cor1'), 'tenants', T, 'leadsImoveis')));
+await caso('corretor: marca contatado + anotação', true, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { status: 'contatado', notaCorretor: 'liguei', historico: hist }));
+await caso('corretor: muda nome/telefone do cliente BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { nome: 'Outro', historico: hist }));
+await caso('corretor: passa o lead pra outro corretor BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { corretorUid: 'cor2', historico: hist }));
+await caso('corretor: devolve sem motivo BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L4'), { status: 'devolvido', corretorUid: null, corretorNome: null, historico: hist }));
+await caso('corretor: devolve com motivo', true, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L4'), { status: 'devolvido', corretorUid: null, corretorNome: null, motivoDevolucao: 'fora da minha região', historico: hist }));
+await caso('corretor: depois de devolver não lê mais', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L4')));
+await caso('corretor: mexe em lead de outro BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L3'), { status: 'contatado', historico: hist }));
+await caso('equipe (editar leads ✅): repassa lead a corretor', true, () => updateDoc(R(db('op1'), 'leadsImoveis', 'L1'), { corretorUid: 'cor1', corretorNome: 'Cor 1', historico: hist }));
+await caso('equipe sem perfil: cadastra lead manual', true, () => addDoc(collection(db('op0'), 'tenants', T, 'leadsImoveis'), { origem: 'manual', canal: 'whatsapp', nome: 'Zé', telefone: '11999999999', status: 'novo' }));
 
 // ---------- Site público ----------
 const lead = (extra = {}) => ({ origem: 'interesse_imovel', nome: 'Maria', telefone: '15991859779', imovelId: 'im2',

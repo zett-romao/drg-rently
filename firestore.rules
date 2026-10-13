@@ -355,6 +355,28 @@ service cloud.firestore {
                           || request.resource.data.mensagem.size() <= 1000);
       }
 
+      // Leads repassados ao corretor ("Meus leads"): ele lê SÓ os que estão com ele
+      // e só mexe no atendimento (status, anotação, histórico). Não troca o lead de
+      // corretor — só pode DEVOLVER (fica sem corretor e com status 'devolvido').
+      match /leadsImoveis/{leadId} {
+        allow read: if isCorretorOf(tenantId)
+                    && resource.data.get('corretorUid', null) == request.auth.uid;
+        allow update: if isCorretorOf(tenantId)
+                      && resource.data.get('corretorUid', null) == request.auth.uid
+                      && soCampos(['status', 'statusAtualizadoEm', 'statusAtualizadoPor', 'notaCorretor',
+                                   'historico', 'corretorUid', 'corretorNome', 'motivoDevolucao',
+                                   'devolvidoEm', 'devolvidoPor'])
+                      && request.resource.data.historico is list
+                      && request.resource.data.historico.size() <= 40
+                      && ((request.resource.data.get('corretorUid', null) == request.auth.uid
+                           && request.resource.data.status in ['novo', 'contatado', 'convertido', 'descartado'])
+                          || (request.resource.data.get('corretorUid', null) == null
+                              && request.resource.data.status == 'devolvido'
+                              && request.resource.data.motivoDevolucao is string
+                              && request.resource.data.motivoDevolucao.size() > 0
+                              && request.resource.data.motivoDevolucao.size() <= 500));
+      }
+
       // Estatísticas dos imóveis publicados (relatório ao proprietário).
       // Visitante só soma 1 por vez num contador; nunca lê, zera ou apaga.
       match /estatisticas/{estId} {

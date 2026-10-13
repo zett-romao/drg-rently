@@ -544,6 +544,22 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
 
 ## Histórico de decisões
 
+- **2026-10-13 (noite)**: **Leads × corretores** (pedido do dono: "vincular um lead a um corretor").
+  Tela Leads: coluna Corretor ("⚠️ sem contato há X dias" a partir de 2 dias), botão **👤 Repassar/
+  Trocar** (sugere o captador do imóvel; abre WhatsApp do corretor com mensagem pronta — a aba é
+  aberta NO CLIQUE, antes do await, senão o navegador bloqueia), filtros "Sem corretor"/"Devolvidos",
+  **+ Lead manual** (WhatsApp/telefone/e-mail de portal/indicação; `origem:'manual'`, `canal`,
+  `tipoLead` cliente|proprietario). Corretor: tela **📥 Meus leads** (`section-meusleads`, só
+  `isCorretor()`, badge vermelho = novos) — Contatei/Converti/Sem interesse/Anotar/**Devolver com
+  motivo** (volta sem corretor, `status:'devolvido'`). Campos no lead: `corretorUid/Nome`,
+  `atribuidoEm/Por`, `notaRepasse`, `notaCorretor`, `motivoDevolucao`, `historico[]`. Regra nova em
+  `leadsImoveis`: corretor lê/atualiza só `corretorUid == ele`, só campos de atendimento, não passa
+  pra outro. Código em `rede.js` (fim do arquivo). Testes: +14 cenários em `teste-regras.mjs`
+  (66/66) e fluxos de repasse/Meus leads em `teste-telas.mjs`.
+  **Rodar os testes nesta máquina (Windows):** Java 21 portátil (Adoptium JRE zip) no PATH no
+  formato `/c/...` (o `C:` quebra o PATH do Git Bash); `teste-telas.mjs` agora acha o
+  `firebase-config.js` pelo caminho relativo (antes estava fixo em `C:/Projetos/...`). Leva ~10 min.
+
 - **2026-10-13 (tarde 2)**: **domínio próprio `rently.dev.br`** (registrado por 2 anos no Registro.br;
   zona: 4×A 185.199.108-111.153 + CNAME www → zett-romao.github.io). Workers aceitam o domínio novo
   (ALLOWED_ORIGINS); passkey com RP por origem (`RPS_EXTRAS` — biometria cadastrada no github.io

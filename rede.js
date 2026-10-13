@@ -1111,3 +1111,371 @@ window.copiarLinkParceiro = copiarLinkParceiro;
 window.atualizarSomaComissaoPP = atualizarSomaComissaoPP;
 window.recalcularComissaoNegociacao = recalcularComissaoNegociacao;
 window.onComissaoCaptadorManual = onComissaoCaptadorManual;
+
+// =============================================================
+// LEADS × CORRETORES — repassar, lead manual e "Meus leads"
+// =============================================================
+// leadsImoveis/{id} ganha: corretorUid, corretorNome, atribuidoEm, atribuidoPor,
+// notaRepasse, notaCorretor, motivoDevolucao, historico[] ({acao, porNome, paraNome, nota, em}).
+// Admin/equipe repassa via gravar() (respeita perfil e fila de aprovação).
+// Corretor lê/atualiza SÓ os leads com corretorUid == ele (firestore.rules); ao
+// devolver, o lead volta sem corretor com status 'devolvido' pra redistribuir.
+
+const LEAD_CANAL_LABEL = {
+  whatsapp: '💬 WhatsApp', telefone: '📞 Telefone', email: '✉️ E-mail', presencial: '🤝 Presencial',
+  indicacao: '🙋 Indicação', zap: 'ZAP Imóveis', vivareal: 'Viva Real', olx: 'OLX',
+  imovelweb: 'Imovelweb', chavesnamao: 'Chaves na Mão', facebook: 'Facebook / Instagram', outro: 'Outro',
+};
+
+function entradaHistoricoLead(acao, extra = {}) {
+  return {
+    acao,
+    porUid: State.user?.uid || null,
+    porNome: State.userDoc?.nome || State.user?.email || null,
+    em: new Date().toISOString(),
+    ...extra,
+  };
+}
+
+function diasDesde(ts) {
+  const d = ts?.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
+  if (!d || isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+
+// Célula "Corretor" na tabela de Leads do admin
+function celulaCorretorLead(l) {
+  if (l.status === 'devolvido') {
+    return `<span style="color:#991B1B; font-size:12px;">↩ Devolvido</span>`
+      + (l.motivoDevolucao ? `<br><span class="muted" style="font-size:11px;" title="${escapeHtml(l.motivoDevolucao)}">${escapeHtml(l.motivoDevolucao.slice(0, 60))}</span>` : '');
+  }
+  if (!l.corretorUid) return '<span class="muted" style="font-size:12px;">— sem corretor</span>';
+  const dias = diasDesde(l.atribuidoEm);
+  const parado = (l.status || 'novo') === 'novo' && dias !== null && dias >= 2;
+  return `<strong style="font-size:12px;">${escapeHtml(l.corretorNome || 'Corretor')}</strong>`
+    + (dias !== null ? `<br><span style="font-size:11px; ${parado ? 'color:#B91C1C; font-weight:600;' : 'color:var(--text-muted);'}">${parado ? '⚠️ sem contato há ' : 'há '}${dias} dia(s)</span>` : '');
+}
+
+// ---------- Repassar (admin/equipe) ----------
+
+async function openRepassarLead(leadId) {
+  clearAlert('repasse-lead-alert');
+  const lead = (_leadsCarregados || []).find(l => l._id === leadId);
+  if (!lead) return;
+  $('repasse-lead-id').value = leadId;
+  $('repasse-lead-cliente').textContent = `${lead.nome || 'sem nome'}${lead.telefone ? ' · ' + maskTelefone(lead.telefone) : ''}`;
+  $('repasse-lead-nota').value = '';
+  $('repasse-lead-whats').checked = true;
+
+  let corretores = [];
+  try { _corretoresAtivosCache = null; corretores = await listarCorretoresAtivos(); } catch (_) {}
+  // Sugestão: captador do imóvel (se for corretor ativo)
+  let sugerido = null;
+  if (lead.imovelId) {
+    try {
+      const im = await tenantPath().collection('imoveis').doc(lead.imovelId).get();
+      const cap = im.exists ? im.data().criadoPor : null;
+      if (cap && corretores.some(c => c.uid === cap)) sugerido = cap;
+    } catch (_) {}
+  }
+  $('repasse-lead-corretor').innerHTML = (lead.corretorUid ? '<option value="">— Tirar do corretor (volta pra imobiliária)</option>' : '<option value="">— Selecione —</option>')
+    + corretores.map(c => `<option value="${c.uid}">${escapeHtml(c.nome || c.email || c.uid)}${c.uid === sugerido ? ' ⭐ captador do imóvel' : ''}${c.telefone ? '' : ' (sem telefone)'}</option>`).join('');
+  $('repasse-lead-corretor').value = lead.corretorUid || sugerido || '';
+  $('repasse-lead-atual').textContent = lead.corretorUid ? `Hoje está com: ${lead.corretorNome || 'corretor'}` : '';
+  $('modal-repasse-lead').style.display = 'flex';
+}
+
+function closeRepassarLead() {
+  $('modal-repasse-lead').style.display = 'none';
+}
+
+function mensagemRepasseWhats(lead, corretor, nota) {
+  const linhas = [
+    `Olá ${corretor.nome || ''}! Novo lead pra você — ${State.tenant?.nome || 'imobiliária'}:`,
+    '',
+    `👤 ${lead.nome || 'sem nome'}`,
+    lead.telefone ? `📱 ${maskTelefone(lead.telefone)}` : '',
+    lead.email ? `✉️ ${lead.email}` : '',
+    (lead.codigoAnuncio || lead.tituloImovel) ? `🏠 ${[lead.codigoAnuncio, lead.tituloImovel].filter(Boolean).join(' — ')}` : '',
+    lead.melhorHorario && lead.melhorHorario !== 'qualquer' ? `🕐 Melhor horário: ${LEAD_HORARIO_LABEL[lead.melhorHorario] || lead.melhorHorario}` : '',
+    (lead.mensagem || lead.descricao) ? `💬 ${(lead.mensagem || lead.descricao).slice(0, 300)}` : '',
+    nota ? `📝 Obs.: ${nota}` : '',
+    '',
+    `Detalhes em "Meus leads": ${urlDoSistema()}`,
+  ];
+  return linhas.filter((l, i, a) => l !== '' || (a[i - 1] !== '' && i > 0)).join('\n');
+}
+
+async function confirmarRepassarLead() {
+  clearAlert('repasse-lead-alert');
+  const leadId = $('repasse-lead-id').value;
+  const lead = (_leadsCarregados || []).find(l => l._id === leadId);
+  if (!lead) return;
+  const uid = $('repasse-lead-corretor').value || null;
+  if (!uid && !lead.corretorUid) { showAlert('repasse-lead-alert', 'Escolha o corretor.'); return; }
+  const nota = $('repasse-lead-nota').value.trim() || null;
+  const corretor = uid ? (_corretoresAtivosCache || []).find(c => c.uid === uid) : null;
+  const querWhats = !!(uid && $('repasse-lead-whats').checked && corretor?.telefone);
+  // Abre a aba já no clique (depois de um await o navegador bloqueia o pop-up)
+  const janela = querWhats ? window.open('about:blank', '_blank') : null;
+
+  const antes = await lerAntes('leadsImoveis', leadId);
+  const historico = Array.isArray(antes?.historico) ? antes.historico.slice(-30) : [];
+  historico.push(uid
+    ? entradaHistoricoLead(lead.corretorUid ? 'transferido' : 'repassado', { paraUid: uid, paraNome: corretor?.nome || null, nota })
+    : entradaHistoricoLead('retirado', { deNome: lead.corretorNome || null }));
+  const status = lead.status || 'novo';
+  const dados = {
+    corretorUid: uid,
+    corretorNome: corretor?.nome || null,
+    atribuidoEm: uid ? firebase.firestore.FieldValue.serverTimestamp() : null,
+    atribuidoPor: uid ? State.user.uid : null,
+    notaRepasse: uid ? nota : null,
+    // devolvido e repassado de novo → volta a ser "novo" pro corretor que recebe
+    status: (uid && status === 'devolvido') ? 'novo' : status,
+    historico,
+  };
+  if (uid) { dados.motivoDevolucao = null; }
+
+  try {
+    const r = await gravar({ modulo: 'leads', colecao: 'leadsImoveis', op: 'editar', id: leadId, dados,
+      antes, titulo: `Lead de ${lead.nome || 'sem nome'} → ${corretor?.nome || 'imobiliária'}` });
+    if (r.pendente) {
+      if (janela) janela.close();
+      closeRepassarLead();
+      await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
+      return;
+    }
+    logAuditoria('repassar', 'lead', leadId, { para: uid, paraNome: corretor?.nome || null });
+    if (janela) {
+      janela.location.href = `https://wa.me/${telefoneWhatsApp(corretor.telefone)}?text=${encodeURIComponent(mensagemRepasseWhats(lead, corretor, nota))}`;
+    }
+    closeRepassarLead();
+    loadLeads();
+  } catch (err) {
+    if (janela) janela.close();
+    console.error('Erro ao repassar lead:', err);
+    showAlert('repasse-lead-alert', 'Erro: ' + err.message);
+  }
+}
+
+// ---------- Lead manual (WhatsApp, telefone, e-mail dos portais…) ----------
+
+async function openLeadManual() {
+  clearAlert('lead-manual-alert');
+  ['lm-nome', 'lm-telefone', 'lm-email', 'lm-mensagem'].forEach(id => { $(id).value = ''; });
+  $('lm-canal').value = 'whatsapp';
+  $('lm-tipo').value = 'cliente';
+  $('lm-finalidade').value = 'venda';
+  let imoveis = [];
+  try { imoveis = await ensureImoveisCache(); } catch (_) {}
+  $('lm-imovel').innerHTML = '<option value="">— Nenhum imóvel específico —</option>'
+    + imoveis.filter(i => !i.rascunho)
+      .map(i => `<option value="${i.id}">${escapeHtml([i.codigoAnuncio, i.apelido].filter(Boolean).join(' — ') || i.id)}</option>`).join('');
+  onTipoLeadManual();
+  $('modal-lead-manual').style.display = 'flex';
+}
+
+function closeLeadManual() {
+  $('modal-lead-manual').style.display = 'none';
+}
+
+function onTipoLeadManual() {
+  const cliente = $('lm-tipo').value === 'cliente';
+  $('lm-imovel-group').style.display = cliente ? 'block' : 'none';
+  $('lm-finalidade-label').textContent = cliente ? 'Quer' : 'Quer anunciar para';
+  $('lm-finalidade').innerHTML = cliente
+    ? '<option value="venda">Comprar</option><option value="locacao">Alugar</option><option value="ambos">Comprar ou alugar</option>'
+    : '<option value="venda">Vender</option><option value="locacao">Alugar</option><option value="ambos">Vender ou alugar</option>';
+}
+
+async function salvarLeadManual() {
+  clearAlert('lead-manual-alert');
+  const nome = $('lm-nome').value.trim();
+  const telefone = $('lm-telefone').value.replace(/\D/g, '');
+  if (!nome) { showAlert('lead-manual-alert', 'Informe o nome.'); return; }
+  if (telefone.length < 10) { showAlert('lead-manual-alert', 'Informe o telefone com DDD.'); return; }
+  const tipoLead = $('lm-tipo').value;
+  const imovelId = tipoLead === 'cliente' ? ($('lm-imovel').value || null) : null;
+  const im = imovelId ? (_imoveisCache || []).find(i => i.id === imovelId) : null;
+  const dados = {
+    origem: 'manual',
+    canal: $('lm-canal').value,
+    tipoLead,
+    nome,
+    telefone,
+    email: $('lm-email').value.trim() || null,
+    finalidade: $('lm-finalidade').value,
+    imovelId,
+    codigoAnuncio: im?.codigoAnuncio || null,
+    tituloImovel: im?.apelido || null,
+    mensagem: $('lm-mensagem').value.trim() || null,
+    status: 'novo',
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    criadoPor: State.user.uid,
+    historico: [entradaHistoricoLead('cadastrado', { canal: $('lm-canal').value })],
+  };
+  try {
+    const r = await gravar({ modulo: 'leads', colecao: 'leadsImoveis', op: 'criar', dados, titulo: `Lead manual — ${nome}` });
+    closeLeadManual();
+    if (r.pendente) {
+      await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
+      return;
+    }
+    await loadLeads();
+    const repassar = await confirmar({
+      titulo: '✅ Lead cadastrado',
+      mensagem: `Quer repassar <strong>${escapeHtml(nome)}</strong> a um corretor agora?`,
+      confirmar: '👤 Repassar agora',
+      cancelar: 'Depois',
+    });
+    if (repassar) openRepassarLead(r.id);
+  } catch (err) {
+    console.error('Erro ao cadastrar lead manual:', err);
+    showAlert('lead-manual-alert', 'Erro: ' + err.message);
+  }
+}
+
+// ---------- "Meus leads" (corretor) ----------
+
+let _meusLeads = [];
+
+async function loadMeusLeads() {
+  const tbody = $('tbody-meus-leads');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="empty">Carregando…</td></tr>';
+  try {
+    // A consulta precisa bater com a regra (corretorUid == eu); ordena no cliente
+    const snap = await tenantPath().collection('leadsImoveis').where('corretorUid', '==', State.user.uid).get();
+    _meusLeads = snap.docs.map(d => ({ _id: d.id, ...d.data() }))
+      .sort((a, b) => (b.atribuidoEm?.toMillis?.() || 0) - (a.atribuidoEm?.toMillis?.() || 0));
+    renderMeusLeads();
+    atualizarBadgeMeusLeads(_meusLeads);
+  } catch (err) {
+    console.error('Erro ao carregar meus leads:', err);
+    tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderMeusLeads() {
+  const tbody = $('tbody-meus-leads');
+  if (_meusLeads.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhum lead repassado a você ainda. Quando a imobiliária repassar, ele aparece aqui.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _meusLeads.map(l => {
+    const status = l.status || 'novo';
+    const dias = diasDesde(l.atribuidoEm);
+    const msgCliente = `Olá ${l.nome || ''}! Aqui é ${State.userDoc?.nome || 'o corretor'}, da ${State.tenant?.nome || 'imobiliária'}.`
+      + (l.tituloImovel || l.codigoAnuncio ? ` Recebi seu interesse no imóvel ${[l.codigoAnuncio, l.tituloImovel].filter(Boolean).join(' — ')}.` : '')
+      + ' Podemos conversar?';
+    const imovel = (l.codigoAnuncio || l.tituloImovel) ? `🏠 ${escapeHtml([l.codigoAnuncio, l.tituloImovel].filter(Boolean).join(' — '))}<br>` : '';
+    const quer = { venda: 'Compra/venda', locacao: 'Locação', ambos: 'Compra ou locação' }[l.finalidade] || '';
+    return `
+      <tr>
+        <td style="font-size:12px;">${dias !== null ? `há ${dias} dia(s)` : '—'}${l.canal ? `<br><span class="muted">${escapeHtml(LEAD_CANAL_LABEL[l.canal] || l.canal)}</span>` : ''}</td>
+        <td><strong>${escapeHtml(l.nome || '—')}</strong><br>
+          ${l.telefone ? `<a href="https://wa.me/${telefoneWhatsApp(l.telefone)}?text=${encodeURIComponent(msgCliente)}" target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>` : ''}
+          ${l.email ? `<br><a href="mailto:${escapeHtml(l.email)}" style="font-size:11px;">${escapeHtml(l.email)}</a>` : ''}</td>
+        <td style="font-size:12px;">${imovel}${quer ? escapeHtml(quer) + '<br>' : ''}
+          ${(l.mensagem || l.descricao) ? `<span class="muted">💬 ${escapeHtml((l.mensagem || l.descricao).slice(0, 160))}</span><br>` : ''}
+          ${l.notaRepasse ? `<span style="color:#1E40AF;">📝 Da imobiliária: ${escapeHtml(l.notaRepasse)}</span><br>` : ''}
+          ${l.notaCorretor ? `<span>🗒 Minha anotação: ${escapeHtml(l.notaCorretor)}</span>` : ''}</td>
+        <td><span class="papel-chip">${LEAD_STATUS_LABEL[status] || status}</span></td>
+        <td><div class="action-btns" style="flex-wrap:wrap; gap:4px;">
+          ${status === 'novo' ? `<button class="btn btn-sm" onclick="atualizarMeuLead('${l._id}', 'contatado')" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Contatei</button>` : ''}
+          ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm" onclick="atualizarMeuLead('${l._id}', 'convertido')" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;">✅ Converti</button>` : ''}
+          ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm btn-secondary" onclick="atualizarMeuLead('${l._id}', 'descartado')">🗑 Sem interesse</button>` : ''}
+          <button class="btn btn-sm btn-secondary" onclick="anotarMeuLead('${l._id}')">🗒 Anotar</button>
+          ${!['convertido'].includes(status) ? `<button class="btn btn-sm btn-secondary" onclick="devolverMeuLead('${l._id}')" title="Não vai atender? Devolve pra imobiliária redistribuir">↩ Devolver</button>` : ''}
+        </div></td>
+      </tr>`;
+  }).join('');
+}
+
+async function atualizarLeadDoCorretor(leadId, dados, acaoHistorico, extraHistorico = {}) {
+  const lead = _meusLeads.find(l => l._id === leadId);
+  const historico = Array.isArray(lead?.historico) ? lead.historico.slice(-30) : [];
+  historico.push(entradaHistoricoLead(acaoHistorico, extraHistorico));
+  await tenantPath().collection('leadsImoveis').doc(leadId).update({ ...dados, historico });
+  logAuditoria(acaoHistorico, 'lead', leadId, extraHistorico);
+}
+
+async function atualizarMeuLead(leadId, status) {
+  try {
+    await atualizarLeadDoCorretor(leadId, {
+      status,
+      statusAtualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      statusAtualizadoPor: State.user.uid,
+    }, 'status_' + status);
+    loadMeusLeads();
+  } catch (err) {
+    await confirmar({ titulo: 'Erro', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+
+async function anotarMeuLead(leadId) {
+  const lead = _meusLeads.find(l => l._id === leadId);
+  const texto = prompt('Anotação sobre este atendimento (fica visível pra imobiliária):', lead?.notaCorretor || '');
+  if (texto === null) return;
+  try {
+    await atualizarLeadDoCorretor(leadId, { notaCorretor: texto.trim().slice(0, 1000) || null }, 'anotacao');
+    loadMeusLeads();
+  } catch (err) {
+    await confirmar({ titulo: 'Erro', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+
+async function devolverMeuLead(leadId) {
+  const motivo = prompt('Por que você está devolvendo este lead? (a imobiliária vai ver o motivo)');
+  if (motivo === null) return;
+  if (!motivo.trim()) { await confirmar({ titulo: 'Motivo obrigatório', mensagem: 'Escreva o motivo da devolução.', confirmar: 'OK' }); return; }
+  try {
+    const lead = _meusLeads.find(l => l._id === leadId);
+    const historico = Array.isArray(lead?.historico) ? lead.historico.slice(-30) : [];
+    historico.push(entradaHistoricoLead('devolvido', { motivo: motivo.trim().slice(0, 500) }));
+    await tenantPath().collection('leadsImoveis').doc(leadId).update({
+      status: 'devolvido',
+      corretorUid: null,
+      corretorNome: null,
+      motivoDevolucao: motivo.trim().slice(0, 500),
+      devolvidoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      devolvidoPor: State.user.uid,
+      historico,
+    });
+    logAuditoria('devolver', 'lead', leadId, { motivo: motivo.trim().slice(0, 200) });
+    loadMeusLeads();
+  } catch (err) {
+    await confirmar({ titulo: 'Erro', mensagem: escapeHtml(err.message), confirmar: 'OK' });
+  }
+}
+
+// Aviso dentro do sistema: contador vermelho em "Meus leads" (novos ainda sem contato)
+async function atualizarBadgeMeusLeads(lista) {
+  const link = document.querySelector('.nav-link[data-section="meusleads"]');
+  if (!link || !isCorretor()) return;
+  try {
+    if (!lista) {
+      const snap = await tenantPath().collection('leadsImoveis').where('corretorUid', '==', State.user.uid).get();
+      lista = snap.docs.map(d => d.data());
+    }
+    const novos = lista.filter(l => (l.status || 'novo') === 'novo').length;
+    let badge = link.querySelector('.nav-badge-pendentes');
+    if (!novos) { if (badge) badge.remove(); return; }
+    if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge-pendentes'; link.appendChild(badge); }
+    badge.textContent = novos;
+    badge.title = `${novos} lead(s) novo(s) aguardando seu contato`;
+  } catch (_) {}
+}
+
+window.openRepassarLead = openRepassarLead;
+window.closeRepassarLead = closeRepassarLead;
+window.confirmarRepassarLead = confirmarRepassarLead;
+window.openLeadManual = openLeadManual;
+window.closeLeadManual = closeLeadManual;
+window.onTipoLeadManual = onTipoLeadManual;
+window.salvarLeadManual = salvarLeadManual;
+window.loadMeusLeads = loadMeusLeads;
+window.atualizarMeuLead = atualizarMeuLead;
+window.anotarMeuLead = anotarMeuLead;
+window.devolverMeuLead = devolverMeuLead;

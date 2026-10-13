@@ -248,6 +248,7 @@
           <div class="nav-group-title">Rede de corretores</div>
           <div class="drag-hint">↕ arraste para reordenar</div>
           <a class="nav-link" data-section="rede" title="Fichas dos imóveis compartilhados pelos corretores"><span class="nav-ico">🌐</span><span>Imóveis da Rede</span></a>
+          <a class="nav-link" data-section="meusleads" title="Leads que a imobiliária repassou a você"><span class="nav-ico">📥</span><span>Meus leads</span></a>
           <a class="nav-link" data-section="corretores" title="Cadastro, aprovação e visibilidade da rede"><span class="nav-ico">🧑‍💼</span><span>Corretores</span></a>
         </div>
 
@@ -957,8 +958,10 @@
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" onclick="loadLeads()">↻ Recarregar</button>
                 <button class="btn btn-secondary btn-sm" onclick="exportarLeads()" title="Baixar CSV com todos os leads">📥 Exportar CSV</button>
+                <button class="btn btn-primary btn-sm" onclick="openLeadManual()" title="Cadastrar contato que chegou por WhatsApp, telefone, e-mail de portal, indicação…">+ Lead manual</button>
               </div>
             </div>
+            <p class="muted" style="font-size:12px; margin:-4px 0 10px;">👤 <strong>Repassar</strong> vincula o lead a um corretor: ele recebe no WhatsApp e em "Meus leads". Se não quiser atender, ele devolve com o motivo.</p>
 
             <div class="papel-filtros" id="leads-filtros">
               <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Status:</span>
@@ -967,6 +970,8 @@
               <button type="button" class="papel-filtro-btn" data-st="contatado" onclick="setFiltroLeadStatus('contatado')">📞 Contatados</button>
               <button type="button" class="papel-filtro-btn" data-st="convertido" onclick="setFiltroLeadStatus('convertido')">✅ Convertidos</button>
               <button type="button" class="papel-filtro-btn" data-st="descartado" onclick="setFiltroLeadStatus('descartado')">🗑 Descartados</button>
+              <button type="button" class="papel-filtro-btn" data-st="semcorretor" onclick="setFiltroLeadStatus('semcorretor')">👤 Sem corretor</button>
+              <button type="button" class="papel-filtro-btn" data-st="devolvido" onclick="setFiltroLeadStatus('devolvido')">↩ Devolvidos</button>
             </div>
 
             <div id="leads-stats" style="display:none; margin-bottom:14px; padding:12px 16px; background:linear-gradient(135deg, #FEF3C7, #FDE68A); border-radius:8px; font-size:13px;"></div>
@@ -979,13 +984,34 @@
                     <th>Nome / Contato</th>
                     <th>Quer</th>
                     <th>Imóvel</th>
+                    <th>Corretor</th>
                     <th>Status</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody id="tbody-leads">
-                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="7" class="empty">Carregando…</td></tr>
                 </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="section-meusleads" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>📥 Meus leads</h3>
+                <p class="muted">Contatos que a imobiliária repassou a você. Fale com o cliente pelo botão do WhatsApp e atualize o status. Não vai atender? Use ↩ Devolver.</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="loadMeusLeads()">↻ Recarregar</button>
+            </div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr><th>Recebido</th><th>Cliente</th><th>Interesse</th><th>Status</th><th>Ações</th></tr>
+                </thead>
+                <tbody id="tbody-meus-leads"></tbody>
               </table>
             </div>
           </div>
@@ -5695,6 +5721,91 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
+  <div class="modal-overlay" id="modal-repasse-lead" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>👤 Repassar lead a um corretor</h3>
+        <button class="modal-close" onclick="closeRepassarLead()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="repasse-lead-alert" class="alert alert-error" style="display:none;"></div>
+        <input type="hidden" id="repasse-lead-id">
+        <p>Cliente: <strong id="repasse-lead-cliente"></strong></p>
+        <p class="muted" id="repasse-lead-atual" style="font-size:12px;"></p>
+        <div class="form-group">
+          <label>Corretor</label>
+          <select id="repasse-lead-corretor"></select>
+        </div>
+        <div class="form-group">
+          <label>Observação pro corretor (opcional)</label>
+          <textarea id="repasse-lead-nota" rows="2" placeholder="Ex.: cliente quer visitar sábado de manhã; já tem financiamento aprovado"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="toggle-row" style="cursor:pointer;">
+            <input type="checkbox" id="repasse-lead-whats" checked>
+            <span>💬 Avisar o corretor no WhatsApp (abre a conversa com a mensagem pronta)</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeRepassarLead()">Cancelar</button>
+        <button class="btn btn-primary" onclick="confirmarRepassarLead()">Repassar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-lead-manual" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>+ Lead manual</h3>
+        <button class="modal-close" onclick="closeLeadManual()">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="lead-manual-alert" class="alert alert-error" style="display:none;"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Chegou por</label>
+            <select id="lm-canal">
+              <option value="whatsapp">💬 WhatsApp</option>
+              <option value="telefone">📞 Telefone</option>
+              <option value="email">✉️ E-mail</option>
+              <option value="presencial">🤝 Presencial</option>
+              <option value="indicacao">🙋 Indicação</option>
+              <option value="zap">ZAP Imóveis</option>
+              <option value="vivareal">Viva Real</option>
+              <option value="olx">OLX</option>
+              <option value="imovelweb">Imovelweb</option>
+              <option value="chavesnamao">Chaves na Mão</option>
+              <option value="facebook">Facebook / Instagram</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Quem é</label>
+            <select id="lm-tipo" onchange="onTipoLeadManual()">
+              <option value="cliente">Cliente (quer comprar/alugar)</option>
+              <option value="proprietario">Proprietário (quer anunciar)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group"><label class="required">Nome</label><input type="text" id="lm-nome"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="required">Telefone / WhatsApp</label><input type="tel" id="lm-telefone"></div>
+          <div class="form-group"><label>E-mail</label><input type="email" id="lm-email"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label id="lm-finalidade-label">Quer</label><select id="lm-finalidade"></select></div>
+          <div class="form-group" id="lm-imovel-group"><label>Imóvel de interesse</label><select id="lm-imovel"></select></div>
+        </div>
+        <div class="form-group"><label>Mensagem / observação</label><textarea id="lm-mensagem" rows="3"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeLeadManual()">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarLeadManual()">Cadastrar lead</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-corretor" style="display:none;">
     <div class="modal">
       <div class="modal-header">
@@ -5752,8 +5863,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261013e-dominio"></script>
-  <script src="rede.js?v=20261013c-dominio"></script>
+  <script src="app.js?v=20261013f-leads"></script>
+  <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
 </body>
 </html>
