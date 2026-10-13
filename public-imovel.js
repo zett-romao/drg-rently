@@ -47,6 +47,12 @@ function openLightbox(src) {
   $$('lightbox').style.display = 'flex';
 }
 
+function alternarDescricao() {
+  const el = $$('descricao-texto');
+  const recolhida = el.classList.toggle('is-recolhida');
+  $$('descricao-ver-mais').textContent = recolhida ? '⌄ Ver mais' : '⌃ Ver menos';
+}
+
 function closeLightbox() {
   $$('lightbox').style.display = 'none';
   $$('lightbox-img').src = '';
@@ -190,6 +196,21 @@ function renderImovel(im, tenant, fotos) {
         <img src="${f.url}" alt="${(im.apelido || 'Foto').replace(/"/g, '&quot;')}" loading="lazy">
       </div>
     `).join('');
+  }
+
+  // Descrição do anúncio (texto puro; quebras de linha preservadas pelo CSS)
+  const descTxt = String(im.descricaoLonga || '').trim();
+  if (descTxt) {
+    const el = $$('descricao-texto');
+    el.textContent = descTxt;
+    $$('descricao-section').style.display = 'block';
+    // "Ver mais" só quando o texto passa da altura recolhida
+    requestAnimationFrame(() => {
+      if (el.scrollHeight <= el.clientHeight + 4) {
+        el.classList.remove('is-recolhida');
+        $$('descricao-ver-mais').style.display = 'none';
+      }
+    });
   }
 
   // Features (respeitando toggles)

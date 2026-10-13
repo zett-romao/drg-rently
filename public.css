@@ -746,3 +746,11 @@ body.public-page {
   transform: rotate(-14deg);
 }
 .galeria-item .selo-permuta { top: 18px; left: 14px; font-size: 16px; }
+
+/* Descrição do imóvel com "Ver mais" */
+.descricao-texto { white-space: pre-line; line-height: 1.65; font-size: 15px; color: var(--text); position: relative; }
+.descricao-texto.is-recolhida { max-height: 11.5em; overflow: hidden; }
+.descricao-texto.is-recolhida::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3em;
+  background: linear-gradient(rgba(255,255,255,0), var(--bg, #fff)); }
+.descricao-ver-mais { margin-top: 8px; background: none; border: 0; padding: 8px 0; font: inherit; font-weight: 700;
+  color: var(--primary); cursor: pointer; min-height: 40px; }
