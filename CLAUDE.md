@@ -431,6 +431,48 @@ pro modelo antigo só enquanto a vitrine estiver vazia). Feed não manda mais `o
 **Limpeza feita (2026-10-11):** a leitura pública de `imoveis`
 foi removida; Worker do feed já lê `vitrine`.
 
+## Anúncios (`anuncios.js`) — código, portais/relevância e gerador com IA
+
+Adicionado em 2026-10-12. Carregado depois do `rede.js`.
+
+**Código do anúncio** (`imoveis.codigoAnuncio`, ex. `DRG-00012`): sequencial por imobiliária em
+`contadores/anuncios` (`{ seq, prefixo }`, transação). Prefixo = iniciais do nome do tenant, gravado
+no 1º uso e nunca mais muda. Dado no **Salvar** (criar ou editar sem código) e **nunca muda**;
+imóveis antigos ganham no botão "🔢 Gerar códigos que faltam" (📡 Portais → Plano de publicação).
+Falha ao reservar NÃO barra o salvar. Vai na vitrine, na ficha da rede, no fim da descrição do feed
+("Código do anúncio: …") e na página pública (`#hero-codigo`, mensagem do WhatsApp) — o cliente cita,
+a equipe acha na busca de Imóveis (`#imoveis-busca`; Enter com 1 resultado abre o cadastro).
+O `ListingID`/`CodigoImovel` do feed continua sendo o **id do Firestore**: trocar criaria anúncio
+duplicado nos portais.
+
+**Portais e relevância por anúncio**: `config/site.portaisConfig.{portalId} = { ativo, cotas:{destaque,
+super, premium} }` (chave "Contratado" + cotas no card de cada portal). No imóvel,
+`anuncioPortais = { portalId: 'padrao'|'destaque'|'super'|'premium' }`. **Sem o mapa = anúncio antigo,
+vai para todos os feeds** (comportamento de sempre). O feed só filtra quando a URL tem `&portal=<id>`
+(os cards copiam já com ele) — URLs antigas coladas nos portais continuam mandando tudo até serem
+trocadas. Nível vai no feed só para ZAP/Viva (`<PublicationType>` STANDARD/PREMIUM/SUPER_PREMIUM/
+PREMIERE_1); nos demais, o Plano de publicação lista o que marcar no painel do portal. Passar da cota
+só avisa (o portal rebaixa), não bloqueia. Título dos portais = `tituloAnuncio || apelido`.
+
+**Gerador com IA** (✨ no bloco 📣 Anúncio): fotos salvas + novas (até 24, reduzidas a 768px) + dados
+do formulário (respeita os toggles de privacidade: bairro oculto = sem região; valor oculto = sem
+valores) + **pontos da região** reais do OpenStreetMap (Overpass, 4 espelhos, teto 45s; raio 1,5 km;
+distância em linha reta). Worker Gemini `modo: 'anuncio'` (`PROMPT_ANUNCIO`): título, descrição,
+destaques, região, tags, curadoria das fotos (capa/ordem/descartar/privacidade), ajustes de luz e cor,
+relevância sugerida, nota e o que falta. **Correção de foto é honesta** (níveis + balanço de branco
+parcial + brilho/contraste/saturação/temperatura, rotação só 90/180/270) — nada de IA generativa
+mexendo no imóvel (anúncio enganoso, CDC art. 37). Original fica guardada (`originalPath`).
+"Aplicar" põe o texto no formulário (grava no **Salvar**, com a fila de aprovação de sempre) e grava
+as fotos na hora (anexo → exige ✅ Pode). Foto salva que a IA manda tirar vai pro fim
+(`sugestaoIA: 'remover'`), **nunca é apagada sozinha**.
+
+**Geolocalização** (`coordenadaPorCep` em `rede.js`): 1º Nominatim pelo CEP, BrasilAPI só de reserva —
+o BrasilAPI devolvia o **centro da cidade** para muitos CEPs (01310-100, Av. Paulista → Praça da Sé),
+o que punha imóvel no lugar errado no catálogo da Meta. Nominatim: máx. 1 consulta/s (`nominatimBusca`).
+
+**Regra nova a colar no Console** (só para o corretor ganhar código): bloco `match /contadores/anuncios`
+no `firestore.rules`. Sem ela, imóvel cadastrado por corretor fica sem código até a equipe salvar.
+
 ## 🔒 Regras travadas
 
 Rently está no LOCK GERAL de 07/08/2026: vale o comportamento que o código já tem. Só o
@@ -495,6 +537,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   as regras por coleção, lendo o perfil.
 
 ## Histórico de decisões
+
+- **2026-10-12 (noite 2)**: **Anúncios** (ver seção acima) — pedido do dono: *"cada anúncio deve receber
+  um código de publicação… dentro de cada anúncio já devem aparecer os portais ativos e em qual relevância
+  enquadrá-lo"* + *"gerador de anúncios inteligente… escolherá e melhorará as imagens… pontos relevantes
+  da região, tudo por IA"*. Worker do feed ganhou deploy automático (`wrangler-feed.toml` +
+  `deploy-feed.yml`, `keep_vars = true`). Corrigido de quebra: excluir foto não apagava o arquivo no
+  Storage (caminho relativo ao tenant era usado a partir da raiz) e o geocode do CEP (ver acima).
+  🔎 Lição: patch por `python -c "..."` dentro do bash converte `\b` em backspace — usar arquivo ou Edit.
 
 - **2026-10-12 (revisão)**: correções da revisão do Perfis 3.0 — 20 linhas `$g` soltas (sobra de
   `sed`) quebravam todo upload/exclusão de arquivo (hotfix `dff7a7a`); aprovação da fila confere

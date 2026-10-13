@@ -199,6 +199,19 @@ service cloud.firestore {
         allow read: if isCorretorOf(tenantId);
       }
 
+      // Contador do código do anúncio (anuncios.js): o corretor que cadastra
+      // imóvel reserva o próximo número. Só +1 por vez, sem mexer no prefixo.
+      // (equipe interna já grava pela regra genérica de subcoleção)
+      match /contadores/anuncios {
+        allow read: if isCorretorOf(tenantId);
+        allow create: if isCorretorOf(tenantId)
+                      && request.resource.data.seq == 1
+                      && request.resource.data.keys().hasOnly(['seq', 'prefixo']);
+        allow update: if isCorretorOf(tenantId)
+                      && request.resource.data.seq == resource.data.seq + 1
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seq']);
+      }
+
       // Diretório de corretores do tenant
       match /corretores/{corretorId} {
         allow read: if isCorretorOf(tenantId);

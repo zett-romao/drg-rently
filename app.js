@@ -1228,6 +1228,7 @@ function showSection(name, _opts = {}) {
   if (name === 'portais' && State.tenant) {
     renderPortais();
     loadPortaisStatus();
+    renderPlanoPublicacao();
   }
 }
 
@@ -10589,6 +10590,9 @@ function renderImoveisTable() {
   if (_filtroImovelStatus !== 'todos') {
     lista = lista.filter(im => (im.status || 'disponivel') === _filtroImovelStatus);
   }
+  // Busca: código do anúncio, apelido, título, endereço, tags (anuncios.js)
+  const busca = $('imoveis-busca')?.value || '';
+  if (busca.trim()) lista = lista.filter(im => imovelBateBusca(im, busca));
 
   if (lista.length === 0) {
     tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum imóvel corresponde aos filtros.</td></tr>`;
@@ -10620,7 +10624,7 @@ function renderImoveisTable() {
     return `
       <tr ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
         <td>${i + 1}</td>
-        <td><strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
+        <td>${im.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(im.codigoAnuncio)}</span> ` : ''}<strong>${escapeHtml(im.apelido || '—')}</strong>${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
         <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
         <td>${finBadge[finalidade] || finalidade}</td>
         <td>${escapeHtml(locNome)}</td>
@@ -10870,6 +10874,8 @@ async function openImovelModal(id) {
 
   // Rede de corretores: visibilidade + liberação da ficha completa (rede.js)
   await prepararRedeNoModalImovel(id);
+  // Anúncio: código, título, portais e relevância (anuncios.js)
+  await prepararAnuncioNoModalImovel(id);
 
   $('modal-imovel').style.display = 'flex';
 
@@ -10968,6 +10974,8 @@ async function saveImovel() {
     tags: Array.isArray(_imovelTags) ? [..._imovelTags] : [],
     // Rede de corretores: redeVisibilidade + compartilhadoCom (rede.js)
     ...lerRedeDoModalImovel(),
+    // Anúncio: tituloAnuncio, anuncioPortais, anuncioIA (anuncios.js)
+    ...lerAnuncioDoModalImovel(),
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -10980,8 +10988,14 @@ async function saveImovel() {
       data.criadoEm = firebase.firestore.FieldValue.serverTimestamp();
       data.criadoPor = State.user.uid;
     }
+    const antes = await lerAntes('imoveis', id);
+    // Código do anúncio: uma vez dado, nunca muda
+    if (!(antes && antes.codigoAnuncio)) {
+      const codigo = await reservarCodigoAnuncioSeguro();
+      if (codigo) data.codigoAnuncio = codigo;
+    }
     const r = await gravar({ modulo: 'imoveis', colecao: 'imoveis', op: id ? 'editar' : 'criar', id: id || null,
-      dados: data, antes: await lerAntes('imoveis', id), titulo: `Imóvel ${data.apelido}` });
+      dados: data, antes, titulo: `Imóvel ${data.apelido}` });
     if (r.pendente) {
       modalAutoSaveClear('imovel');
       showInlineStatus('imovel-acoes-status', msgGravacao(r), 'success');
@@ -11335,8 +11349,9 @@ function getLogoImage() {
   });
 }
 
-async function uploadImovelFotos() {
-  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+// Imóvel novo ainda sem id: cria um rascunho para poder guardar fotos.
+// Devolve o id (ou null, já avisando no alertId). Usado no upload e no gerador com IA.
+async function garantirRascunhoImovel(alertId) {
   let imovelId = $('imovel-id').value;
 
   // Se ainda não tem id (modo criação), cria um rascunho automaticamente
@@ -11344,8 +11359,8 @@ async function uploadImovelFotos() {
   if (!imovelId) {
     const apelido = $('imovel-apelido').value.trim();
     if (!apelido) {
-      showAlert('imovel-alert', 'Antes de subir fotos, preencha pelo menos o "Apelido" do imóvel.');
-      return;
+      showAlert(alertId, 'Antes de subir fotos, preencha pelo menos o "Apelido" do imóvel.');
+      return null;
     }
     try {
       const rascunho = {
@@ -11371,10 +11386,17 @@ async function uploadImovelFotos() {
         'info',
       );
     } catch (err) {
-      showAlert('imovel-alert', 'Erro ao criar rascunho: ' + err.message);
-      return;
+      showAlert(alertId, 'Erro ao criar rascunho: ' + err.message);
+      return null;
     }
   }
+  return imovelId;
+}
+
+async function uploadImovelFotos() {
+  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+  const imovelId = await garantirRascunhoImovel('imovel-alert');
+  if (!imovelId) return;
 
   const input = $('imovel-foto-input');
   const files = Array.from(input.files || []);
@@ -11443,9 +11465,12 @@ async function deleteImovelFoto(imovelId, fotoDocId, storagePath) {
   if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return; // Perfis 3.0
   if (!(await confirmar({ titulo: 'Excluir foto?', mensagem: 'Remover esta foto do imóvel.', detalhe: 'A foto será apagada do storage. Você pode subir outra a qualquer momento.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId).delete();
-    if (storagePath) {
-      try { await storage.ref().child(storagePath).delete(); } catch (_) {}
+    const fotoRef = tenantPath().collection('imoveis').doc(imovelId).collection('fotos').doc(fotoDocId);
+    const originalPath = (await fotoRef.get().catch(() => null))?.data()?.originalPath || null;
+    await fotoRef.delete();
+    // path é relativo à pasta do tenant (ver uploadImovelFotos)
+    for (const p of [storagePath, originalPath]) {
+      if (p) { try { await storageTenantRef().child(p).delete(); } catch (_) {} }
     }
     loadImovelFotos(imovelId);
   } catch (err) {
@@ -12084,14 +12109,15 @@ const PORTAIS_LIST = [
 ];
 
 // Constrói a URL do feed pra um portal específico
-function buildFeedUrl(feedFormat) {
+function buildFeedUrl(feedFormat, portalId) {
   const tenantSlugOrId = State.tenant?.slug || State.tenant?.id;
   if (!tenantSlugOrId) return '';
   // Worker URL configurado em Configurações
   const workerUrl = (State._configCache?.workerFeedUrl || '').trim();
   if (!workerUrl) return '';
   const u = workerUrl.replace(/\/+$/, '');
-  return `${u}/?tenant=${encodeURIComponent(tenantSlugOrId)}&format=${feedFormat}`;
+  // &portal= faz o feed respeitar os portais escolhidos em cada anúncio
+  return `${u}/?tenant=${encodeURIComponent(tenantSlugOrId)}&format=${feedFormat}${portalId ? `&portal=${encodeURIComponent(portalId)}` : ''}`;
 }
 
 // Cache da config pra evitar leituras repetidas
@@ -12114,7 +12140,7 @@ async function renderPortais() {
   const workerConfigured = !!(State._configCache?.workerFeedUrl || '').trim();
 
   container.innerHTML = PORTAIS_LIST.map(p => {
-    const feedUrl = p.feedFormat ? buildFeedUrl(p.feedFormat) : null;
+    const feedUrl = p.feedFormat ? buildFeedUrl(p.feedFormat, p.id) : null;
 
     // Bloco de status / botão de copiar
     let statusBlock;
@@ -12153,6 +12179,7 @@ async function renderPortais() {
           <div><span class="portal-meta-label">Formato aceito</span><strong>${p.formato}</strong></div>
         </div>
         ${statusBlock}
+        ${blocoContratoPortal(p)}
         ${ctaButton}
       </div>
     `;

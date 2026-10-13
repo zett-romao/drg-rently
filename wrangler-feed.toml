@@ -1,0 +1,12 @@
+# =============================================================
+# Config do Cloudflare Worker — DRG-Rently Feed (XML para portais)
+#
+# Deploy automático via .github/workflows/deploy-feed.yml
+# O secret FIREBASE_API_KEY e as variáveis PROJECT_ID / SITE_URL continuam
+# no painel do Cloudflare (keep_vars preserva as variáveis do painel; o
+# código também tem padrão para as duas).
+# =============================================================
+name = "drg-rently-feed"
+main = "cloudflare-worker-feed.js"
+compatibility_date = "2024-09-01"
+keep_vars = true

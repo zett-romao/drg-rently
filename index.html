@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261012c-perfis3">
+  <link rel="stylesheet" href="styles.css?v=20261012d-anuncios">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -661,6 +661,11 @@
                 <button class="btn btn-secondary btn-sm" onclick="exportarImoveis()" title="Baixar CSV com todos os imóveis">📥 Exportar CSV</button>
                 <button class="btn btn-primary" data-perm="imoveis:criar" onclick="openImovelModal()">+ Novo Imóvel</button>
               </div>
+            </div>
+
+            <!-- Busca: código do anúncio, apelido, título, endereço, tags (anuncios.js) -->
+            <div class="imoveis-busca-wrap">
+              <input type="search" id="imoveis-busca" placeholder="🔎 Buscar por código do anúncio (ex.: DRG-00012), apelido, bairro ou tag…" oninput="renderImoveisTable()" onkeydown="onBuscaImoveisKey(event)" autocomplete="off">
             </div>
 
             <!-- Filtros: finalidade + status (chips, similar aos Locadores/Vendedores) -->
@@ -1761,6 +1766,9 @@
                 <li><strong>Em algumas horas seus imóveis aparecem publicados</strong> e atualizam automaticamente (cache 10 min).</li>
               </ol>
             </div>
+
+            <!-- Plano de publicação: anúncios por portal/nível + códigos (anuncios.js) -->
+            <div class="card portais-plano" id="portais-plano"></div>
 
             <!-- Grid de cards de portais (renderizado dinamicamente) -->
             <div class="portais-grid" id="portais-grid-container">
@@ -4532,6 +4540,76 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   <!-- ============================================ -->
   <!-- MODAL: Imóvel (Novo / Editar) -->
   <!-- ============================================ -->
+  <!-- ============================================ -->
+  <!-- MODAL: Gerador de anúncios com IA (anuncios.js) -->
+  <!-- Fica ANTES do modal do imóvel: o Esc fecha o primeiro aberto na ordem do DOM -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-gerador-anuncio" style="display:none; z-index:1100;">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>✨ Gerador de anúncios com IA</h3>
+        <button class="modal-close" onclick="fecharGeradorAnuncio()" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="gerador-alert" class="alert alert-error" style="display:none;"></div>
+
+        <div id="gerador-entrada">
+          <h4 class="form-section-title">1 · Fotos</h4>
+          <p class="muted" style="font-size:12px; margin-top:-4px;">
+            A IA olha todas, escolhe a capa e a ordem, aponta as que devem sair e corrige luz e cor — sem alterar o imóvel.
+            As fotos já salvas entram sozinhas; adicione mais aqui se quiser.
+          </p>
+          <div id="gerador-fotos" class="gerador-fotos-grid"></div>
+          <div class="upload-area">
+            <input type="file" id="gerador-foto-input" multiple accept=".jpg,.jpeg,.png,.webp" onchange="adicionarFotosGerador(this)">
+            <span class="muted" style="font-size:12px;">Até 24 fotos por análise · JPG, PNG ou WEBP</span>
+          </div>
+
+          <h4 class="form-section-title">2 · Informações</h4>
+          <div id="gerador-resumo" class="gerador-resumo"></div>
+          <label style="font-size:13px; font-weight:600; display:block; margin:12px 0 6px;">Características (marque o que o imóvel e o condomínio têm)</label>
+          <div id="gerador-caracteristicas" class="gerador-caracteristicas"></div>
+          <div class="form-group" style="margin-top:12px;">
+            <label>Diferenciais e informações que só você sabe</label>
+            <textarea id="gerador-extras" rows="3" placeholder="Ex.: reformado em 2024, piso porcelanato, sol da manhã na sala, condomínio de R$ 650 com portaria 24h, aceita pet…"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tom do texto</label>
+              <select id="gerador-tom">
+                <option value="equilibrado">Profissional e acolhedor</option>
+                <option value="sofisticado">Sofisticado (alto padrão)</option>
+                <option value="objetivo">Direto e objetivo</option>
+                <option value="familiar">Caloroso, foco na rotina da casa</option>
+                <option value="investidor">Foco em investimento e rentabilidade</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Público principal (opcional)</label>
+              <select id="gerador-publico">
+                <option value="">Geral</option>
+                <option value="familias">Famílias</option>
+                <option value="jovens">Jovens profissionais</option>
+                <option value="estudantes">Estudantes</option>
+                <option value="investidores">Investidores</option>
+                <option value="empresas">Empresas (comercial)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div id="gerador-resultado" style="display:none;"></div>
+        <div id="gerador-status" class="status-inline" style="display:none;"></div>
+      </div>
+      <div class="modal-footer gerador-footer">
+        <button class="btn btn-secondary" onclick="fecharGeradorAnuncio()">Cancelar</button>
+        <button class="btn btn-secondary" id="btn-gerador-voltar" style="display:none;" onclick="voltarGeradorEntrada()">✏️ Ajustar informações</button>
+        <button class="btn btn-primary" id="btn-gerador-gerar" onclick="gerarAnuncioIA()">✨ Gerar anúncio</button>
+        <button class="btn btn-primary" id="btn-gerador-aplicar" style="display:none;" onclick="aplicarAnuncioIA()">✅ Aplicar ao anúncio</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-imovel" style="display:none;">
     <div class="modal modal-lg">
       <div class="modal-header">
@@ -4775,6 +4853,37 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-group">
             <label>Liberar ficha COMPLETA para:</label>
             <div id="imovel-rede-compartilhar" class="rede-campos"></div>
+          </div>
+        </div>
+
+        <!-- Anúncio: código, título, gerador com IA, portais e relevância (anuncios.js) -->
+        <div id="imovel-anuncio-section">
+          <h4 class="form-section-title">📣 Anúncio</h4>
+          <div class="anuncio-box">
+            <div class="anuncio-topo">
+              <div>
+                <span class="muted" style="font-size:12px;">Código do anúncio</span>
+                <div class="anuncio-codigo" id="imovel-codigo-anuncio">—</div>
+              </div>
+              <button type="button" class="btn btn-primary btn-ia" id="btn-abrir-gerador" onclick="abrirGeradorAnuncio()">✨ Gerar anúncio com IA</button>
+            </div>
+            <p class="muted" style="font-size:11px; margin:6px 0 12px;">
+              O código vai no fim da descrição dos portais e na página pública: quando o cliente citar, ache o imóvel na busca de Imóveis.
+            </p>
+            <div class="form-group">
+              <label>Título do anúncio (o que aparece nos portais e no site)</label>
+              <input type="text" id="imovel-titulo-anuncio" maxlength="100" placeholder="Ex: Apartamento 2 quartos com varanda gourmet na Vila Mariana" oninput="contarTituloAnuncio()">
+              <p class="muted" style="font-size:11px; margin-top:3px;" id="imovel-titulo-contador"></p>
+            </div>
+            <div id="imovel-anuncio-portais-wrap">
+              <strong style="font-size:13px;">📡 Onde publicar e com qual relevância</strong>
+              <p class="muted" style="font-size:11px; margin:3px 0 8px;">
+                Só aparecem os portais marcados como contratados em 📡 Portais. Cada portal vende níveis de exposição
+                (Padrão, Destaque, Super destaque, Premium) dentro da cota do plano. ZAP e Viva Real recebem o nível
+                pelo feed; nos demais, o 📋 Plano de publicação lista o que marcar no painel do portal.
+              </p>
+              <div id="imovel-anuncio-portais"></div>
+            </div>
           </div>
         </div>
 
@@ -5612,7 +5721,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261012f-review"></script>
-  <script src="rede.js?v=20261012a-perfis3"></script>
+  <script src="app.js?v=20261012g-anuncios"></script>
+  <script src="rede.js?v=20261012b-anuncios"></script>
+  <script src="anuncios.js?v=20261012a"></script>
 </body>
 </html>

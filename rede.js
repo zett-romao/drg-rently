@@ -199,6 +199,7 @@ async function sincronizarFichaRede(imovelId) {
   const meta = {
     captadorUid: im.criadoPor || null,
     captadorNome: captador?.nome || null,
+    codigoAnuncio: im.codigoAnuncio || null, // não é dado sensível: serve para achar o anúncio
     visivel: vis === 'rede' && !im.rascunho,
     compartilhadoCom: Array.isArray(im.compartilhadoCom) ? im.compartilhadoCom : [],
     finalidadeFiltro: im.finalidade || 'locacao', // sempre presente pros filtros da tela
@@ -227,6 +228,10 @@ function montarDadosVitrine(im, ctx) {
   const v = {
     linkPublico: true,
     apelido: im.apelido || null,
+    // Anúncio (anuncios.js): título dos portais, código para o cliente citar e portais/nível
+    tituloAnuncio: im.tituloAnuncio || null,
+    codigoAnuncio: im.codigoAnuncio || null,
+    anuncioPortais: (im.anuncioPortais && typeof im.anuncioPortais === 'object') ? im.anuncioPortais : null,
     tipo: im.tipo || null,
     subtipo: im.subtipo || null,
     finalidade: im.finalidade || 'locacao',
@@ -259,16 +264,43 @@ function montarDadosVitrine(im, ctx) {
 
 // Coordenada aproximada pelo CEP (BrasilAPI, grátis) — exigida pelo catálogo de
 // imóveis da Meta (feed "facebook"). Nível de CEP, nunca o número da casa.
+// 1º Nominatim (OpenStreetMap) pelo CEP; 2º BrasilAPI só de reserva.
+// ⚠️ O BrasilAPI (fonte open-cep) devolve o CENTRO DA CIDADE para muitos CEPs:
+// 01310-100 (Av. Paulista) vinha como Praça da Sé — imóvel no lugar errado no mapa.
+const _geoCepCache = new Map();
+let _nominatimUltimaChamada = 0;
+
+// Nominatim: no máximo 1 consulta por segundo (política de uso do OSM)
+async function nominatimBusca(params) {
+  const espera = _nominatimUltimaChamada + 1100 - Date.now();
+  if (espera > 0) await new Promise(r => setTimeout(r, espera));
+  _nominatimUltimaChamada = Date.now();
+  const qs = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 'br', ...params });
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${qs}`, { headers: { 'Accept-Language': 'pt-BR' } });
+  if (!res.ok) return null;
+  const j = await res.json();
+  const lat = parseFloat(j?.[0]?.lat), lng = parseFloat(j?.[0]?.lon);
+  return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
+}
+
 async function coordenadaPorCep(cep) {
   const d = String(cep || '').replace(/\D/g, '');
   if (d.length !== 8) return null;
-  try {
-    const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${d}`);
-    if (!res.ok) return null;
-    const c = (await res.json())?.location?.coordinates || {};
-    const lat = parseFloat(c.latitude), lng = parseFloat(c.longitude);
-    return (Number.isFinite(lat) && Number.isFinite(lng)) ? { lat, lng } : null;
-  } catch (_) { return null; }
+  if (_geoCepCache.has(d)) return _geoCepCache.get(d);
+  let c = null;
+  try { c = await nominatimBusca({ postalcode: `${d.slice(0, 5)}-${d.slice(5)}` }); } catch (_) {}
+  if (!c) {
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cep/v2/${d}`);
+      if (res.ok) {
+        const k = (await res.json())?.location?.coordinates || {};
+        const lat = parseFloat(k.latitude), lng = parseFloat(k.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) c = { lat, lng };
+      }
+    } catch (_) {}
+  }
+  _geoCepCache.set(d, c);
+  return c;
 }
 
 async function sincronizarVitrine(imovelId, im, ctx) {
@@ -677,7 +709,7 @@ function renderRede() {
     });
   }
   if (busca) {
-    lista = lista.filter(f => [f.apelido, f.endereco?.bairro, f.endereco?.cidade, f.endereco?.logradouro, f.captadorNome, ...(f.tags || [])]
+    lista = lista.filter(f => [f.codigoAnuncio, f.apelido, f.endereco?.bairro, f.endereco?.cidade, f.endereco?.logradouro, f.captadorNome, ...(f.tags || [])]
       .filter(Boolean).join(' ').toLowerCase().includes(busca));
   }
   if (lista.length === 0) {
@@ -701,6 +733,7 @@ function renderRede() {
         <div class="rede-card-capa">${urlSegura(capa) ? `<img src="${urlSegura(capa)}" alt="" loading="lazy">` : '<span>🏠</span>'}</div>
         <div class="rede-card-body">
           <div>${selos}</div>
+          ${f.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(f.codigoAnuncio)}</span>` : ''}
           <strong>${escapeHtml(f.apelido || (f.tipo ? (IMOVEL_TIPO_LABEL[f.tipo] || f.tipo) : 'Imóvel'))}</strong>
           ${local ? `<div class="muted" style="font-size:12px;">📍 ${escapeHtml(local)}</div>` : ''}
           ${carac ? `<div style="font-size:12px;">${escapeHtml(carac)}</div>` : ''}

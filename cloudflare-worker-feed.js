@@ -9,6 +9,7 @@
 //   GET /?tenant=<tenantId|slug>&format=zap       → XML padrão Zap (ZAP/Viva)
 //   GET /?tenant=<tenantId|slug>&format=olx       → XML padrão OLX (similar Wimoveis)
 //   GET /?tenant=<tenantId|slug>&format=imovelweb → XML padrão Imovelweb
+//   + &portal=<id>  → só os anúncios marcados para aquele portal (anuncioPortais)
 //
 // Configuração no Cloudflare Worker:
 //   Variables:
@@ -122,6 +123,24 @@ export default {
 
       // Filtra: só os com vitrineFeed !== false (default true)
       imoveis = imoveis.filter(im => im.vitrineFeed !== false);
+
+      // Portais escolhidos no anúncio (anuncioPortais = { portalId: nivel }).
+      // Sem o mapa = anúncio antigo, vai para todos (comportamento de sempre).
+      // Com ?portal= na URL, só entra quem foi marcado para aquele portal.
+      const portalParam = (url.searchParams.get('portal') || '').toLowerCase();
+      const temMapa = im => im.anuncioPortais && typeof im.anuncioPortais === 'object';
+      if (portalParam) {
+        imoveis = imoveis.filter(im => !temMapa(im) || im.anuncioPortais[portalParam] != null);
+      }
+      imoveis.forEach(im => {
+        im._titulo = im.tituloAnuncio || im.apelido || '';
+        const desc = im.descricaoLonga || im._titulo;
+        im._descricao = im.codigoAnuncio ? `${desc}\n\nCódigo do anúncio: ${im.codigoAnuncio}` : desc;
+        const nivel = temMapa(im)
+          ? (im.anuncioPortais[portalParam] || im.anuncioPortais.zap || im.anuncioPortais.vivareal || null)
+          : null;
+        im._publicacaoZap = NIVEL_ZAP[nivel] || null;
+      });
 
       // 4) Carrega fotos em paralelo (máx 30 por imóvel)
       await Promise.all(imoveis.map(async (im) => {
@@ -239,6 +258,15 @@ function tenantInfo(tenant) {
   };
 }
 
+// Nível de relevância do anúncio → PublicationType do VRSync (ZAP/Viva Real).
+// O portal só honra o nível se o plano contratado tiver cota; sem cota, rebaixa.
+const NIVEL_ZAP = {
+  padrao: 'STANDARD',
+  destaque: 'PREMIUM',
+  super: 'SUPER_PREMIUM',
+  premium: 'PREMIERE_1',
+};
+
 function finalidadeLabel(im) {
   const f = im.finalidade || 'locacao';
   if (f === 'venda') return 'Venda';
@@ -260,7 +288,7 @@ function gerarWimoveisXml(tenant, imoveis) {
 
     return `  <Imovel>
     <CodigoImovel>${esc(im.id)}</CodigoImovel>
-    <TituloImovel>${cdata(im.apelido || '')}</TituloImovel>
+    <TituloImovel>${cdata(im._titulo)}</TituloImovel>
     <TipoOferta>${finalidadeLabel(im)}</TipoOferta>
     <SubTipoImovel>${esc(im.subtipo || im.tipo || 'Outros')}</SubTipoImovel>
     <CategoriaImovel>${esc(im.tipo === 'comercial' ? 'Comercial' : 'Residencial')}</CategoriaImovel>
@@ -282,7 +310,7 @@ function gerarWimoveisXml(tenant, imoveis) {
     <PrecoLocacao>${im.aluguelSugerido || 0}</PrecoLocacao>
     <PrecoCondominio>${im.valorCondominio || 0}</PrecoCondominio>
     <PrecoIPTU>${im.valorIPTU || 0}</PrecoIPTU>
-    <Observacao>${cdata(im.descricaoLonga || im.apelido || '')}</Observacao>
+    <Observacao>${cdata(im._descricao)}</Observacao>
     <UrlVideo>${esc(im.videoUrl)}</UrlVideo>
     <UrlTour360>${esc(im.tourUrl)}</UrlTour360>
     <Fotos>
@@ -317,7 +345,7 @@ function gerarZapXml(tenant, imoveis) {
     if (isLocacao) txTypes.push('<TransactionType>For Rent</TransactionType>');
 
     const media = (im.fotos || []).slice(0, 30).map((f, i) =>
-      `        <Item caption="${esc(im.apelido || 'Foto')}" medium="image" primary="${i === 0 ? 'true' : 'false'}">${esc(f.url)}</Item>`
+      `        <Item caption="${esc(im._titulo || 'Foto')}" medium="image" primary="${i === 0 ? 'true' : 'false'}">${esc(f.url)}</Item>`
     ).join('\n');
 
     const tipoMap = {
@@ -334,11 +362,12 @@ function gerarZapXml(tenant, imoveis) {
 
     return `    <Listing>
       <ListingID>${esc(im.id)}</ListingID>
-      <Title>${cdata(im.apelido || '')}</Title>
+      <Title>${cdata(im._titulo)}</Title>
       <TransactionTypes>${txTypes.join('')}</TransactionTypes>
+      ${im._publicacaoZap ? `<PublicationType>${im._publicacaoZap}</PublicationType>` : ''}
       <Details>
         <PropertyType>${esc(propertyType)}</PropertyType>
-        <Description>${cdata(im.descricaoLonga || im.apelido || '')}</Description>
+        <Description>${cdata(im._descricao)}</Description>
         <LivingArea unit="square metres">${im.areaUtil || 0}</LivingArea>
         <LotArea unit="square metres">${im.areaTotal || 0}</LotArea>
         <Bedrooms>${im.quartos || 0}</Bedrooms>
@@ -396,8 +425,8 @@ function gerarOlxXml(tenant, imoveis) {
     return `  <ad>
     <id>${esc(im.id)}</id>
     <category>${im.tipo === 'comercial' ? 'Comerciais' : 'Imóveis'}</category>
-    <subject>${cdata(im.apelido || '')}</subject>
-    <body>${cdata(im.descricaoLonga || im.apelido || '')}</body>
+    <subject>${cdata(im._titulo)}</subject>
+    <body>${cdata(im._descricao)}</body>
     <type>${esc(im.subtipo || 'Outros')}</type>
     <transactionType>${finalidadeLabel(im)}</transactionType>
     <price>${im.aluguelSugerido || im.valorVenda || 0}</price>
@@ -437,8 +466,8 @@ function gerarImovelwebXml(tenant, imoveis) {
 
     return `  <propiedad>
     <referencia>${esc(im.id)}</referencia>
-    <titulo>${cdata(im.apelido || '')}</titulo>
-    <descripcion>${cdata(im.descricaoLonga || im.apelido || '')}</descripcion>
+    <titulo>${cdata(im._titulo)}</titulo>
+    <descripcion>${cdata(im._descricao)}</descripcion>
     <tipo_inmueble>${esc(im.subtipo || 'Casa')}</tipo_inmueble>
     <operacion>${finalidadeLabel(im)}</operacion>
     <pais>Brasil</pais>
@@ -497,7 +526,7 @@ function gerarFacebookXml(tenant, imoveis, site, tenantRef) {
     if (fin !== 'locacao' && im.valorVenda) ofertas.push({ sufixo: fin === 'ambos' ? '-venda' : '', disp: 'for_sale', preco: im.valorVenda });
 
     const link = `${site}imovel.html?id=${encodeURIComponent(im.id)}&t=${encodeURIComponent(tenantRef)}`;
-    const nome = im.apelido || [end.bairro, end.cidade].filter(Boolean).join(', ') || 'Imóvel';
+    const nome = im._titulo || [end.bairro, end.cidade].filter(Boolean).join(', ') || 'Imóvel';
     const imagens = fotos.map(f => `      <image><url>${esc(f.url)}</url></image>`).join('\n');
 
     ofertas.forEach(o => {
@@ -505,7 +534,7 @@ function gerarFacebookXml(tenant, imoveis, site, tenantRef) {
     <home_listing_id>${esc(im.id + o.sufixo)}</home_listing_id>
     <name>${cdata(nome)}</name>
     <availability>${o.disp}</availability>
-    <description>${cdata(im.descricaoLonga || nome)}</description>
+    <description>${cdata(im._descricao || nome)}</description>
     <address format="simple">
       <component name="addr1">${esc(end.logradouro || end.bairro || end.cidade)}</component>
       <component name="city">${esc(end.cidade)}</component>

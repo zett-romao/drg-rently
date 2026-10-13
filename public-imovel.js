@@ -132,7 +132,7 @@ function renderImovel(im, tenant, fotos) {
       const numero = String(tenant.telefone || tenant.whatsapp || '').replace(/\D/g, '');
       if (numero.length >= 10) {
         const numeroComDDI = numero.startsWith('55') ? numero : `55${numero}`;
-        const msg = encodeURIComponent(`Olá, ${tenant.nome || 'imobiliária'}! Tenho interesse no imóvel "${im.apelido || ''}".`);
+        const msg = encodeURIComponent(`Olá, ${tenant.nome || 'imobiliária'}! Tenho interesse no imóvel "${im.tituloAnuncio || im.apelido || ''}"${im.codigoAnuncio ? ` (cód. ${im.codigoAnuncio})` : ''}.`);
         fab.href = `https://wa.me/${numeroComDDI}?text=${msg}`;
         fab.style.display = 'flex';
       }
@@ -144,7 +144,10 @@ function renderImovel(im, tenant, fotos) {
                           finalidade === 'ambos' ? 'Locação e venda' : 'Locação';
   $$('hero-tipo').textContent = `${subtipoLabel} · ${finalidadeLabel}`;
   $$('hero-cidade').textContent = cidadeUf || '—';
-  $$('hero-apelido').textContent = im.apelido || 'Imóvel';
+  $$('hero-apelido').textContent = im.tituloAnuncio || im.apelido || 'Imóvel';
+  // Código do anúncio: o cliente cita e a imobiliária acha na busca de Imóveis
+  const codEl = $$('hero-codigo');
+  if (codEl) { codEl.textContent = im.codigoAnuncio ? `Cód. ${im.codigoAnuncio}` : ''; codEl.style.display = im.codigoAnuncio ? '' : 'none'; }
 
   // Preço(s): mostra conforme finalidade e flag mostrarValor
   const heroPriceEl = $$('hero-aluguel').parentElement;
@@ -170,9 +173,9 @@ function renderImovel(im, tenant, fotos) {
   if (mostrarArea && im.areaUtil) partsSEO.push(`${im.areaUtil} m²`);
   if (mostrarComodos && im.quartos) partsSEO.push(`${im.quartos} quartos`);
   const descSEO = partsSEO.join(' · ') + '.';
-  document.title = `${im.apelido} — ${tenant.nome || 'DRG-Rently'}`;
+  document.title = `${im.tituloAnuncio || im.apelido} — ${tenant.nome || 'DRG-Rently'}`;
   $$('meta-desc').setAttribute('content', descSEO);
-  $$('og-title').setAttribute('content', `${im.apelido} — ${cidadeUf}`);
+  $$('og-title').setAttribute('content', `${im.tituloAnuncio || im.apelido} — ${cidadeUf}`);
   $$('og-desc').setAttribute('content', descSEO);
   if (fotos.length > 0) $$('og-image').setAttribute('content', fotos[0].url);
 
@@ -230,12 +233,12 @@ function renderImovel(im, tenant, fotos) {
   if (tenant.telefone) {
     const tel = String(tenant.telefone).replace(/\D/g, '');
     const telDDI = (tel.length >= 12 && tel.startsWith('55')) ? tel : '55' + tel; // não duplica o 55
-    const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.apelido || ''))}`;
+    const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` (cód. ${im.codigoAnuncio})` : ''))}`;
     contatos.push(`<a href="${wpp}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
     contatos.push(`<a href="tel:+55${tel}">📞 Ligar</a>`);
   }
   if (tenant.emailContato) {
-    const subj = encodeURIComponent('Interesse no imóvel ' + (im.apelido || ''));
+    const subj = encodeURIComponent('Interesse no imóvel ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` — cód. ${im.codigoAnuncio}` : ''));
     contatos.push(`<a href="mailto:${tenant.emailContato}?subject=${subj}">✉️ E-mail</a>`);
   }
   $$('contato-actions').innerHTML = contatos.join('') ||

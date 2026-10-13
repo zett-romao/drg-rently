@@ -331,6 +331,66 @@ REGRAS por tipo_operacao:
 
 NÃO inclua explicações fora do JSON. Resposta apenas JSON puro.`;
 
+// Prompt ANUNCIO (v1 — usado quando body.modo === 'anuncio'):
+// Gerador de anúncios. Recebe as fotos (já reduzidas no navegador), os dados do
+// imóvel e os pontos da região (OpenStreetMap, com distância calculada no app) e
+// devolve título, descrição, curadoria das fotos e sugestão de relevância.
+const PROMPT_ANUNCIO = `Você é redator sênior de anúncios imobiliários no Brasil e editor de fotografia de imóveis. Seu trabalho vai para os portais (ZAP, Viva Real, OLX, Imovelweb, Chaves na Mão) e para o site da imobiliária.
+
+Você recebe:
+1. DADOS do imóvel (JSON abaixo) — a única fonte de fatos sobre o imóvel.
+2. PONTOS DA REGIÃO — lista real (OpenStreetMap) com distância aproximada em linha reta, já calculada.
+3. FOTOS numeradas ("Foto 0", "Foto 1"…), na ordem em que o corretor subiu.
+
+REGRAS DE OURO (não negociáveis):
+- NUNCA invente característica. Só afirme o que está nos DADOS ou o que aparece com clareza nas fotos (ex.: piscina visível). Na dúvida, não cite.
+- NUNCA invente ponto da região, nome de escola, estação ou distância. Use só a lista PONTOS DA REGIÃO; se ela vier vazia, fale da região só com o que estiver nos DADOS (bairro/cidade) e sem citar estabelecimentos.
+- Distâncias: arredonde ("cerca de 300 m", "a uns 5 minutos a pé" — 80 m por minuto). Elas são aproximadas; nunca diga "em frente" ou "ao lado" se a distância for maior que 100 m.
+- Não escreva preço, telefone, e-mail, site, WhatsApp nem endereço com número no texto (os portais têm campo próprio e reprovam contato na descrição).
+- Respeite PRIVACIDADE dos DADOS: se "mostrarBairro" for false, não cite bairro, rua nem pontos da região. Se "mostrarValor" for false, não cite valores de condomínio/IPTU.
+- Proibido linguagem discriminatória ou que restrinja público (gênero, estado civil, filhos, religião, origem). Pode dizer para quem o imóvel é prático ("bom para quem trabalha de casa"), nunca quem não pode.
+- Português do Brasil, correto, sem CAIXA ALTA, sem excesso de exclamação, sem clichês vazios ("oportunidade única", "não perca", "imperdível").
+
+TÍTULO (campo "titulo"): 45 a 70 caracteres. Formato que performa nos portais: tipo + principal diferencial + bairro (se puder mostrar). Ex.: "Apartamento 2 quartos com varanda gourmet na Vila Mariana". Sem emoji, sem ponto final.
+
+DESCRIÇÃO (campo "descricao"): 900 a 1.600 caracteres, 4 a 6 parágrafos curtos separados por linha em branco ("\\n\\n"):
+  1) gancho com o que o imóvel tem de melhor;
+  2) ambientes e acabamento (metragem, quartos, suítes, vagas, andar, mobília — o que houver);
+  3) condomínio/lazer/segurança (só se houver nos DADOS ou nas fotos);
+  4) localização e rotina (use PONTOS DA REGIÃO);
+  5) condições (financiamento, FGTS, mobiliado, aceita pet — só se houver) e convite para agendar visita.
+Tom pedido em DADOS.tom; público em DADOS.publico (se houver).
+
+FOTOS (campo "fotos", um item para CADA foto recebida, mesmo índice):
+- "ambiente": sala, cozinha, quarto, suíte, banheiro, área de serviço, varanda, fachada, área comum, piscina, garagem, vista, planta, outro.
+- "legenda": até 60 caracteres, descritiva ("Sala integrada com a varanda").
+- "nota": 0 a 10 (nitidez, luz, enquadramento, horizonte, o quanto vende o imóvel).
+- "usar": false quando borrada, muito escura sem salvação, repetida (quase igual a outra melhor), de lado/cortada sem valor, ou com problema de privacidade. Explique em "motivoDescarte".
+- "privacidade": descreva se aparecem rostos, pessoas, placa de carro legível, documentos, fotos de família, nome em correspondência — senão null.
+- "ajustes": correção HONESTA de exposição e cor (o app aplica; nada de alterar o imóvel):
+    "brilho" -40 a 40 (positivo clareia), "contraste" -30 a 30, "saturacao" -30 a 30, "temperatura" -30 a 30 (positivo esquenta/tira o azul), "rotacao" 0, 90, 180 ou 270 (sentido horário; só se a foto estiver claramente de lado ou de cabeça para baixo).
+    Foto já boa = tudo 0. Não exagere: cor real das paredes e do piso tem de continuar a mesma.
+"ordemFotos": índices das fotos com usar=true, na melhor ordem de anúncio. A primeira é a CAPA: a foto mais impactante, horizontal e bem iluminada (normalmente sala, fachada ou área de lazer; nunca banheiro, garagem ou planta). Depois siga um tour lógico: sala → cozinha → quartos → banheiros → área de serviço → área externa/lazer → fachada/vista.
+
+RELEVÂNCIA (campo "relevanciaSugerida"): os portais vendem níveis de exposição — "padrao", "destaque", "super" (super destaque) ou "premium" (vitrine/topo). Sugira o nível que compensa para ESTE anúncio considerando completude, qualidade das fotos e apelo do imóvel (lazer, localização, tamanho, valor). Anúncio fraco não vira bom com destaque: se faltar foto ou informação, sugira "padrao" e diga o que melhorar. Justifique em uma frase em "justificativaRelevancia".
+
+Responda APENAS com JSON válido, sem markdown:
+{
+  "titulo": string,
+  "chamadaCurta": string (até 120 caracteres, para redes sociais/WhatsApp, pode ter 1 emoji),
+  "descricao": string,
+  "destaques": [string] (4 a 8 itens curtos, ex.: "Suíte com closet"),
+  "pontosRegiao": [string] (até 6 itens, ex.: "Estação Santa Cruz do metrô a cerca de 600 m"),
+  "tags": [string] (até 10, minúsculas, ex.: "varanda gourmet"),
+  "fotos": [{ "indice": int, "ambiente": string, "legenda": string, "nota": number, "usar": bool, "motivoDescarte": string|null, "privacidade": string|null, "ajustes": { "brilho": int, "contraste": int, "saturacao": int, "temperatura": int, "rotacao": int } }],
+  "ordemFotos": [int],
+  "relevanciaSugerida": "padrao"|"destaque"|"super"|"premium",
+  "justificativaRelevancia": string,
+  "notaAnuncio": int (0 a 100 — qualidade do anúncio como ficou),
+  "informacoesFaltando": [string] (o que, se preenchido, melhora o anúncio: "valor do condomínio", "foto da fachada", "vídeo"…),
+  "alertas": [string] (riscos: privacidade nas fotos, dado incoerente entre DADOS e fotos, etc.)
+}`;
+
 // Limites de tamanho por modo (em bytes).
 // Contratos costumam ser PDFs longos (até 15 páginas); demais documentos cabem em 4 MB.
 const LIMITES_POR_MODO = {
@@ -382,6 +442,7 @@ export default {
     }
 
     const { fileBase64, mimeType, prompt, modo, tipoOperacaoHint } = payload;
+    if (modo === 'anuncio') return gerarAnuncio(payload, env, origin);
     if (!fileBase64 || !mimeType) {
       return new Response(JSON.stringify({ error: 'Faltam campos: fileBase64, mimeType' }), {
         status: 400,
@@ -483,3 +544,81 @@ export default {
     }
   },
 };
+
+// -------------------------------------------------------------
+// Modo "anuncio" — várias fotos + dados + pontos da região
+// -------------------------------------------------------------
+const ANUNCIO_MAX_FOTOS = 24;
+const ANUNCIO_MAX_BYTES = 15 * 1024 * 1024;
+
+function respostaJson(obj, status, origin) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
+async function gerarAnuncio(payload, env, origin) {
+  const imagens = Array.isArray(payload.imagens) ? payload.imagens : [];
+  const dados = payload.dados && typeof payload.dados === 'object' ? payload.dados : {};
+  const pontos = Array.isArray(payload.pontosRegiao) ? payload.pontosRegiao.slice(0, 40) : [];
+
+  if (imagens.length > ANUNCIO_MAX_FOTOS) {
+    return respostaJson({ error: `Máximo de ${ANUNCIO_MAX_FOTOS} fotos por análise.` }, 400, origin);
+  }
+  let total = 0;
+  for (const im of imagens) {
+    if (!im || typeof im.data !== 'string' || !/^image\//.test(im.mimeType || '')) {
+      return respostaJson({ error: 'Foto inválida no envio (esperado { data, mimeType: image/* }).' }, 400, origin);
+    }
+    total += (im.data.length * 3) / 4;
+  }
+  if (total > ANUNCIO_MAX_BYTES) {
+    return respostaJson({ error: 'Fotos somam mais de 15MB — reduza a quantidade.' }, 413, origin);
+  }
+
+  const contexto = `DADOS DO IMÓVEL:\n${JSON.stringify(dados, null, 2)}\n\nPONTOS DA REGIÃO (${pontos.length}):\n${
+    pontos.length ? pontos.map(p => `- ${p}`).join('\n') : '(nenhum — não cite estabelecimentos)'
+  }\n\nFOTOS RECEBIDAS: ${imagens.length}${imagens.length ? '' : ' (sem fotos: devolva "fotos": [] e "ordemFotos": [])'}`;
+
+  const parts = [{ text: PROMPT_ANUNCIO }, { text: contexto }];
+  imagens.forEach((im, i) => {
+    parts.push({ text: `Foto ${i}:` });
+    parts.push({ inline_data: { mime_type: im.mimeType, data: im.data } });
+  });
+
+  const requestBody = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.7,
+      maxOutputTokens: 16384,
+      thinkingConfig: { thinkingBudget: 2048 },
+    },
+  };
+
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${env.GEMINI_API_KEY}`;
+    const geminiRes = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+    const data = await geminiRes.json();
+    if (!geminiRes.ok) {
+      return respostaJson({ error: data?.error?.message || 'Erro no Gemini', details: data }, geminiRes.status, origin);
+    }
+    const cand = data?.candidates?.[0];
+    const text = (cand?.content?.parts || []).map(p => p.text || '').join('');
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      const motivo = cand?.finishReason === 'MAX_TOKENS' ? ' (resposta cortada — tente com menos fotos)' : '';
+      return respostaJson({ error: 'Resposta da IA não é JSON válido' + motivo, raw: text.slice(0, 2000) }, 500, origin);
+    }
+    return respostaJson({ success: true, data: parsed }, 200, origin);
+  } catch (err) {
+    return respostaJson({ error: 'Falha ao chamar Gemini: ' + err.message }, 500, origin);
+  }
+}

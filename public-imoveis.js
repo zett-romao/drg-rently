@@ -197,7 +197,7 @@ function applyFiltros() {
     if (quartosMin && (im.quartos || 0) < quartosMin) return false;
     if (busca) {
       const end = im.endereco || {};
-      const haystack = [im.apelido, end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
+      const haystack = [im.codigoAnuncio, im.tituloAnuncio, im.apelido, end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
       if (!haystack.includes(busca)) return false;
     }
     return true;
@@ -224,7 +224,7 @@ function renderLista(imoveis) {
     const cidadeUf = [end.cidade, end.uf].filter(Boolean).join(' / ');
     const subt = SUBTIPO_LABEL[im.subtipo] || TIPO_LABEL[im.tipo] || '';
     const cover = im.coverUrl
-      ? `<img src="${im.coverUrl}" alt="${(im.apelido || 'Imóvel').replace(/"/g, '&quot;')}" loading="lazy">`
+      ? `<img src="${im.coverUrl}" alt="${textoSeguro(im.tituloAnuncio || im.apelido || 'Imóvel')}" loading="lazy">`
       : `<div class="vitrine-card-noimg">🏢<br><span>Sem foto</span></div>`;
 
     const mostrarArea = pub.mostrarArea !== false;
@@ -262,7 +262,8 @@ function renderLista(imoveis) {
         <div class="vitrine-card-cover">${cover}${badge}</div>
         <div class="vitrine-card-body">
           <div class="vitrine-card-tipo">${subt}${cidadeUf ? ' · ' + cidadeUf : ''}</div>
-          <div class="vitrine-card-title">${im.apelido || 'Imóvel'}</div>
+          <div class="vitrine-card-title">${textoSeguro(im.tituloAnuncio || im.apelido || 'Imóvel')}</div>
+          ${im.codigoAnuncio ? `<div class="vitrine-card-codigo">Cód. ${textoSeguro(im.codigoAnuncio)}</div>` : ''}
           <div class="vitrine-card-specs">${specs.join(' · ') || ''}</div>
           ${precoHtml}
         </div>
@@ -376,3 +377,8 @@ async function enviarAnuncio() {
 window.abrirAnunciarImovel = abrirAnunciarImovel;
 window.fecharAnunciarImovel = fecharAnunciarImovel;
 window.enviarAnuncio = enviarAnuncio;
+
+// Texto do cadastro → HTML seguro (título e código vêm do anúncio)
+function textoSeguro(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
