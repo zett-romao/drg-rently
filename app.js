@@ -9930,6 +9930,7 @@ const LEAD_FINALIDADE_LABEL = {
   venda: '💼 Vender',
   ambos: '🏘 Tanto faz',
 };
+const LEAD_HORARIO_LABEL = { qualquer: 'qualquer horário', manha: 'manhã', tarde: 'tarde', noite: 'noite' };
 
 function setFiltroLeadStatus(st) {
   _filtroLeadStatus = st || 'todos';
@@ -9964,7 +9965,7 @@ function renderLeadsTable() {
 
   if (lista.length === 0) {
     const msg = totalGeral === 0
-      ? `Nenhum lead capturado ainda. Quando alguém clicar em "📤 Anuncie seu imóvel" na sua <a onclick="openVitrinePublica()" style="cursor:pointer; color:var(--primary); text-decoration:underline;">vitrine pública</a>, aparece aqui.`
+      ? `Nenhum lead capturado ainda. Aparecem aqui os pedidos de "📅 Agendar visita" das páginas dos imóveis e quem clicar em "📤 Anuncie seu imóvel" na sua <a onclick="openVitrinePublica()" style="cursor:pointer; color:var(--primary); text-decoration:underline;">vitrine pública</a>, aparece aqui.`
       : 'Nenhum lead corresponde ao filtro selecionado.';
     tbody.innerHTML = `<tr><td colspan="6" class="empty">${msg}</td></tr>`;
     return;
@@ -9983,15 +9984,24 @@ function renderLeadsTable() {
         : ` <span class="papel-chip" style="background:#FEE2E2; color:#991B1B;">há ${diasAtras}d ⚠️</span>`)
       : '';
 
+    // Pedido de visita/interesse feito na página de um imóvel (origem interesse_imovel)
+    const ehInteresse = l.origem === 'interesse_imovel';
+    const msgWhats = ehInteresse
+      ? `Olá ${l.nome || ''}! Aqui é da imobiliária. Recebemos seu pedido sobre o imóvel ${l.codigoAnuncio ? l.codigoAnuncio + ' — ' : ''}${l.tituloImovel || ''}. Quando podemos agendar a visita?`
+      : `Olá ${l.nome || ''}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel...`;
     const telLink = l.telefone
-      ? `<a href="https://wa.me/${telefoneWhatsApp(l.telefone)}?text=Olá ${encodeURIComponent(l.nome || '')}! Recebemos seu interesse em ${finalidade === 'venda' ? 'vender' : 'anunciar'} um imóvel..." target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>`
+      ? `<a href="https://wa.me/${telefoneWhatsApp(l.telefone)}?text=${encodeURIComponent(msgWhats)}" target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>`
       : '—';
     const emailLink = l.email ? `<br><a href="mailto:${l.email}" style="color:var(--primary); font-size:11px;">${escapeHtml(l.email)}</a>` : '';
 
     const tipoImovel = l.tipo ? (l.tipo.charAt(0).toUpperCase() + l.tipo.slice(1)) : '—';
     const localizacao = l.cidadeBairro || '';
-    const imovelDesc = `${tipoImovel}${localizacao ? ` · ${escapeHtml(localizacao)}` : ''}`;
-    const descTooltip = l.descricao ? `title="${escapeHtml(l.descricao).replace(/"/g, '&quot;')}"` : '';
+    const imovelDesc = ehInteresse
+      ? `${l.imovelId ? `<button type="button" class="link-btn" onclick="openImovelModal('${escapeHtml(l.imovelId)}')">${escapeHtml(l.codigoAnuncio || 'abrir imóvel')}</button> ` : ''}${escapeHtml(l.tituloImovel || '')}`
+        + `<br><span class="muted" style="font-size:11px;">🕐 ${LEAD_HORARIO_LABEL[l.melhorHorario] || 'qualquer horário'}${l.mensagem ? ' · 💬 ' + escapeHtml(l.mensagem.slice(0, 120)) : ''}</span>`
+      : `${tipoImovel}${localizacao ? ` · ${escapeHtml(localizacao)}` : ''}`;
+    const textoDesc = l.descricao || l.mensagem;
+    const descTooltip = textoDesc ? `title="${escapeHtml(textoDesc).replace(/"/g, '&quot;')}"` : '';
 
     const statusBadgeCor = {
       novo: 'background:#DBEAFE; color:#1E40AF;',
@@ -10004,7 +10014,7 @@ function renderLeadsTable() {
       <tr ${status === 'descartado' ? 'style="opacity:0.55;"' : ''}>
         <td style="font-size:12px;"><strong>${dataTxt}</strong>${diasBadge}</td>
         <td><strong>${escapeHtml(l.nome || '—')}</strong><br>${telLink}${emailLink}</td>
-        <td><span class="papel-chip" style="background:#F1F5F9;">${LEAD_FINALIDADE_LABEL[finalidade] || finalidade}</span></td>
+        <td><span class="papel-chip" style="${ehInteresse ? 'background:#DBEAFE; color:#1E40AF;' : 'background:#F1F5F9;'}">${ehInteresse ? '📅 Visita / interesse' : (LEAD_FINALIDADE_LABEL[finalidade] || finalidade)}</span></td>
         <td ${descTooltip}>${imovelDesc}${l.descricao ? ' <span style="color:var(--text-muted); font-size:11px;">💬</span>' : ''}</td>
         <td><span class="papel-chip" style="${statusBadgeCor}">${LEAD_STATUS_LABEL[status] || status}</span></td>
         <td>
@@ -11506,6 +11516,17 @@ function imovelPublicUrl(imovelId, tenantId) {
   return `${base}imovel.html?id=${imovelId}&t=${slugOrId}`;
 }
 
+// Link para mandar no WhatsApp: passa pelo Worker do feed, que entrega foto,
+// título e preço na prévia (as páginas do site montam isso via JavaScript, que
+// o WhatsApp não roda). Sem Worker configurado, usa o link direto.
+function imovelLinkCompartilhavel(imovelId) {
+  const worker = (State._configCache?.workerFeedUrl || '').trim().replace(/\/+$/, '');
+  const slugOrId = (State.tenant && State.tenant.slug) ? State.tenant.slug : State.tenant.id;
+  return worker
+    ? `${worker}/compartilhar?t=${encodeURIComponent(slugOrId)}&id=${encodeURIComponent(imovelId)}`
+    : imovelPublicUrl(imovelId, State.tenant.id);
+}
+
 async function onTogglePublicoImovel() {
   const imovelId = $('imovel-id').value;
   if (!imovelId) return;
@@ -11530,7 +11551,8 @@ function updateLinkPublicoUI(ativo, imovelId) {
   const actions = $('imovel-link-actions');
   if (ativo) {
     actions.style.display = 'block';
-    $('imovel-link-url').value = imovelPublicUrl(imovelId, State.tenant.id);
+    $('imovel-link-url').value = imovelLinkCompartilhavel(imovelId);
+    ensureConfigCache().then(() => { if ($('imovel-id').value === imovelId) $('imovel-link-url').value = imovelLinkCompartilhavel(imovelId); });
   } else {
     actions.style.display = 'none';
   }
@@ -11794,6 +11816,12 @@ async function saveConfigImobiliaria() {
         },
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
+      // Cópia só com o endereço do Worker da IA: o corretor não lê config/site
+      // (tem tokens), mas precisa dele no gerador de anúncios
+      tenantPath().collection('config').doc('ia').set({
+        workerGeminiUrl: $('cfg-worker-gemini-url').value.trim(),
+        atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      }).catch(e => console.warn('config/ia não atualizado:', e));
       // Invalida cache local (usado por renderPortais)
       State._configCache = null;
       // Invalida cache de padrões operacionais (refetch no próximo getPadroesTenant)
@@ -13542,6 +13570,9 @@ async function confirmarImportacao() {
   if (!_importParsed) return;
   if (!exigirPode('importacao', 'criar')) return;
   const { tipo, schema, rows, errosPorLinha } = _importParsed;
+  // O servidor (fase 4) também confere "✅ Criar" no módulo de destino: checa antes
+  // de começar, para a importação não parar no meio com erro de permissão
+  if (MODULO_COLECAO[tipo] && !exigirPode(tipo, 'criar')) return;
 
   const validas = rows.filter((_, i) => errosPorLinha[i].length === 0);
   if (validas.length === 0) { alert('Nenhuma linha válida pra importar.'); return; }

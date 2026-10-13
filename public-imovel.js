@@ -26,6 +26,9 @@ async function resolveTenantId(slugOrId) {
 }
 
 const $$ = (id) => document.getElementById(id);
+let _imovelAtual = null;
+let _tenantIdAtual = null;
+let _whatsAtual = '';
 
 function fmtBRL(n) {
   if (n == null || isNaN(n)) return 'A consultar';
@@ -87,10 +90,12 @@ function atualizarContadorCarrossel() {
 
 // Compartilhar: menu nativo do celular; no computador copia o link
 async function compartilharImovel(btn) {
-  const dados = { title: document.title, text: $$('hero-apelido').textContent, url: location.href };
+  const link = linkCompartilhavel({ id: imovelId });
+  const dados = { title: document.title, text: $$('hero-apelido').textContent, url: link };
+  registrarEstatistica(imovelId, 'compartilhamentos');
   try {
     if (navigator.share) { await navigator.share(dados); return; }
-    await navigator.clipboard.writeText(location.href);
+    await navigator.clipboard.writeText(link);
     const original = btn.textContent;
     btn.textContent = '✓ Link copiado';
     btn.disabled = true;
@@ -155,7 +160,10 @@ const SUBTIPO_LABEL = {
 
     const tenant = tSnap.exists ? tSnap.data() : {};
 
+    _imovelAtual = im; _tenantIdAtual = tenantId;
+    definirTenantEstatistica(tenantId);
     renderImovel(im, tenant, fotosSnap.docs.map(d => d.data()));
+    registrarEstatistica(imovelId, 'visitas');
     $$('loading').style.display = 'none';
     $$('content').style.display = 'block';
     carregarSemelhantes(db, tenantId, im).catch(e => console.warn('Semelhantes:', e));
@@ -296,6 +304,26 @@ function renderImovel(im, tenant, fotos) {
     });
   }
 
+  // Vídeo (YouTube/Vimeo) e tour 360° (Matterport embute; os demais viram botão)
+  const midia = [];
+  const video = urlVideoEmbed(im.videoUrl);
+  if (video) midia.push(`<div class="midia-video"><iframe src="${video}" title="Vídeo do imóvel" loading="lazy" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe></div>`);
+  else if (urlSegura(im.videoUrl)) midia.push(`<a class="midia-link" href="${urlSegura(im.videoUrl)}" target="_blank" rel="noopener">🎥 Assistir ao vídeo do imóvel</a>`);
+  const tour = urlSegura(im.tourUrl);
+  if (tour && /matterport\.com/i.test(tour)) midia.push(`<div class="midia-video"><iframe src="${tour}" title="Tour virtual 360°" loading="lazy" allow="xr-spatial-tracking; fullscreen" allowfullscreen></iframe></div>`);
+  else if (tour) midia.push(`<a class="midia-link" href="${tour}" target="_blank" rel="noopener">🌐 Abrir o tour virtual 360°</a>`);
+  if (midia.length) { $$('midia-conteudo').innerHTML = midia.join(''); $$('midia-section').style.display = 'block'; }
+
+  // Mapa da região aproximada (sem pino: nunca o ponto exato da casa)
+  const geo = im.geo || {};
+  if (mostrarBairro && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) {
+    const d = 0.006; // ~650 m para cada lado
+    const bbox = [geo.lng - d, geo.lat - d * 0.75, geo.lng + d, geo.lat + d * 0.75].map(n => n.toFixed(5)).join('%2C');
+    $$('mapa-regiao').innerHTML = `<iframe src="https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik" title="Mapa da região" loading="lazy"></iframe>
+      <span class="mapa-legenda">📍 Região aproximada · © OpenStreetMap</span>`;
+    $$('mapa-regiao').style.display = 'block';
+  }
+
   // Features (respeitando toggles)
   const features = [];
   if (mostrarArea && im.areaUtil)   features.push({ ico: '📐', label: 'Área útil',  val: im.areaUtil + ' m²' });
@@ -340,14 +368,15 @@ function renderImovel(im, tenant, fotos) {
     const tel = String(tenant.telefone).replace(/\D/g, '');
     const telDDI = (tel.length >= 12 && tel.startsWith('55')) ? tel : '55' + tel; // não duplica o 55
     const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` (cód. ${im.codigoAnuncio})` : ''))}`;
-    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener">💬 Fale com o corretor</a>`);
-    contatos.push(`<a href="tel:+${telDDI}">📞 Ligar</a>`);
+    _whatsAtual = wpp;
+    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener" onclick="registrarEstatistica(imovelId, 'contatos')">💬 Fale com o corretor</a>`);
+    contatos.push(`<a href="tel:+${telDDI}" onclick="registrarEstatistica(imovelId, 'contatos')">📞 Ligar</a>`);
     const btnWhats = $$('btn-acao-whats');
     if (btnWhats) { btnWhats.href = wpp; btnWhats.style.display = ''; }
   }
   if (tenant.emailContato) {
     const subj = encodeURIComponent('Interesse no imóvel ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` — cód. ${im.codigoAnuncio}` : ''));
-    contatos.push(`<a href="mailto:${tenant.emailContato}?subject=${subj}">✉️ E-mail</a>`);
+    contatos.push(`<a href="mailto:${tenant.emailContato}?subject=${subj}" onclick="registrarEstatistica(imovelId, 'contatos')">✉️ E-mail</a>`);
   }
   // Na ficha impressa os botões somem: telefone e e-mail por extenso
   const telImp = String(tenant.telefone || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
@@ -449,4 +478,87 @@ async function carregarSemelhantes(db, tenantId, im) {
       </a>`;
   }).join('');
   $$('semelhantes-section').style.display = 'block';
+}
+
+// ---------- Vídeo / links ----------
+function urlSegura(u) {
+  try { const x = new URL(String(u || '')); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch (_) { return ''; }
+}
+function urlVideoEmbed(u) {
+  const url = urlSegura(u);
+  if (!url) return '';
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,15})/);
+  if (yt) return `https://www.youtube-nocookie.com/embed/${yt[1]}`;
+  const vm = url.match(/vimeo\.com\/(?:video\/)?(\d{5,12})/);
+  if (vm) return `https://player.vimeo.com/video/${vm[1]}`;
+  return '';
+}
+
+// ---------- Agendar visita / Tenho interesse → Leads do sistema ----------
+function abrirInteresse() {
+  const im = _imovelAtual || {};
+  $$('interesse-imovel').textContent = `${im.tituloAnuncio || im.apelido || 'Imóvel'}${im.codigoAnuncio ? ' · Cód. ' + im.codigoAnuncio : ''}`;
+  $$('form-interesse').style.display = '';
+  $$('interesse-ok').style.display = 'none';
+  $$('interesse-status').style.display = 'none';
+  const btn = $$('btn-interesse'); btn.disabled = false; btn.textContent = '📩 Enviar';
+  $$('modal-interesse').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => $$('int-nome').focus(), 50);
+}
+function fecharInteresse() {
+  $$('modal-interesse').style.display = 'none';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $$('modal-interesse')?.style.display === 'flex') fecharInteresse();
+});
+
+async function enviarInteresse(ev) {
+  ev.preventDefault();
+  const btn = $$('btn-interesse');
+  if (btn.disabled) return;
+  const st = $$('interesse-status');
+  const nome = $$('int-nome').value.trim();
+  const tel = $$('int-telefone').value.replace(/\D/g, '');
+  const mostrarErro = (msg) => { st.textContent = msg; st.className = 'interesse-status is-erro'; st.style.display = 'block'; };
+  if (nome.length < 2) return mostrarErro('Informe seu nome.');
+  if (tel.length < 10) return mostrarErro('Informe o telefone com DDD.');
+  if (!$$('int-lgpd').checked) return mostrarErro('Marque a autorização de contato para enviar.');
+
+  // Regra nº 1: trava antes do await
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando... aguarde';
+  st.style.display = 'none';
+  const im = _imovelAtual || {};
+  try {
+    await firebase.firestore().collection('tenants').doc(_tenantIdAtual).collection('leadsImoveis').add({
+      origem: 'interesse_imovel',
+      nome: nome.slice(0, 200),
+      telefone: tel,
+      email: $$('int-email').value.trim().slice(0, 120) || null,
+      imovelId,
+      codigoAnuncio: im.codigoAnuncio || null,
+      tituloImovel: (im.tituloAnuncio || im.apelido || '').slice(0, 200) || null,
+      finalidade: im.finalidade || null,
+      melhorHorario: $$('int-horario').value,
+      mensagem: $$('int-mensagem').value.trim().slice(0, 1000) || null,
+      status: 'novo',
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      url: location.href.slice(0, 500),
+      userAgent: navigator.userAgent.slice(0, 300),
+    });
+    registrarEstatistica(imovelId, 'contatos');
+    // Sucesso: a tela se resolve (formulário some, confirmação aparece)
+    $$('form-interesse').style.display = 'none';
+    const w = $$('interesse-ok-whats');
+    if (_whatsAtual) { w.href = _whatsAtual; w.style.display = ''; } else { w.style.display = 'none'; }
+    $$('interesse-ok').style.display = 'block';
+    $$('form-interesse').reset();
+  } catch (err) {
+    console.error('Erro ao enviar interesse:', err);
+    mostrarErro('Não conseguimos enviar agora (' + (err.code || err.message) + '). Tente de novo ou chame no WhatsApp.');
+    btn.disabled = false;
+    btn.textContent = '📩 Enviar';
+  }
 }

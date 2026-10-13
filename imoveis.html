@@ -14,7 +14,7 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
-  <link rel="stylesheet" href="public.css?v=20261013e-favoritos">
+  <link rel="stylesheet" href="public.css?v=20261013g-site">
 
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
@@ -92,6 +92,18 @@
             <option value="3">3+ quartos</option>
             <option value="4">4+ quartos</option>
           </select>
+          <button type="button" class="btn-mais-filtros" onclick="document.body.classList.toggle('filtros-abertos')">⚙ Mais filtros</button>
+          <div class="filtros-mais">
+            <select id="filtro-bairro"><option value="">Todos os bairros</option></select>
+            <input type="number" id="filtro-preco-min" min="0" step="1000" inputmode="numeric" placeholder="Preço mín. (R$)">
+            <input type="number" id="filtro-preco-max" min="0" step="1000" inputmode="numeric" placeholder="Preço máx. (R$)">
+            <select id="filtro-ordem">
+              <option value="">Ordenar: relevância</option>
+              <option value="menor">Menor preço</option>
+              <option value="maior">Maior preço</option>
+              <option value="recentes">Mais recentes</option>
+            </select>
+          </div>
         </div>
       </div>
     </section>
@@ -198,7 +210,7 @@
     </svg>
   </a>
 
-  <script src="public-shell.js?v=20261013c"></script>
-  <script src="public-imoveis.js?v=20261013e-favoritos"></script>
+  <script src="public-shell.js?v=20261013d"></script>
+  <script src="public-imoveis.js?v=20261013f-site"></script>
 </body>
 </html>

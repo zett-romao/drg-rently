@@ -96,6 +96,7 @@ let _allImoveis = []; // cache pra filtros
     window._publicTenantId = tenantId;
     window._publicTenantNome = tenant.nome || 'DRG-Rently';
     configurarWhatsAppFab(tenant);
+    definirTenantEstatistica(tenantId);
     // Menu ☰ + rodapé com contato (public-shell.js)
     montarMenuERodape(tenant, tenantIdOrSlug);
     // "Anuncie seu imóvel" vindo do menu de outra página
@@ -140,6 +141,9 @@ let _allImoveis = []; // cache pra filtros
     $$('filtro-busca').addEventListener('input', applyFiltros);
     $$('filtro-tipo').addEventListener('change', applyFiltros);
     $$('filtro-quartos').addEventListener('change', applyFiltros);
+    ['filtro-bairro', 'filtro-ordem'].forEach(id => $$(id).addEventListener('change', applyFiltros));
+    ['filtro-preco-min', 'filtro-preco-max'].forEach(id => $$(id).addEventListener('input', applyFiltros));
+    preencherBairros();
 
     $$('loading').style.display = 'none';
     $$('content').style.display = 'block';
@@ -194,6 +198,10 @@ function applyFiltros() {
   const finalidade = _finalidadeAtiva;
   const tipo = $$('filtro-tipo').value;
   const quartosMin = parseInt($$('filtro-quartos').value, 10) || 0;
+  const bairro = $$('filtro-bairro')?.value || '';
+  const precoMin = parseFloat($$('filtro-preco-min')?.value) || 0;
+  const precoMax = parseFloat($$('filtro-preco-max')?.value) || 0;
+  const ordem = $$('filtro-ordem')?.value || '';
 
   const idsLista = _modoLista === 'favoritos' ? lerFavoritos() : _modoLista === 'recebida' ? _listaRecebida : null;
   const filtered = _allImoveis.filter(im => {
@@ -207,6 +215,13 @@ function applyFiltros() {
       if (finalidade === 'venda' && f === 'locacao') return false;
     }
     if (quartosMin && (im.quartos || 0) < quartosMin) return false;
+    if (bairro && (im.endereco || {}).bairro !== bairro) return false;
+    if (precoMin || precoMax) {
+      const p = precoDoImovel(im, finalidade);
+      if (!p) return false; // "sob consulta" não entra em faixa de preço
+      if (precoMin && p < precoMin) return false;
+      if (precoMax && p > precoMax) return false;
+    }
     if (busca) {
       const end = im.endereco || {};
       const haystack = [im.codigoAnuncio, im.tituloAnuncio, im.apelido, im.aceitaPermuta === 'sim' ? 'permuta' : '', end.bairro, end.cidade, end.uf, SUBTIPO_LABEL[im.subtipo] || ''].join(' ').toLowerCase();
@@ -215,14 +230,44 @@ function applyFiltros() {
     return true;
   });
 
+  if (ordem === 'menor' || ordem === 'maior') {
+    const sinal = ordem === 'menor' ? 1 : -1;
+    filtered.sort((a, b) => {
+      const pa = precoDoImovel(a, finalidade), pb = precoDoImovel(b, finalidade);
+      if (!pa) return 1; if (!pb) return -1; // sem preço no fim
+      return (pa - pb) * sinal;
+    });
+  } else if (ordem === 'recentes') {
+    const ms = x => (x.atualizadoEm && typeof x.atualizadoEm.toMillis === 'function') ? x.atualizadoEm.toMillis() : 0;
+    filtered.sort((a, b) => ms(b) - ms(a));
+  }
+
   $$('vitrine-count').textContent = filtered.length;
   renderBannerLista(filtered.length);
   renderLista(filtered);
 }
 
 // ---------- Favoritos na vitrine ----------
+// Link com prévia (foto/título no WhatsApp) — ver /compartilhar no Worker do feed
 function linkDaLista(ids) {
-  return `${location.origin}${location.pathname}?t=${encodeURIComponent(tenantIdOrSlug)}&lista=${ids.map(encodeURIComponent).join(',')}`;
+  return linkCompartilhavel({ lista: ids });
+}
+
+// Preço comparável conforme a aba: aluguel na aba Alugar, venda na aba Comprar
+function precoDoImovel(im, finalidadeAba) {
+  if ((im.publicacao || {}).mostrarValor === false) return 0;
+  const f = im.finalidade || 'locacao';
+  if (finalidadeAba === 'locacao') return im.aluguelSugerido || 0;
+  if (finalidadeAba === 'venda') return im.valorVenda || 0;
+  return (f === 'locacao' ? im.aluguelSugerido : im.valorVenda) || im.aluguelSugerido || 0;
+}
+
+function preencherBairros() {
+  const sel = $$('filtro-bairro');
+  if (!sel) return;
+  const bairros = [...new Set(_allImoveis.map(im => (im.endereco || {}).bairro).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  sel.innerHTML = '<option value="">Todos os bairros</option>' + bairros.map(b => `<option>${textoSeguro(b)}</option>`).join('');
 }
 
 function renderBannerLista(qtd) {

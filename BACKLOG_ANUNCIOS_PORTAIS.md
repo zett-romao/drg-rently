@@ -40,12 +40,35 @@ enviaria imóveis para portal não pago.
 
 ---
 
+## ⏳ Domínio próprio (item 6 das melhorias de 2026-10-13) — depende do dono escolher o nome
+
+Sugestão: `imoveis.drglobal.com.br`. O GitHub Pages é **um domínio por repositório**: o sistema
+(index.html) muda junto com o site. Passo a passo quando ele decidir:
+
+1. Hostinger → DNS de `drglobal.com.br` → registro **CNAME** `imoveis` → `zett-romao.github.io`.
+2. GitHub → repo `drg-rently` → Settings → Pages → Custom domain = `imoveis.drglobal.com.br`
+   → esperar o certificado → marcar **Enforce HTTPS**. (O GitHub cria o arquivo `CNAME`; **não**
+   criar antes do DNS existir, senão o site sai do ar.)
+3. Firebase → Authentication → Authorized domains: adicionar o domínio novo.
+4. Google Cloud → Credentials → chave do navegador: liberar `https://imoveis.drglobal.com.br/*`.
+5. Workers: acrescentar a origem nova em `ALLOWED_ORIGINS` (gemini, resend, zapsign, asaas,
+   passkey…) e `SITE_URL` no worker do feed (prévia do WhatsApp) → commit = deploy.
+6. ⚠️ **Login por biometria (passkey) é preso ao domínio**: quem usa vai precisar cadastrar de novo.
+7. Links antigos (`zett-romao.github.io/drg-rently/...`) passam a redirecionar sozinhos (GitHub).
+
+## ⏳ Contatos dos portais entrando sozinhos (item 10) — depende de assinar um portal
+
+O destino já existe: coleção `leadsImoveis` + tela **Leads** (pedidos de visita do site já caem lá,
+`origem: 'interesse_imovel'`). Ao assinar o primeiro portal: pegar a documentação de "integração de
+leads" dele (ZAP/Viva: webhook do Canal Pro; OLX: e-mail/API), criar o endpoint no Worker do feed
+gravando `origem: 'portal_<id>'` via service account, e mostrar o portal na tela Leads.
+
 ## 💡 Oferecidos, aguardando decisão
 
-1. **Gerador com IA para o corretor** — hoje ele vê "peça ao administrador" porque a URL do Worker
-   Gemini fica em `config/site`, que o corretor não lê. Solução: expor só a URL (não é segredo).
+1. ~~**Gerador com IA para o corretor**~~ ✅ feito 2026-10-13 (`config/ia`).
 2. **Sincronizar `INSTALACAO/codigo-fonte`** (Modelo C self-hosted) — já estava defasado antes de
    2026-10-12 e nem tem `rede.js`.
 3. **2 alertas Dependabot (low)** no repositório.
 4. Nível de destaque automático só existe no ZAP/Viva; nos demais é marcado à mão no painel do portal
    (o Plano de publicação lista quais).
+5. ~~Importação x perfil no servidor~~ ✅ a tela confere "✅ Criar" no módulo de destino antes de começar.

@@ -1,7 +1,8 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-12 (Perfis 3.0: delegação de usuários + fila "Com aprovação")
+// Última atualização: 2026-10-13 (Perfis 3.0 fase 4: trava por perfil também no servidor;
+//                     pedidos de visita e estatísticas do site; config/ia para o corretor)
 // =============================================================
 rules_version = '2';
 service cloud.firestore {
@@ -67,6 +68,79 @@ service cloud.firestore {
                   && perfilConcedeGerenciar(tenantId, userDoc().perfilId))
                  || (!(userDoc().get('perfilId', null) is string)
                      && perfilConcedeGerenciar(tenantId, 'seed_' + userDoc().role)));
+    }
+
+    // ---------- Perfis 3.0 no servidor (fase 4) ----------
+    // Mesmo critério do app (normalizarPerfil em app.js): perfil atribuído
+    // (perfilId) → perfil-base do tipo (seed_<role>) → sem perfil nenhum = padrão
+    // do código, que continua liberado como sempre foi. Admin tem piso: sempre pode.
+    // Só "✅ Pode" grava direto; "🕓 Com aprovação" passa pela fila alteracoesPendentes.
+    function perfilIdEfetivo() {
+      return userDoc().get('perfilId', null) is string ? userDoc().perfilId : 'seed_' + userDoc().role;
+    }
+    // Formatos aceitos: 3.0 {ver, criar/editar/excluir: 'sim'|'aprovacao'|'nao'},
+    // 2.0 {ver|acesso, editar: true} e lista {modulos: [...]}
+    function nivelDoPerfil(p, modulo, op) {
+      let perms = p.get('permissoes', null);
+      let m = perms is map ? perms.get(modulo, {}) : {};
+      let ver = m.get('ver', m.get('acesso', false)) == true;
+      return perms is map
+        ? (!ver ? 'nao' : (m.get(op, null) is string ? m.get(op, 'nao') : (m.get('editar', false) == true ? 'sim' : 'nao')))
+        : (p.get('modulos', null) is list ? (modulo in p.modulos ? 'sim' : 'nao') : 'sim');
+    }
+    function veNoPerfil(p, modulo) {
+      let perms = p.get('permissoes', null);
+      let m = perms is map ? perms.get(modulo, {}) : {};
+      return perms is map ? m.get('ver', m.get('acesso', false)) == true
+           : (p.get('modulos', null) is list ? modulo in p.modulos : true);
+    }
+    function caminhoPerfil(tenantId) {
+      return /databases/$(database)/documents/tenants/$(tenantId)/perfis/$(perfilIdEfetivo());
+    }
+    function podeNoModulo(tenantId, modulo, op) {
+      return userDoc().role == 'admin'
+             || !exists(caminhoPerfil(tenantId))
+             || nivelDoPerfil(get(caminhoPerfil(tenantId)).data, modulo, op) == 'sim';
+    }
+    function veModulo(tenantId, modulo) {
+      return userDoc().role == 'admin'
+             || !exists(caminhoPerfil(tenantId))
+             || veNoPerfil(get(caminhoPerfil(tenantId)).data, modulo);
+    }
+    // Coleção → módulo (espelho de MODULO_COLECAO no app.js). Fora da lista = sem trava
+    // (fila, auditoria, vitrine, fichas, contadores, config, estatísticas…)
+    function colecaoProtegida(colecao) {
+      return colecao in ['locadores', 'locatarios', 'garantias', 'compradores', 'negociacoes',
+                         'imoveis', 'contratos', 'balancetes', 'leadsImoveis', 'caixaPool'];
+    }
+    function moduloDaColecao(colecao) {
+      return colecao == 'leadsImoveis' ? 'leads' : (colecao == 'caixaPool' ? 'caixa' : colecao);
+    }
+    function podeGravar(tenantId, colecao, op) {
+      return !colecaoProtegida(colecao) || podeNoModulo(tenantId, moduloDaColecao(colecao), op);
+    }
+    function soCampos(lista) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(lista);
+    }
+    // Efeitos colaterais que as telas fazem fora do próprio módulo (não podem quebrar):
+    //  - contrato/venda/distrato mudam SÓ o status do imóvel (alugado/vendido/disponível);
+    //  - ZapSign atualiza a assinatura (e o status quando assinado) de contrato/negociação;
+    //  - enviar balancete por e-mail grava o envio.
+    function efeitoColateralPermitido(tenantId, colecao) {
+      return (colecao == 'imoveis' && soCampos(['status'])
+              && (podeNoModulo(tenantId, 'contratos', 'criar') || podeNoModulo(tenantId, 'contratos', 'editar')
+                  || podeNoModulo(tenantId, 'contratos', 'excluir') || podeNoModulo(tenantId, 'negociacoes', 'criar')
+                  || podeNoModulo(tenantId, 'negociacoes', 'editar')))
+          || ((colecao == 'contratos' || colecao == 'negociacoes') && veModulo(tenantId, colecao)
+              && (soCampos(['zapsign'])
+                  || (soCampos(['status']) && resource.data.get('zapsign', {}).get('status', '') == 'signed')))
+          || (colecao == 'balancetes' && veModulo(tenantId, 'balancetes')
+              && soCampos(['status', 'emailEnviadoEm', 'emailEnviadoPara', 'emailEnviadoBcc',
+                           'emailLocatarioEnviadoEm', 'emailLocatarioEnviadoPara', 'emailLocatarioEnviadoBcc']));
+    }
+    // Excluir contrato apaga a garantia dele junto
+    function exclusaoEmCascata(tenantId, colecao) {
+      return colecao == 'garantias' && podeNoModulo(tenantId, 'contratos', 'excluir');
     }
 
     // Campos que o próprio usuário NUNCA pode alterar no seu doc
@@ -166,9 +240,15 @@ service cloud.firestore {
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
-      // Subcoleções genéricas — só equipe interna (corretor NÃO entra aqui)
+      // Subcoleções genéricas — só equipe interna (corretor NÃO entra aqui).
+      // Gravação conferida pelo perfil (fase 4); leitura continua livre para a equipe.
       match /{collection}/{docId} {
-        allow read, write: if isEquipeTenant(tenantId);
+        allow read: if isEquipeTenant(tenantId);
+        allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar');
+        allow update: if isEquipeTenant(tenantId)
+                      && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
+        allow delete: if isEquipeTenant(tenantId)
+                      && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
         allow read, write: if isDRGTeam();
       }
 
@@ -256,6 +336,50 @@ service cloud.firestore {
                           || request.resource.data.descricao.size() <= 5000);
       }
 
+      // "Agendar visita / Tenho interesse" da página do imóvel: visitante só cria,
+      // com campos fechados, para imóvel que está publicado na vitrine
+      match /leadsImoveis/{leadId} {
+        allow create: if request.resource.data.origem == 'interesse_imovel'
+                      && request.resource.data.status == 'novo'
+                      && request.resource.data.keys().hasOnly(['origem', 'nome', 'telefone', 'email',
+                           'imovelId', 'codigoAnuncio', 'tituloImovel', 'finalidade', 'melhorHorario',
+                           'mensagem', 'status', 'criadoEm', 'url', 'userAgent'])
+                      && request.resource.data.nome is string
+                      && request.resource.data.nome.size() >= 2 && request.resource.data.nome.size() <= 200
+                      && request.resource.data.telefone is string
+                      && request.resource.data.telefone.matches('[0-9]{10,13}')
+                      && request.resource.data.imovelId is string
+                      && exists(/databases/$(database)/documents/tenants/$(tenantId)/vitrine/$(request.resource.data.imovelId))
+                      && request.resource.data.criadoEm == request.time
+                      && (request.resource.data.get('mensagem', null) == null
+                          || request.resource.data.mensagem.size() <= 1000);
+      }
+
+      // Estatísticas dos imóveis publicados (relatório ao proprietário).
+      // Visitante só soma 1 por vez num contador; nunca lê, zera ou apaga.
+      match /estatisticas/{estId} {
+        function contadorOk(d, k) { return d.get(k, 0) is int && d.get(k, 0) >= 0 && d.get(k, 0) <= 1; }
+        allow create: if request.resource.data.keys().hasOnly(['imovelId', 'mes', 'visitas', 'favoritos', 'contatos', 'compartilhamentos'])
+                      && request.resource.data.imovelId is string
+                      && request.resource.data.mes is string
+                      && request.resource.data.mes.matches('[0-9]{4}-[0-9]{2}')
+                      && estId == request.resource.data.imovelId + '_' + request.resource.data.mes
+                      && exists(/databases/$(database)/documents/tenants/$(tenantId)/vitrine/$(request.resource.data.imovelId))
+                      && contadorOk(request.resource.data, 'visitas') && contadorOk(request.resource.data, 'favoritos')
+                      && contadorOk(request.resource.data, 'contatos') && contadorOk(request.resource.data, 'compartilhamentos');
+        // exatamente um contador muda, e só +1
+        function maisUm(k) {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly([k])
+                 && request.resource.data.get(k, 0) == resource.data.get(k, 0) + 1;
+        }
+        allow update: if maisUm('visitas') || maisUm('favoritos') || maisUm('contatos') || maisUm('compartilhamentos');
+      }
+
+      // Endereço do Worker da IA (sem segredo): o corretor precisa para o gerador de anúncios
+      match /config/ia {
+        allow read: if isCorretorOf(tenantId);
+      }
+
       // Locadores (proprietários): corretor só os que ele cadastrou
       match /locadores/{locId} {
         allow read, update, delete: if isCorretorOf(tenantId)
@@ -267,7 +391,8 @@ service cloud.firestore {
       // Imóveis
       match /imoveis/{imovelId} {
         // (sem leitura pública: site e feed leem a coleção "vitrine")
-        allow read, write: if isEquipeTenant(tenantId);
+        // Gravação da equipe: regra genérica acima (conferida pelo perfil)
+        allow read: if isEquipeTenant(tenantId);
         allow read, write: if isDRGTeam();
         // Corretor: só os que ele captou
         allow read, delete: if isCorretorOf(tenantId)

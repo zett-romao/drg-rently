@@ -15,7 +15,7 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
-  <link rel="stylesheet" href="public.css?v=20261013e-favoritos">
+  <link rel="stylesheet" href="public.css?v=20261013g-site">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -64,7 +64,8 @@
           <button type="button" id="btn-favoritar" onclick="favoritarEsteImovel(this)">♡ Favoritar</button>
           <button type="button" id="btn-compartilhar" onclick="compartilharImovel(this)">📤 Compartilhar</button>
           <button type="button" onclick="imprimirFicha()">🖨 Imprimir ficha</button>
-          <a id="btn-acao-whats" class="acao-whats" href="#" target="_blank" rel="noopener" style="display:none;">💬 Fale com o corretor</a>
+          <button type="button" class="acao-agendar" onclick="abrirInteresse()">📅 Agendar visita</button>
+          <a id="btn-acao-whats" class="acao-whats" href="#" target="_blank" rel="noopener" style="display:none;" onclick="registrarEstatistica(imovelId, 'contatos')">💬 WhatsApp</a>
         </div>
       </div>
     </section>
@@ -85,6 +86,14 @@
       </div>
     </section>
 
+    <!-- Vídeo e tour 360° -->
+    <section class="public-section" id="midia-section" style="display:none;">
+      <div class="public-container">
+        <h3>Vídeo e tour virtual</h3>
+        <div id="midia-conteudo" class="midia-conteudo"></div>
+      </div>
+    </section>
+
     <!-- Características -->
     <section class="public-section">
       <div class="public-container">
@@ -98,8 +107,9 @@
       <div class="public-container">
         <h3>Localização</h3>
         <p id="endereco-publico" class="endereco-publico">—</p>
+        <div id="mapa-regiao" class="mapa-regiao" style="display:none;"></div>
         <p class="muted" style="font-size:12px; margin-top:6px;">
-          O endereço completo é informado após contato com a imobiliária.
+          O mapa mostra a região aproximada. O endereço completo é informado após contato com a imobiliária.
         </p>
       </div>
     </section>
@@ -111,6 +121,7 @@
           <div id="cartao-valores" class="cartao-valores"></div>
           <h3>Gostou do imóvel?</h3>
           <p id="contato-empresa" class="contato-empresa">Entre em contato com a imobiliária para agendar visita e mais informações.</p>
+          <button type="button" class="btn-agendar-cartao" onclick="abrirInteresse()">📅 Agendar visita / Tenho interesse</button>
           <div id="contato-actions" class="contato-actions"></div>
         </div>
       </div>
@@ -132,6 +143,41 @@
     </footer>
 
   </main>
+
+  <!-- Agendar visita / Tenho interesse -->
+  <div id="modal-interesse" class="todas-fotos" style="display:none;" onclick="if (event.target === this) fecharInteresse()">
+    <div class="interesse-painel" role="dialog" aria-labelledby="interesse-titulo">
+      <div class="todas-fotos-topo">
+        <strong id="interesse-titulo">📅 Agendar visita</strong>
+        <button type="button" class="menu-publico-x" onclick="fecharInteresse()" aria-label="Fechar">×</button>
+      </div>
+      <form id="form-interesse" class="interesse-form" onsubmit="enviarInteresse(event)">
+        <p class="muted" id="interesse-imovel" style="margin:0 0 4px;"></p>
+        <label>Seu nome *<input type="text" id="int-nome" maxlength="120" autocomplete="name" required></label>
+        <label>Telefone / WhatsApp *<input type="tel" id="int-telefone" maxlength="16" autocomplete="tel" inputmode="numeric" oninput="mascaraTelefonePub(this)" required></label>
+        <label>E-mail (opcional)<input type="email" id="int-email" maxlength="120" autocomplete="email"></label>
+        <label>Melhor horário para falarmos
+          <select id="int-horario">
+            <option value="qualquer">Qualquer horário</option>
+            <option value="manha">Manhã</option>
+            <option value="tarde">Tarde</option>
+            <option value="noite">Noite</option>
+          </select>
+        </label>
+        <label>Mensagem (opcional)<textarea id="int-mensagem" rows="3" maxlength="1000" placeholder="Ex.: quero visitar no sábado; tenho um apartamento para dar na permuta…"></textarea></label>
+        <label class="interesse-lgpd"><input type="checkbox" id="int-lgpd" required> Autorizo a imobiliária a entrar em contato comigo sobre este imóvel.</label>
+        <div id="interesse-status" class="interesse-status" style="display:none;"></div>
+        <button type="submit" id="btn-interesse" class="btn-agendar-cartao">📩 Enviar</button>
+      </form>
+      <div id="interesse-ok" class="interesse-ok" style="display:none;">
+        <div class="interesse-ok-icone">✓</div>
+        <strong>Recebemos seu pedido!</strong>
+        <p>A imobiliária vai falar com você no horário escolhido. Se preferir, adiante pelo WhatsApp:</p>
+        <a id="interesse-ok-whats" class="acao-whats-grande" href="#" target="_blank" rel="noopener">💬 Falar agora pelo WhatsApp</a>
+        <button type="button" class="banner-btn" onclick="fecharInteresse()">Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Todas as fotos em grade -->
   <div id="todas-fotos" class="todas-fotos" style="display:none;" onclick="if (event.target === this) fecharTodasFotos()">
@@ -160,7 +206,7 @@
     </svg>
   </a>
 
-  <script src="public-shell.js?v=20261013c"></script>
-  <script src="public-imovel.js?v=20261013e-favoritos"></script>
+  <script src="public-shell.js?v=20261013d"></script>
+  <script src="public-imovel.js?v=20261013f-site"></script>
 </body>
 </html>

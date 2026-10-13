@@ -531,12 +531,29 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
      exigem ✅ Pode: arquivo e chave não ficam guardados num pedido pendente.
 - **Código:** `normalizarPerfil`, `nivelPermissao`, `excessosSobreMeuPerfil`, `gravar()`,
   `POS_APROVACAO`/`EXCLUSAO_CUSTOM` (efeitos que a tela faria ao salvar), `PERFIS_MODELO`.
-- ⚠️ **Pendente (fase 4):** a trava por perfil ainda é **da tela**. No Firestore, a equipe
-  interna continua gravando qualquer subcoleção do tenant (regra genérica `isEquipeTenant`),
-  e o "não concede o que não tem" não é conferido no servidor. Fechar isso exige reescrever
-  as regras por coleção, lendo o perfil.
+- ✅ **Fase 4 (2026-10-13): trava também no servidor** (`firestore.rules`: `podeNoModulo`,
+  `podeGravar`, `nivelDoPerfil`). Grava direto só com "✅ Pode" no módulo da coleção
+  (`colecaoProtegida`, espelho de `MODULO_COLECAO`); sem perfil nenhum = padrão do código (libera,
+  como antes); admin tem piso. Efeitos colaterais previstos em `efeitoColateralPermitido`
+  (contrato/venda/distrato mudam **só** `status` do imóvel; ZapSign; envio do balancete por e-mail)
+  e `exclusaoEmCascata` (garantia do contrato). **Mudou um efeito colateral no app → atualizar a
+  regra.** Testado no emulador (49 cenários; suíte em `testes/teste-regras.mjs`).
+  Ainda só na tela: "não concede o que não tem" ao editar perfis.
 
 ## Histórico de decisões
+
+- **2026-10-13 (tarde)**: pacote de melhorias pedido pelo dono ("faça todos"): (1) **prévia com foto
+  no WhatsApp** — `/compartilhar` no Worker do feed devolve og:* do imóvel/lista e redireciona
+  (destino sempre `SITE_URL`); botões Compartilhar, lista de favoritos e "Copiar link" do cadastro
+  usam esse link; (2) **"📅 Agendar visita"** na página do imóvel → `leadsImoveis` com
+  `origem: 'interesse_imovel'` (regra própria, campos fechados, só imóvel da vitrine) → tela Leads;
+  (3) vídeo YouTube/Vimeo e tour Matterport na página; (4) vitrine com bairro, faixa de preço e
+  ordenação; (5) **estatísticas** `estatisticas/{imovelId}_{AAAA-MM}` (visitas/favoritos/contatos/
+  compartilhamentos, +1 por sessão; regra só deixa somar 1) + bloco "📊 Desempenho" e relatório ao
+  proprietário por WhatsApp no cadastro; (7) mapa OSM da região aproximada (sem pino);
+  (8) `config/ia` para o corretor usar o gerador; (9) Perfis fase 4 no servidor (ver Permissões).
+  (6) domínio e (10) leads dos portais: roteiro em `BACKLOG_ANUNCIOS_PORTAIS.md`.
+  🔎 Lição: regras do Firestore **não têm `toList()`** — o emulador pegou antes de ir pro Console.
 
 - **2026-10-12 (noite 2)**: **Anúncios** (ver seção acima) — pedido do dono: *"cada anúncio deve receber
   um código de publicação… dentro de cada anúncio já devem aparecer os portais ativos e em qual relevância

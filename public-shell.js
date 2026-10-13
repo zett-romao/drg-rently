@@ -21,6 +21,41 @@ function _telefonePub(t) {
   };
 }
 
+// ---------- Link com prévia (foto/título no WhatsApp) ----------
+// O Worker do feed devolve as tags og:* do imóvel e redireciona para o site.
+const URL_COMPARTILHAR = 'https://drg-rently-feed.zett-romao.workers.dev/compartilhar';
+function linkCompartilhavel({ id, lista } = {}) {
+  const t = encodeURIComponent(_favRef || '');
+  if (id) return `${URL_COMPARTILHAR}?t=${t}&id=${encodeURIComponent(id)}`;
+  if (lista && lista.length) return `${URL_COMPARTILHAR}?t=${t}&lista=${lista.map(encodeURIComponent).join(',')}`;
+  return `${URL_COMPARTILHAR}?t=${t}`;
+}
+
+// ---------- Estatísticas (relatório ao proprietário) ----------
+// tenants/{tid}/estatisticas/{imovelId}_{AAAA-MM}: visitas, favoritos, contatos,
+// compartilhamentos. Regra do Firestore só deixa somar 1 por vez. Conta 1 vez
+// por sessão do navegador (recarregar a página não infla o número).
+let _estTenantId = null;
+function definirTenantEstatistica(tenantId) { _estTenantId = tenantId || null; }
+function registrarEstatistica(imovelId, campo) {
+  if (!_estTenantId || !imovelId || !['visitas', 'favoritos', 'contatos', 'compartilhamentos'].includes(campo)) return;
+  const chave = `drg-est-${imovelId}-${campo}`;
+  try { if (sessionStorage.getItem(chave)) return; sessionStorage.setItem(chave, '1'); } catch (_) {}
+  const mes = new Date().toISOString().slice(0, 7);
+  try {
+    firebase.firestore().collection('tenants').doc(_estTenantId).collection('estatisticas').doc(`${imovelId}_${mes}`)
+      .set({ imovelId, mes, [campo]: firebase.firestore.FieldValue.increment(1) }, { merge: true })
+      .catch(e => console.warn('Estatística não registrada:', e.message));
+  } catch (_) {}
+}
+
+function mascaraTelefonePub(el) {
+  const d = el.value.replace(/\D/g, '').slice(0, 11);
+  el.value = d.length > 10 ? `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+    : d.length > 6 ? `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+    : d.length > 2 ? `(${d.slice(0, 2)}) ${d.slice(2)}` : d;
+}
+
 // ---------- Favoritos ----------
 // Guardados no próprio aparelho (sem conta). Para decidir junto com outra
 // pessoa, a lista vira um link (imoveis.html?t=…&lista=id1,id2) enviado por WhatsApp.
@@ -43,6 +78,7 @@ function alternarFavorito(id) {
   if (i >= 0) lista.splice(i, 1); else lista.unshift(id);
   const ok = gravarFavoritos(lista);
   atualizarContadorFavoritos();
+  if (ok && i < 0) registrarEstatistica(id, 'favoritos');
   return { favorito: i < 0, ok };
 }
 function atualizarContadorFavoritos() {

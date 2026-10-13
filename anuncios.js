@@ -116,10 +116,12 @@ async function prepararAnuncioNoModalImovel(id) {
   contarTituloAnuncio();
 
   const wrap = $('imovel-anuncio-portais-wrap');
+  $('imovel-desempenho-wrap').style.display = 'none';
   // Corretor não publica no site/portais — quem publica é a imobiliária
   if (isCorretor()) { wrap.style.display = 'none'; $('imovel-anuncio-portais').innerHTML = ''; return; }
   wrap.style.display = 'block';
   await renderPortaisDoAnuncio(id);
+  if (id && im.linkPublico) carregarDesempenho(id, im).catch(e => console.warn('Desempenho:', e));
 }
 
 function contarTituloAnuncio() {
@@ -427,10 +429,9 @@ async function abrirGeradorAnuncio() {
   renderFotosGerador();
   mostrarEtapaGerador('entrada');
 
-  const cfg = await ensureConfigCache();
-  if (!(cfg.workerGeminiUrl || '').trim()) {
+  if (!(await urlWorkerIA())) {
     showAlert('gerador-alert', isCorretor()
-      ? 'A IA ainda não está ligada para o seu acesso. Peça ao administrador da imobiliária.'
+      ? 'A IA ainda não está ligada para o seu acesso. Peça ao administrador que abra e salve Configurações uma vez.'
       : 'A IA não está configurada: cole a URL do Worker Gemini em Configurações → IA.');
   }
   $('modal-gerador-anuncio').style.display = 'flex';
@@ -591,6 +592,17 @@ function adicionarFotosGerador(input) {
   if (grandes.length) avisos.push(`${grandes.length} foto(s) acima de 20MB ficaram de fora`);
   if (recusadas) avisos.push(`${recusadas} foto(s) passaram do limite de ${GERADOR_MAX_FOTOS} por análise`);
   if (avisos.length) showAlert('gerador-alert', avisos.join(' · ') + '.');
+}
+
+// Endereço do Worker da IA: config/site para a equipe; config/ia para o corretor
+// (ele não lê config/site, que guarda tokens). Ver saveConfigImobiliaria.
+async function urlWorkerIA() {
+  const cfg = await ensureConfigCache();
+  if ((cfg.workerGeminiUrl || '').trim()) return cfg.workerGeminiUrl.trim();
+  try {
+    const s = await tenantPath().collection('config').doc('ia').get();
+    return ((s.exists && s.data().workerGeminiUrl) || '').trim();
+  } catch (_) { return ''; }
 }
 
 // ---------- Imagens: carregar, reduzir e corrigir (canvas) ----------
@@ -812,8 +824,7 @@ async function pontosDaRegiao(centro) {
 
 async function gerarAnuncioIA() {
   clearAlert('gerador-alert');
-  const cfg = await ensureConfigCache();
-  const workerUrl = (cfg.workerGeminiUrl || '').trim();
+  const workerUrl = await urlWorkerIA();
   if (!workerUrl) {
     showAlert('gerador-alert', 'A IA não está configurada: cole a URL do Worker Gemini em Configurações → IA.');
     return;
@@ -1204,3 +1215,96 @@ window.abrirGeradorAnuncio = abrirGeradorAnuncio;
 window.fecharGeradorAnuncio = fecharGeradorAnuncio;
 window.gerarAnuncioIA = gerarAnuncioIA;
 window.aplicarAnuncioIA = aplicarAnuncioIA;
+
+// =============================================================
+// 4. DESEMPENHO NO SITE + RELATÓRIO AO PROPRIETÁRIO
+// estatisticas/{imovelId}_{AAAA-MM} (gravadas pelas páginas públicas) +
+// pedidos de visita em leadsImoveis (origem interesse_imovel)
+// =============================================================
+const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+let _desempenhoAtual = null;
+
+function ultimosMeses(n) {
+  const d = new Date();
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const x = new Date(d.getFullYear(), d.getMonth() - i, 1);
+    out.push(`${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+const rotuloMes = m => `${MESES_PT[Number(m.slice(5)) - 1]}/${m.slice(2, 4)}`;
+
+async function carregarDesempenho(id, im) {
+  const box = $('imovel-desempenho');
+  $('imovel-desempenho-wrap').style.display = 'block';
+  box.innerHTML = '<p class="muted" style="font-size:12px;">Carregando…</p>';
+  const meses = ultimosMeses(3);
+  const [docs, leadsSnap] = await Promise.all([
+    Promise.all(meses.map(m => tenantPath().collection('estatisticas').doc(`${id}_${m}`).get().catch(() => null))),
+    tenantPath().collection('leadsImoveis').where('imovelId', '==', id).get().catch(() => null),
+  ]);
+  const pedidosPorMes = {};
+  (leadsSnap ? leadsSnap.docs : []).forEach(d => {
+    const c = d.data().criadoEm;
+    const dt = c && c.toDate ? c.toDate() : null;
+    if (!dt) return;
+    const m = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    pedidosPorMes[m] = (pedidosPorMes[m] || 0) + 1;
+  });
+  const linhas = meses.map((m, i) => {
+    const e = (docs[i] && docs[i].exists) ? docs[i].data() : {};
+    return { mes: m, visitas: e.visitas || 0, favoritos: e.favoritos || 0, contatos: e.contatos || 0,
+      compartilhamentos: e.compartilhamentos || 0, pedidos: pedidosPorMes[m] || 0 };
+  });
+  _desempenhoAtual = { id, im, linhas };
+  const total = linhas.reduce((a, l) => a + l.visitas + l.favoritos + l.contatos + l.pedidos, 0);
+  box.innerHTML = `
+    <div class="table-wrap"><table class="table desempenho-tabela">
+      <thead><tr><th>Mês</th><th>👁 Visitas</th><th>♥ Favoritos</th><th>💬 Contatos</th><th>📅 Pedidos</th><th>📤 Compart.</th></tr></thead>
+      <tbody>${linhas.map(l => `<tr><td>${rotuloMes(l.mes)}</td><td>${l.visitas}</td><td>${l.favoritos}</td><td>${l.contatos}</td><td>${l.pedidos}</td><td>${l.compartilhamentos}</td></tr>`).join('')}</tbody>
+    </table></div>
+    ${total ? '' : '<p class="muted" style="font-size:12px;">Ainda sem movimento. Compartilhe o link do imóvel para começar a contar.</p>'}`;
+}
+
+async function enviarRelatorioProprietario(btn) {
+  const st = 'imovel-desempenho-status';
+  const D = _desempenhoAtual;
+  if (!D) return;
+  try {
+    const r = await drgSubmit(btn, '⏳ Montando relatório…', async () => {
+      const locadorId = $('imovel-locador')?.value || D.im.locadorId;
+      let loc = {};
+      if (locadorId) { try { const s = await tenantPath().collection('locadores').doc(locadorId).get(); if (s.exists) loc = s.data(); } catch (_) {} }
+      const titulo = ($('imovel-titulo-anuncio')?.value || '').trim() || D.im.tituloAnuncio || D.im.apelido || 'seu imóvel';
+      const cod = _anuncioCodigoAtual ? ` (cód. ${_anuncioCodigoAtual})` : '';
+      const atual = D.linhas[0];
+      const tri = D.linhas.reduce((a, l) => ({ v: a.v + l.visitas, f: a.f + l.favoritos, c: a.c + l.contatos + l.pedidos }), { v: 0, f: 0, c: 0 });
+      const primeiroNome = String(loc.nome || '').trim().split(/\s+/)[0] || '';
+      const texto = [
+        `Olá${primeiroNome ? ', ' + primeiroNome : ''}! Segue o desempenho do anúncio de ${titulo}${cod} no site da ${State.tenant?.nome || 'imobiliária'}:`,
+        '',
+        `📅 ${rotuloMes(atual.mes)} (até hoje): ${atual.visitas} visitas · ${atual.favoritos} favoritos · ${atual.contatos + atual.pedidos} contatos/pedidos de visita`,
+        `📊 Últimos 3 meses: ${tri.v} visitas · ${tri.f} favoritos · ${tri.c} contatos/pedidos de visita`,
+        '',
+        `🔗 ${typeof imovelLinkCompartilhavel === 'function' ? imovelLinkCompartilhavel(D.id) : ''}`,
+        '',
+        'Seguimos divulgando. Qualquer dúvida, estou à disposição.',
+      ].join('\n');
+      const tel = String(loc.telefone || loc.celular || '').replace(/\D/g, '');
+      logAuditoria('update', 'imovel', D.id, { acao: 'relatorio_proprietario' });
+      if (tel.length >= 10) {
+        window.open(`https://wa.me/${telefoneWhatsApp(tel)}?text=${encodeURIComponent(texto)}`, '_blank', 'noopener');
+        return 'whats';
+      }
+      try { await navigator.clipboard.writeText(texto); } catch (_) { prompt('Copie o relatório:', texto); }
+      return 'copiado';
+    }, { destravar: true });
+    if (r === DRG_IGNORADO) return;
+    showInlineStatus(st, r === 'whats'
+      ? '✓ Relatório aberto no WhatsApp do proprietário — é só tocar em Enviar.'
+      : '✓ Proprietário sem telefone no cadastro: relatório copiado para você colar onde quiser.', 'success', 6000);
+  } catch (err) {
+    showInlineStatus(st, `❌ ${escapeHtml(err.message)}`, 'error');
+  }
+}

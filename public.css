@@ -947,3 +947,57 @@ body.menu-publico-aberto { overflow: hidden; }
   font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); text-align: center; }
 .aviso-publico.is-erro { background: #991B1B; }
 @media print { .btn-fav, .aviso-publico, #btn-favoritar { display: none !important; } }
+
+/* ---------- Vitrine: mais filtros ---------- */
+.filtros-row { grid-template-columns: 2fr 1fr 1fr; }
+.filtros-mais { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.btn-mais-filtros { display: none; min-height: 44px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+@media (max-width: 640px) {
+  .filtros-row { grid-template-columns: 1fr 1fr; }
+  .filtros-row #filtro-busca { grid-column: 1 / -1; }
+  .btn-mais-filtros { display: block; grid-column: 1 / -1; }
+  .filtros-mais { display: none; grid-template-columns: 1fr 1fr; }
+  .filtros-mais #filtro-bairro, .filtros-mais #filtro-ordem { grid-column: 1 / -1; }
+  body.filtros-abertos .filtros-mais { display: grid; }
+}
+
+/* ---------- Página do imóvel: ações (5), mídia, mapa, interesse ---------- */
+.acoes-imovel { grid-template-columns: repeat(5, 1fr); max-width: 1000px; }
+.acoes-imovel .acao-agendar { background: #2563EB; border-color: #2563EB; }
+@media (max-width: 640px) {
+  .acoes-imovel { grid-template-columns: repeat(6, 1fr); }
+  .acoes-imovel > button:not(.acao-agendar) { grid-column: span 2; }
+  .acoes-imovel .acao-agendar, .acoes-imovel .acao-whats { grid-column: span 3; }
+}
+.midia-conteudo { display: grid; gap: 12px; }
+.midia-video { position: relative; aspect-ratio: 16 / 9; border-radius: var(--radius-sm); overflow: hidden; background: #000; }
+.midia-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.midia-link { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px;
+  background: var(--primary); color: #fff; text-decoration: none; font-weight: 700; }
+.mapa-regiao { position: relative; margin-top: 12px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
+.mapa-regiao iframe { display: block; width: 100%; height: 260px; border: 0; }
+.mapa-legenda { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,.9); font-size: 11px; }
+.btn-agendar-cartao { display: block; width: 100%; min-height: 48px; margin: 12px 0 10px; border: 0; border-radius: 10px;
+  background: #2563EB; color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.btn-agendar-cartao:active { transform: scale(.98); filter: brightness(.92); }
+.btn-agendar-cartao:disabled { opacity: .8; cursor: wait; }
+.interesse-painel { background: #fff; width: min(520px, 100%); height: 100%; overflow-y: auto; margin-left: auto; }
+@media (min-width: 641px) { .todas-fotos#modal-interesse { align-items: center; } .interesse-painel { height: auto; max-height: 92vh; margin: 0 auto; border-radius: 14px; } }
+.interesse-form { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 20px; }
+.interesse-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; color: var(--text); }
+.interesse-form input, .interesse-form select, .interesse-form textarea { font: inherit; font-size: 16px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; font-weight: 400; }
+.interesse-lgpd { flex-direction: row !important; align-items: flex-start; gap: 8px !important; font-weight: 400 !important; font-size: 13px !important; }
+.interesse-lgpd input { width: 20px; height: 20px; margin-top: 1px; }
+.interesse-status { padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.interesse-status.is-erro { background: #FEE2E2; color: #991B1B; }
+.interesse-ok { padding: 24px 20px 28px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: stretch; }
+.interesse-ok-icone { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; background: #DCFCE7; color: #166534;
+  font-size: 34px; display: flex; align-items: center; justify-content: center; font-weight: 800; }
+.interesse-ok strong { font-size: 18px; color: #166534; }
+.interesse-ok p { margin: 0; color: var(--text-muted); font-size: 14px; }
+.acao-whats-grande { display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 10px;
+  background: #16A34A; color: #fff; text-decoration: none; font-weight: 700; }
+@media print { .acao-agendar, .btn-agendar-cartao, #midia-section, .btn-mais-filtros { display: none !important; } .mapa-regiao iframe { height: 200px; } }
+.mapa-legenda { top: 8px; bottom: auto; } /* embaixo cobria os créditos do OpenStreetMap */

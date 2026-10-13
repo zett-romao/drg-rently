@@ -10,6 +10,8 @@
 //   GET /?tenant=<tenantId|slug>&format=olx       → XML padrão OLX (similar Wimoveis)
 //   GET /?tenant=<tenantId|slug>&format=imovelweb → XML padrão Imovelweb
 //   + &portal=<id>  → só os anúncios marcados para aquele portal (anuncioPortais)
+//   GET /compartilhar?t=<tenant>&id=<imovel>     → prévia (og:image/título/preço) + vai pro imóvel
+//   GET /compartilhar?t=<tenant>&lista=<id,id>   → prévia da lista de favoritos + vai pra lista
 //
 // Configuração no Cloudflare Worker:
 //   Variables:
@@ -33,6 +35,14 @@ export default {
           'Access-Control-Allow-Headers': 'Content-Type',
         },
       });
+    }
+
+    // Prévia com foto para WhatsApp/Facebook/Google (ver paginaCompartilhar)
+    if (url.pathname.replace(/\/+$/, '') === '/compartilhar') {
+      if (!env.FIREBASE_API_KEY) return new Response('Worker mal configurado', { status: 500 });
+      const FS = `https://firestore.googleapis.com/v1/projects/${env.PROJECT_ID || 'drg-rently'}/databases/(default)/documents`;
+      try { return await paginaCompartilhar(url, env, FS, env.FIREBASE_API_KEY); }
+      catch (e) { return new Response('Erro: ' + e.message, { status: 500 }); }
     }
 
     const tenantParam = url.searchParams.get('tenant');
@@ -570,6 +580,111 @@ ${listings.join('\n')}
 // =============================================================
 // Página de ajuda quando acessa sem ?tenant=
 // =============================================================
+// =============================================================
+// /compartilhar — prévia do link no WhatsApp/Facebook/Google
+// As páginas do site montam título e foto via JavaScript, que o WhatsApp
+// não executa: o link mostrava só "Imóvel disponível". Aqui o HTML já sai
+// com og:title/og:image/og:description do imóvel e redireciona o visitante.
+// O destino é sempre o SITE_URL (nunca vem da URL: sem redirecionamento aberto).
+// =============================================================
+const ID_OK = /^[A-Za-z0-9_-]{1,80}$/;
+
+async function resolverTenantId(param, FIRESTORE, KEY) {
+  if (!ID_OK.test(param || '')) return null;
+  const direto = await fetch(`${FIRESTORE}/tenants/${param}?key=${KEY}`);
+  if (direto.ok) return param;
+  const q = await fetch(`${FIRESTORE}:runQuery?key=${KEY}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: 'tenants' }],
+      where: { fieldFilter: { field: { fieldPath: 'slug' }, op: 'EQUAL', value: { stringValue: param } } }, limit: 1 } }),
+  });
+  const doc = ((await q.json()) || []).map(r => r.document).filter(Boolean)[0];
+  return doc ? doc.name.split('/').pop() : null;
+}
+
+function precoTexto(im) {
+  const brl = v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if ((im.publicacao || {}).mostrarValor === false) return 'Valor sob consulta';
+  const f = im.finalidade || 'locacao';
+  if (f !== 'locacao' && im.valorVenda) return brl(im.valorVenda) + (f === 'ambos' && im.aluguelSugerido ? ` · aluguel ${brl(im.aluguelSugerido)}/mês` : '');
+  if (im.aluguelSugerido) return `${brl(im.aluguelSugerido)}/mês`;
+  return '';
+}
+
+async function paginaCompartilhar(url, env, FIRESTORE, KEY) {
+  const site = (env.SITE_URL || 'https://zett-romao.github.io/drg-rently/').replace(/\/?$/, '/');
+  const t = url.searchParams.get('t') || '';
+  const id = url.searchParams.get('id') || '';
+  const lista = (url.searchParams.get('lista') || '').split(',').map(x => x.trim()).filter(x => ID_OK.test(x)).slice(0, 60);
+  if (!ID_OK.test(t) || (id && !ID_OK.test(id))) return new Response('Link inválido', { status: 400 });
+
+  const enc = encodeURIComponent;
+  const destino = id
+    ? `${site}imovel.html?id=${enc(id)}&t=${enc(t)}`
+    : `${site}imoveis.html?t=${enc(t)}${lista.length ? `&lista=${lista.map(enc).join(',')}` : ''}`;
+
+  let titulo = 'Imóveis disponíveis', descricao = 'Confira os imóveis disponíveis.', imagem = `${site}logo.png`;
+  try {
+    const tenantId = await resolverTenantId(t, FIRESTORE, KEY);
+    if (tenantId) {
+      const tRes = await fetch(`${FIRESTORE}/tenants/${tenantId}?key=${KEY}`);
+      const tenant = tRes.ok ? parseFirestoreDoc(await tRes.json()) : {};
+      const nome = tenant.nome || 'Imobiliária';
+      if (tenant.logoUrl) imagem = tenant.logoUrl;
+      titulo = `${nome} — Imóveis disponíveis`; // vale se o imóvel/lista não for achado
+      const lerVitrine = async (vid) => {
+        const r = await fetch(`${FIRESTORE}/tenants/${tenantId}/vitrine/${vid}?key=${KEY}`);
+        return r.ok ? parseFirestoreDoc(await r.json()) : null;
+      };
+      if (id) {
+        const im = await lerVitrine(id);
+        if (im && im.linkPublico === true) {
+          const end = im.endereco || {};
+          titulo = `${im.tituloAnuncio || im.apelido || 'Imóvel'} — ${nome}`;
+          const pub = im.publicacao || {};
+          const partes = [
+            precoTexto(im),
+            pub.mostrarComodos !== false && im.quartos ? `${im.quartos} quarto${im.quartos > 1 ? 's' : ''}` : '',
+            pub.mostrarArea !== false && im.areaUtil ? `${im.areaUtil} m²` : '',
+            [end.bairro, end.cidade].filter(Boolean).join(', '),
+            im.codigoAnuncio ? `Cód. ${im.codigoAnuncio}` : '',
+          ].filter(Boolean);
+          descricao = partes.join(' · ');
+          if (im.coverUrl) imagem = im.coverUrl;
+        }
+      } else if (lista.length) {
+        const primeiros = (await Promise.all(lista.slice(0, 4).map(lerVitrine))).filter(x => x && x.linkPublico === true);
+        titulo = `${lista.length} imóve${lista.length > 1 ? 'is separados' : 'l separado'} para você — ${nome}`;
+        descricao = primeiros.map(x => x.tituloAnuncio || x.apelido).filter(Boolean).slice(0, 3).join(' · ') || descricao;
+        const comFoto = primeiros.find(x => x.coverUrl);
+        if (comFoto) imagem = comFoto.coverUrl;
+      } else {
+        titulo = `${nome} — Imóveis disponíveis`;
+      }
+    }
+  } catch (_) { /* sem prévia rica: ainda redireciona */ }
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(titulo)}</title>
+<meta name="description" content="${esc(descricao)}">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:title" content="${esc(titulo)}">
+<meta property="og:description" content="${esc(descricao)}">
+<meta property="og:image" content="${esc(imagem)}">
+<meta property="og:url" content="${esc(destino)}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="${esc(destino)}">
+<meta http-equiv="refresh" content="0;url=${esc(destino)}">
+</head><body style="font-family:sans-serif;text-align:center;padding:40px">
+<p>Abrindo… <a href="${esc(destino)}">toque aqui se não abrir</a></p>
+<script>location.replace(${JSON.stringify(destino)})</script>
+</body></html>`;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' } });
+}
+
 function htmlHelp() {
   return `<!DOCTYPE html>
 <html lang="pt-BR">

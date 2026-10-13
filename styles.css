@@ -4215,3 +4215,9 @@ details.card > summary:hover {
 /* Selo PERMUTA (lista de Imóveis e Rede) */
 .selo-permuta-chip { display: inline-block; padding: 1px 7px; border: 1.5px solid #B91C1C; border-radius: 4px;
   color: #B91C1C; font-size: 10px; font-weight: 800; letter-spacing: .8px; transform: rotate(-4deg); vertical-align: middle; }
+
+/* Desempenho no site (relatório ao proprietário) */
+.desempenho-wrap { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.desempenho-tabela th, .desempenho-tabela td { text-align: center; font-size: 12.5px; padding: 6px 4px; white-space: nowrap; }
+.desempenho-tabela td:first-child, .desempenho-tabela th:first-child { text-align: left; }
+#btn-relatorio-proprietario { width: 100%; min-height: 42px; margin-top: 8px; }
