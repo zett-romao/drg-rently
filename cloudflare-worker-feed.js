@@ -184,7 +184,7 @@ export default {
         case 'facebook':
         case 'meta':
         case 'instagram': {
-          const site = (env.SITE_URL || 'https://zett-romao.github.io/drg-rently/').replace(/\/?$/, '/');
+          const site = (env.SITE_URL || 'https://rently.dev.br/').replace(/\/?$/, '/');
           xml = gerarFacebookXml(tenant, imoveis, site, tenant?.slug || tenantId); break;
         }
         case 'wimoveis':
@@ -612,7 +612,7 @@ function precoTexto(im) {
 }
 
 async function paginaCompartilhar(url, env, FIRESTORE, KEY) {
-  const site = (env.SITE_URL || 'https://zett-romao.github.io/drg-rently/').replace(/\/?$/, '/');
+  const site = (env.SITE_URL || 'https://rently.dev.br/').replace(/\/?$/, '/');
   const t = url.searchParams.get('t') || '';
   const id = url.searchParams.get('id') || '';
   const lista = (url.searchParams.get('lista') || '').split(',').map(x => x.trim()).filter(x => ID_OK.test(x)).slice(0, 60);
