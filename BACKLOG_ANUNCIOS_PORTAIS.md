@@ -40,7 +40,7 @@ enviaria imóveis para portal não pago.
 
 ---
 
-## ⏳ Domínio próprio (item 6 das melhorias de 2026-10-13) — depende do dono escolher o nome
+## ✅ Domínio próprio — FEITO 2026-10-13: https://rently.dev.br (roteiro abaixo fica como registro)
 
 Sugestão: `imoveis.drglobal.com.br`. O GitHub Pages é **um domínio por repositório**: o sistema
 (index.html) muda junto com o site. Passo a passo quando ele decidir:

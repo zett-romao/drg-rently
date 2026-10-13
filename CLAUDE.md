@@ -38,7 +38,9 @@ Versão controlada por `APP_VERSION` no topo de `app.js` (atualmente `0.1.0`).
   `drg-rently-passkey` (login biométrico), `drg-rently-asaas` (cobrança).
   URLs/secrets em `MANUAL_URLS_E_CHAVES.md` (gitignored, não versionado).
 
-**Hospedagem:** `https://zett-romao.github.io/drg-rently/` — **ativo**
+**Hospedagem:** **`https://rently.dev.br`** (domínio próprio desde 13/10/2026, DNS no Registro.br,
+GitHub Pages com arquivo `CNAME`; `www` e o antigo `zett-romao.github.io/drg-rently/` redirecionam
+sozinhos). Domínio autorizado no Firebase Auth e na chave do navegador do Google Cloud (projeto drg-rently).
 **Repo:** `github.com/zett-romao/drg-rently` — **criado** (deploy = `git push origin main`)
 
 ---
@@ -541,6 +543,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   Ainda só na tela: "não concede o que não tem" ao editar perfis.
 
 ## Histórico de decisões
+
+- **2026-10-13 (tarde 2)**: **domínio próprio `rently.dev.br`** (registrado por 2 anos no Registro.br;
+  zona: 4×A 185.199.108-111.153 + CNAME www → zett-romao.github.io). Workers aceitam o domínio novo
+  (ALLOWED_ORIGINS); passkey com RP por origem (`RPS_EXTRAS` — biometria cadastrada no github.io
+  continua valendo só lá); `SITE_URL` padrão do feed = rently.dev.br; links de boas-vindas usam
+  `urlDoSistema()`. 🔎 Achado: deploy automático (wrangler) **apagava variáveis cadastradas só no
+  painel** — passkey ficou sem RP_ID; agora `keep_vars = true` em todos os wrangler*.toml e as
+  variáveis não-secretas do passkey e do legis-monitor ficam em `[vars]`.
 
 - **2026-10-13 (tarde)**: pacote de melhorias pedido pelo dono ("faça todos"): (1) **prévia com foto
   no WhatsApp** — `/compartilhar` no Worker do feed devolve og:* do imóvel/lista e redireciona
