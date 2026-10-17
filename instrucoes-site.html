@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Instruções para colocar seu site no ar — DRG-Rently</title>
+<meta name="description" content="Passo a passo para ligar o seu domínio (www.suaimobiliaria.com.br) ao site feito no DRG-Rently.">
+<link rel="icon" href="icones/favicon.ico?v=20260801" sizes="any">
+<style>
+:root{--azul:#1e3a5f;--azul2:#2b5a8a;--ok:#166534;--okfundo:#e8f6ee;--aviso:#7a5b00;--avisofundo:#fff8e6;--borda:#e3e7ec;--texto:#1d2733;--suave:#5d6b7a;--fundo:#f6f7f9}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:var(--texto);background:var(--fundo);line-height:1.6}
+header{background:var(--azul);color:#fff;padding:28px 16px}
+header .w{max-width:860px;margin:0 auto}
+header h1{margin:0 0 6px;font-size:clamp(1.4rem,4vw,2rem)}
+header p{margin:0;opacity:.9}
+main{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+.passo{background:#fff;border:1px solid var(--borda);border-radius:14px;padding:22px;margin:16px 0}
+.passo h2{margin:0 0 10px;font-size:1.2rem;display:flex;gap:10px;align-items:center}
+.num{flex:none;width:32px;height:32px;border-radius:50%;background:var(--azul2);color:#fff;display:grid;place-items:center;font-size:1rem}
+.reg{border:1px solid var(--borda);border-radius:10px;padding:12px 14px;margin:10px 0;background:#fbfcfe}
+.reg-linha{display:grid;grid-template-columns:110px 1fr auto;gap:6px 10px;align-items:center;margin:4px 0}
+.reg-linha span{color:var(--suave);font-size:.9rem}
+code{background:#eef1f5;padding:3px 7px;border-radius:6px;font-size:.95rem;overflow-wrap:anywhere}
+button.copiar{border:1px solid var(--borda);background:#fff;border-radius:8px;padding:6px 10px;font:inherit;font-size:.85rem;cursor:pointer;min-height:36px}
+button.copiar:active{transform:scale(.98);filter:brightness(.92)}
+.dica{background:var(--avisofundo);color:var(--aviso);border-radius:10px;padding:12px 14px;margin:12px 0}
+.ok{background:var(--okfundo);color:var(--ok);border-radius:10px;padding:12px 14px;margin:12px 0}
+ol li,ul li{margin:4px 0}
+.campo{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.campo input{flex:1;min-width:200px;padding:10px 12px;border:1px solid var(--borda);border-radius:8px;font:inherit}
+details{background:#fff;border:1px solid var(--borda);border-radius:12px;padding:14px 18px;margin:10px 0}
+summary{cursor:pointer;font-weight:600}
+a{color:var(--azul2)}
+footer{text-align:center;color:var(--suave);font-size:.85rem;padding:20px}
+@media(max-width:560px){.reg-linha{grid-template-columns:1fr auto}.reg-linha span{grid-column:1/-1}}
+@media print{button.copiar,.campo{display:none}body{background:#fff}.passo{break-inside:avoid}}
+</style>
+</head>
+<body>
+<header><div class="w">
+  <h1>Instruções para colocar seu site no ar</h1>
+  <p>Ligue o seu domínio (ex.: <strong>www.suaimobiliaria.com.br</strong>) ao site que você montou em 🌐 Meu site. Leva 10 minutos de trabalho e, depois, alguns minutos de espera.</p>
+</div></header>
+<main>
+  <div class="ok">✓ O seu site <strong>já está no ar</strong> no endereço do Rently (veja em 🌐 Meu site → Endereço e domínio). Estas instruções são para usar um domínio <strong>seu</strong>.</div>
+
+  <div class="campo" id="campo-dominio">
+    <input id="dominio" placeholder="Digite o seu domínio, ex.: www.suaimobiliaria.com.br" aria-label="Seu domínio">
+    <button class="copiar" type="button" onclick="atualizar()">Mostrar os meus registros</button>
+  </div>
+
+  <section class="passo">
+    <h2><span class="num">1</span> Tenha um domínio</h2>
+    <p>Se ainda não tem, registre em <a href="https://registro.br" target="_blank" rel="noopener">registro.br</a> (domínios <code>.com.br</code>). A compra e a senha de lá são <strong>suas</strong> — guarde bem.</p>
+    <div class="dica">💡 Use sempre o endereço <strong>com www</strong> (www.suaimobiliaria.com.br). O endereço sem www não aceita este tipo de ligação na maioria dos provedores, inclusive no Registro.br.</div>
+  </section>
+
+  <section class="passo">
+    <h2><span class="num">2</span> Crie 2 registros no DNS do domínio</h2>
+    <p>São dois "apontamentos". O primeiro leva o domínio até o site; o segundo prova que o domínio é seu e diz qual é o seu site.</p>
+    <div class="reg">
+      <strong>Registro 1 — CNAME</strong>
+      <div class="reg-linha"><span>Tipo</span><code>CNAME</code><span></span></div>
+      <div class="reg-linha"><span>Nome</span><code id="r1-nome">www</code><button class="copiar" type="button" onclick="copiar('r1-nome', this)">📋 Copiar</button></div>
+      <div class="reg-linha"><span>Valor / Dados</span><code id="r1-valor">sites.rently.dev.br</code><button class="copiar" type="button" onclick="copiar('r1-valor', this)">📋 Copiar</button></div>
+    </div>
+    <div class="reg">
+      <strong>Registro 2 — TXT</strong>
+      <div class="reg-linha"><span>Tipo</span><code>TXT</code><span></span></div>
+      <div class="reg-linha"><span>Nome</span><code id="r2-nome">_rently.www</code><button class="copiar" type="button" onclick="copiar('r2-nome', this)">📋 Copiar</button></div>
+      <div class="reg-linha"><span>Valor / Dados</span><code id="r2-valor">(o código do seu site)</code><button class="copiar" type="button" onclick="copiar('r2-valor', this)">📋 Copiar</button></div>
+    </div>
+    <p id="aviso-codigo" class="dica">O código do seu site aparece aqui quando você abre esta página pelo botão do 🌐 Meu site. Ele também está em 🌐 Meu site → Endereço e domínio → 🔍 Verificar.</p>
+
+    <details>
+      <summary>Como fazer no Registro.br</summary>
+      <ol>
+        <li>Entre em <a href="https://registro.br" target="_blank" rel="noopener">registro.br</a> com o seu usuário e senha e abra o seu domínio.</li>
+        <li>Na seção <strong>DNS</strong>, clique em <strong>Editar zona</strong> (ou "Configurar zona DNS"). Se aparecer "modo avançado", aceite.</li>
+        <li>Clique em <strong>Nova entrada</strong>, escolha o tipo <strong>CNAME</strong>, preencha o <em>Nome</em> e os <em>Dados</em> do Registro 1 e confirme.</li>
+        <li>Clique de novo em <strong>Nova entrada</strong>, escolha <strong>TXT</strong> e preencha com o Registro 2.</li>
+        <li>Clique em <strong>Salvar alterações</strong>. Pronto — o Registro.br publica em poucos minutos.</li>
+      </ol>
+      <p class="dica">Se o seu domínio usa outros servidores DNS (Cloudflare, Hostinger, Locaweb…), os registros são criados lá, não no Registro.br.</p>
+    </details>
+    <details>
+      <summary>Como fazer em outros provedores (Hostinger, Locaweb, GoDaddy, Cloudflare…)</summary>
+      <ol>
+        <li>Abra o painel onde o seu domínio está e procure <strong>DNS</strong>, <strong>Zona DNS</strong> ou <strong>Gerenciar DNS</strong>.</li>
+        <li>Adicione um registro <strong>CNAME</strong> e um <strong>TXT</strong> com os nomes e valores acima.</li>
+        <li>Alguns painéis pedem o nome completo (<code id="r1-completo">www.seudominio.com.br</code>); outros, só a parte da frente (<code>www</code>). Os dois funcionam.</li>
+        <li>Se o painel tiver opção de "proxy" (nuvem laranja da Cloudflare), deixe <strong>desligada</strong> nestes dois registros.</li>
+        <li>Se já existir um registro <strong>www</strong> antigo (A ou CNAME de outro site), apague-o antes — só pode haver um.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="passo">
+    <h2><span class="num">3</span> Ligue o domínio no Rently</h2>
+    <ol>
+      <li>No Rently, abra <strong>🌐 Meu site</strong> → <strong>Endereço e domínio</strong>.</li>
+      <li>Digite o domínio (com www) e clique em <strong>🔍 Verificar</strong>. Os registros que você criou aparecem com ✓.</li>
+      <li>Clique em <strong>🔗 Ligar domínio</strong>. O certificado de segurança (https) sai sozinho em alguns minutos.</li>
+      <li>Quando aparecer <strong>✓ está no ar com https</strong>, o seu site já abre no seu domínio. 🎉</li>
+    </ol>
+    <div class="dica">Ligar o domínio exige a permissão <strong>🚀 Publicar o site</strong> (o administrador já tem). Lembre-se de <strong>publicar</strong> o site no 🌐 Meu site — o domínio mostra a versão publicada.</div>
+  </section>
+
+  <section class="passo">
+    <h2><span class="num">?</span> Deu algo errado?</h2>
+    <ul>
+      <li><strong>"Falta o registro TXT"</strong>: o DNS pode levar até 1 hora para aparecer. Confira se o nome é <code>_rently.www</code> e o valor é o código do seu site, sem aspas a mais.</li>
+      <li><strong>CNAME com "⏳ falta"</strong>: confira se o valor é exatamente <code>sites.rently.dev.br</code> e se não ficou um registro www antigo.</li>
+      <li><strong>https "em andamento" por mais de 1 hora</strong>: os dois registros precisam estar com ✓; clique em 🔍 Verificar de novo.</li>
+      <li><strong>O site abre, mas sem as minhas mudanças</strong>: falta clicar em 🚀 Publicar no 🌐 Meu site.</li>
+      <li>Ainda com dúvida? Fale com a DR Systems.</li>
+    </ul>
+  </section>
+</main>
+<footer>DRG-Rently · DR Systems</footer>
+<script>
+  // ?t=<código do site>&d=<domínio> — a tela 🌐 Meu site abre esta página já preenchida
+  const ps = new URLSearchParams(location.search);
+  const codigo = (ps.get('t') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  const limpar = (d) => String(d || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '');
+  document.getElementById('dominio').value = limpar(ps.get('d'));
+  if (codigo) {
+    document.getElementById('r2-valor').textContent = codigo;
+    document.getElementById('aviso-codigo').style.display = 'none';
+  }
+  function atualizar() {
+    const d = limpar(document.getElementById('dominio').value);
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) return;
+    const parte = d.split('.')[0];
+    const sub = /^(www|site|imoveis)$/.test(parte) ? parte : 'www';
+    document.getElementById('r1-nome').textContent = sub;
+    document.getElementById('r2-nome').textContent = '_rently.' + sub;
+    document.getElementById('r1-completo').textContent = d;
+  }
+  atualizar();
+  async function copiar(id, btn) {
+    const txt = document.getElementById(id).textContent;
+    const orig = btn.textContent;
+    try { await navigator.clipboard.writeText(txt); btn.textContent = '✓ Copiado'; }
+    catch (_) { btn.textContent = 'Selecione e copie'; }
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  }
+</script>
+</body>
+</html>

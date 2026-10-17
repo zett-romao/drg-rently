@@ -346,6 +346,7 @@ function _painelDominio() {
       <div class="site-imagem-botoes">${_podePublicar() ? `<button type="button" class="btn btn-primary btn-sm" id="btn-site-ligar" onclick="ligarDominioSite()">🔗 Ligar domínio</button>` : '<span class="muted" style="font-size:12px;">Ligar domínio: peça a quem tem a permissão 🚀 Publicar.</span>'}
         ${atual && _podePublicar() ? `<button type="button" class="btn btn-secondary btn-sm" id="btn-site-desligar" onclick="desligarDominioSite()">✂️ Desligar</button>` : ''}</div>
       <div id="site-dns-resultado" style="margin-top:8px;"></div></div>
+    <p style="margin:4px 0 12px;"><a href="instrucoes-site.html" id="link-instrucoes-site" target="_blank" rel="noopener" onclick="this.href=_urlInstrucoesSite()" style="font-weight:600;">📘 Instruções para colocar seu site no ar ↗</a></p>
     <div class="site-ajuda"><strong>Como ligar o seu domínio (uma vez só)</strong>
       <ol><li>Registre o domínio (ex.: no <a href="https://registro.br" target="_blank" rel="noopener">Registro.br</a>) — a compra e a senha de lá são suas.</li>
       <li>Digite o domínio acima e clique <strong>🔍 Verificar</strong>: aparecem os <strong>2 registros</strong> para criar no DNS do domínio (no Registro.br: <em>Configurar zona DNS</em>).</li>
@@ -353,6 +354,12 @@ function _painelDominio() {
 }
 
 // ---------- domínio próprio (Worker drg-rently-sites + Cloudflare for SaaS) ----------
+// Página de instruções já preenchida com o código do site (TXT) e o domínio digitado
+function _urlInstrucoesSite() {
+  const dom = $('site-dominio-teste') ? _dominioDigitado() : '';
+  return `instrucoes-site.html?t=${encodeURIComponent(State.tenant?.id || '')}${dom ? '&d=' + encodeURIComponent(dom) : ''}`;
+}
+window._urlInstrucoesSite = _urlInstrucoesSite;
 const SITES_API = 'https://drg-rently-sites.zett-romao.workers.dev/api/dominios';
 const _dominioDigitado = () => ($('site-dominio-teste').value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '');
 async function _chamarDominios(metodo, hostname) {
