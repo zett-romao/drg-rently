@@ -4221,3 +4221,18 @@ details.card > summary:hover {
 .desempenho-tabela th, .desempenho-tabela td { text-align: center; font-size: 12.5px; padding: 6px 4px; white-space: nowrap; }
 .desempenho-tabela td:first-child, .desempenho-tabela th:first-child { text-align: left; }
 #btn-relatorio-proprietario { width: 100%; min-height: 42px; margin-top: 8px; }
+
+/* ✍️ Assinaturas avulsas (assinaturas.js): no celular cada linha vira um cartão.
+   Seletores com .table para vencer o min-width:600px das tabelas no celular. */
+@media (max-width: 640px) {
+  .table.tabela-assinaturas { min-width: 0; }
+  .table.tabela-assinaturas thead { display: none; }
+  .table.tabela-assinaturas, .table.tabela-assinaturas tbody, .table.tabela-assinaturas tr,
+  .table.tabela-assinaturas tbody td { display: block; width: 100%; box-sizing: border-box; }
+  .table.tabela-assinaturas tbody tr { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 10px; background: #fff; }
+  .table.tabela-assinaturas tbody td { border: none; padding: 3px 0; }
+  .table.tabela-assinaturas td[data-label]:not([data-label="Documento"]):not([data-label="Ações"])::before {
+    content: attr(data-label) ": "; font-weight: 600; color: var(--text-muted, #64748b); font-size: 12px;
+  }
+  .table.tabela-assinaturas td[data-label="Ações"] > div { min-width: 0 !important; margin-top: 6px; }
+}

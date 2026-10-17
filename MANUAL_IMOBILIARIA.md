@@ -464,6 +464,10 @@ Contratos importados ficam com `importadoPorIA: true` e aparecem no Dashboard em
    - o PDF assinado fica em **📄 Baixar PDF assinado**
 5. Escolheu errado ou foi recusado? **↩ Desfazer envio** e mande de novo.
 
+#### Contrato feito fora do Rently (ex.: pelo advogado do cliente)
+- **Dentro de um contrato/negociação:** em **✍️ Assinar**, marque **PDF próprio** e escolha o arquivo — vai esse PDF no lugar do modelo do sistema, e o contrato muda de status sozinho quando assinado.
+- **Documento avulso** (sem contrato cadastrado; pode ligar a um imóvel): menu **✍️ Assinaturas** → **📤 Enviar PDF para assinatura** → nome, PDF, imóvel (opcional — o proprietário entra como signatário) e signatários. A lista mostra quem já assinou, guarda o original e o assinado, e tem **🔄 Atualizar status** (DRG-Sign) ou **📎 Anexar assinado** (outras plataformas).
+
 > 💡 Locação e venda suportadas. A assinatura do DRG-Sign é eletrônica simples com registro em blockchain (não é certificado ICP-Brasil).
 
 ---

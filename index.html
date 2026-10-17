@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261013b-relatorio">
+  <link rel="stylesheet" href="styles.css?v=20261017c-assinaturas">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -258,6 +258,7 @@
           <a class="nav-link" data-section="elab-contrato"><span class="nav-ico">✍️</span><span>Elaborar contrato</span></a>
           <a class="nav-link" data-section="contratos"><span class="nav-ico">📝</span><span>Contratos</span></a>
           <a class="nav-link" data-section="negociacoes"><span class="nav-ico">🤝</span><span>Negociações</span></a>
+          <a class="nav-link" data-section="assinaturas" title="Mandar assinar um PDF feito fora do Rently (ex.: pelo advogado)"><span class="nav-ico">✍️</span><span>Assinaturas</span></a>
           <a class="nav-link" data-section="leads"><span class="nav-ico">📥</span><span>Leads (anúncios)</span></a>
           <a class="nav-link" data-section="calendario"><span class="nav-ico">📅</span><span>Calendário</span></a>
           <a class="nav-link" data-section="balancetes"><span class="nav-ico">💰</span><span>Balancetes</span></a>
@@ -941,6 +942,36 @@
                 </thead>
                 <tbody id="tbody-negociacoes">
                   <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ✍️ Assinaturas avulsas: PDF feito fora do Rently (ex.: advogado do cliente) — assinaturas.js -->
+        <section class="section" id="section-assinaturas" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>✍️ Assinaturas</h3>
+                <p class="muted">Suba um contrato ou documento já pronto (PDF do computador — muitas vezes feito pelo advogado do cliente) e mande assinar, avulso ou ligado a um imóvel. Vai pela plataforma escolhida em Configurações → Assinatura eletrônica.</p>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="loadAssinaturasAvulsas()">↻ Recarregar</button>
+                <button class="btn btn-primary" data-perm="contratos:criar" onclick="abrirNovaAssinaturaAvulsa()">📤 Enviar PDF para assinatura</button>
+              </div>
+            </div>
+            <div id="assinaturas-alert" class="alert" style="display:none;"></div>
+            <div class="form-group" style="max-width:360px;">
+              <input type="search" id="assinaturas-busca" placeholder="🔎 Buscar por documento, imóvel ou signatário" oninput="renderAssinaturasAvulsas()">
+            </div>
+            <div class="table-wrap">
+              <table class="table tabela-assinaturas">
+                <thead>
+                  <tr><th>Documento</th><th>Imóvel</th><th>Plataforma</th><th>Status</th><th>Ações</th></tr>
+                </thead>
+                <tbody id="tbody-assinaturas">
+                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5394,6 +5425,46 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- MODAL: Assinatura avulsa (PDF próprio) — assinaturas.js -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-assinatura-avulsa" style="display:none;" onclick="if (event.target === this) fecharAssinaturaAvulsa()">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>📤 Enviar PDF para assinatura</h3>
+        <button class="modal-close" onclick="fecharAssinaturaAvulsa()" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="av-alert" class="alert alert-error" style="display:none;"></div>
+        <p class="muted" id="av-plataforma" style="font-size:13px; margin-bottom:14px;"></p>
+
+        <h4 class="form-section-title">📄 Documento</h4>
+        <div class="form-group">
+          <label>Nome do documento *</label>
+          <input type="text" id="av-titulo" placeholder="Ex.: Contrato de locação — Apto 31 (advogado do proprietário)">
+        </div>
+        <div class="form-group">
+          <label>Arquivo PDF *</label>
+          <input type="file" id="av-arquivo" accept="application/pdf,.pdf">
+          <span class="muted" style="font-size:11px;">O PDF exatamente como foi feito (até 20 MB). Fica guardado aqui junto com o assinado.</span>
+        </div>
+        <div class="form-group">
+          <label>Imóvel (opcional)</label>
+          <select id="av-imovel" onchange="trocarImovelAvulsa()" style="width:100%; min-height:42px; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:14px; background:#fff;"></select>
+          <span class="muted" style="font-size:11px;">Ligar a um imóvel ajuda a achar depois. Escolhendo o imóvel, o proprietário entra como signatário.</span>
+        </div>
+
+        <h4 class="form-section-title">👥 Signatários</h4>
+        <div id="av-signers"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addSignerAvulsa()" style="margin-top:4px;">+ Adicionar signatário</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="fecharAssinaturaAvulsa()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-av-enviar" onclick="enviarAssinaturaAvulsa()">📧 Enviar para assinatura</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Envio para assinatura (plataforma escolhida em Configurações; ids zapsign-* são históricos) -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-zapsign" style="display:none;">
@@ -5413,6 +5484,16 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-group">
           <label>Nome do documento</label>
           <input type="text" id="zapsign-doc-name" placeholder="Ex: Contrato de Locação - Apto 301">
+        </div>
+        <div class="form-group">
+          <label>PDF a assinar</label>
+          <label style="display:flex; gap:8px; align-items:center; font-weight:400; margin-bottom:6px;">
+            <input type="radio" name="zapsign-origem" value="gerado" checked onchange="trocarOrigemPdfAssinatura()" style="width:auto;"> Gerado pelo Rently (modelo do sistema)
+          </label>
+          <label style="display:flex; gap:8px; align-items:center; font-weight:400;">
+            <input type="radio" name="zapsign-origem" value="proprio" onchange="trocarOrigemPdfAssinatura()" style="width:auto;"> PDF próprio (ex.: feito pelo advogado do cliente)
+          </label>
+          <input type="file" id="zapsign-pdf-proprio" accept="application/pdf,.pdf" style="display:none; margin-top:8px;" onchange="trocarOrigemPdfAssinatura()">
         </div>
 
         <h4 class="form-section-title">👥 Signatários</h4>
@@ -5900,8 +5981,9 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261017a-plataforma-assinatura"></script>
+  <script src="app.js?v=20261017b-assinaturas-avulsas"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
+  <script src="assinaturas.js?v=20261017c-avulsas"></script>
 </body>
 </html>

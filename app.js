@@ -836,6 +836,8 @@ function podeVerSecao(name) {
   if (name === 'equipe') return pode('gerenciarUsuariosPerfis');
   // "Meus leads" é a caixa do corretor (leads que a imobiliária repassou a ele)
   if (name === 'meusleads') return isCorretor();
+  // Assinaturas avulsas: quem vê Contratos ou Negociações (equipe interna)
+  if (name === 'assinaturas') return !isCorretor() && (userPodeVerModulo('contratos') || userPodeVerModulo('negociacoes'));
   return userPodeVerModulo(name);
 }
 
@@ -1138,6 +1140,7 @@ function showSection(name, _opts = {}) {
     'elab-contrato': 'Elaborar contrato',
     contratos: 'Contratos',
     negociacoes: 'Negociações',
+    assinaturas: 'Assinaturas',
     leads: 'Leads (anúncios captados)',
     meusleads: 'Meus leads',
     calendario: 'Calendário de vencimentos',
@@ -1183,6 +1186,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'negociacoes' && State.tenant) {
     loadNegociacoes();
+  }
+  if (name === 'assinaturas' && State.tenant) {
+    loadAssinaturasAvulsas(); // assinaturas.js — PDFs feitos fora do Rently
   }
   if (name === 'leads' && State.tenant) {
     loadLeads();
@@ -16102,6 +16108,9 @@ async function _abrirEnvio(tipo) {
     _textoModalAssinatura(plat);
     $('zapsign-doc-name').value = `${tipo === 'contrato' ? 'Contrato de Locação' : 'Contrato de Compra e Venda'} - ${imovel?.apelido || 'Imóvel'}`;
     $('zapsign-message').value = `Por favor, leia e assine o contrato de ${tipo === 'contrato' ? 'locação' : 'compra e venda'}. Em caso de dúvidas, entre em contato com nossa imobiliária.`;
+    document.querySelector('input[name="zapsign-origem"][value="gerado"]').checked = true;
+    $('zapsign-pdf-proprio').value = '';
+    trocarOrigemPdfAssinatura();
     renderSignersZapSign();
     clearAlert('zapsign-alert');
     $('modal-zapsign').style.display = 'flex';
@@ -16164,12 +16173,30 @@ function _textoModalAssinatura(plat) {
   $('zapsign-aviso').innerHTML = integrada
     ? '⚠️ <strong>Atenção:</strong> uma vez enviado, o documento não pode ser editado no DRG-Sign — só cancelado e reenviado. Confira tudo antes!'
     : '💡 Os nomes e e-mails ficam registrados aqui para você conferir quem já assinou.';
-  $('btn-enviar-zapsign').textContent = _rotuloBotaoEnviar(plat);
+  $('btn-enviar-zapsign').textContent = _rotuloBotaoEnviar(plat, _origemPdfPropria());
 }
-function _rotuloBotaoEnviar(plat) {
+function _rotuloBotaoEnviar(plat, proprio) {
   if (plat.integrada) return '📧 Enviar para assinatura';
+  if (proprio) return plat.url ? `↗ Registrar e abrir ${plat.curto || plat.nome}` : '✓ Registrar envio';
   if (plat.id === 'papel' || !plat.url) return '📄 Baixar PDF para assinar';
-  return `📄 Baixar PDF e abrir ${plat.nome}`;
+  return `📄 Baixar PDF e abrir ${plat.curto || plat.nome}`;
+}
+const _origemPdfPropria = () => document.querySelector('input[name="zapsign-origem"]:checked')?.value === 'proprio';
+
+// "PDF próprio" (feito fora do Rently, ex.: pelo advogado): mostra o seletor de arquivo
+function trocarOrigemPdfAssinatura() {
+  const proprio = _origemPdfPropria();
+  $('zapsign-pdf-proprio').style.display = proprio ? '' : 'none';
+  if (_zapsignContexto) $('btn-enviar-zapsign').textContent = _rotuloBotaoEnviar(_zapsignContexto.plataforma, proprio);
+}
+
+// Lê um PDF escolhido no computador → base64 (confere que é PDF de verdade e o tamanho)
+async function pdfDoArquivoBase64(file) {
+  if (!file) throw new Error('Escolha o arquivo PDF.');
+  if (file.size > 20 * 1024 * 1024) throw new Error('O PDF passa de 20 MB. Reduza e tente de novo.');
+  const b64 = await blobToBase64(file);
+  if (!atob(b64.slice(0, 8)).startsWith('%PDF-')) throw new Error('O arquivo escolhido não é um PDF válido.');
+  return b64;
 }
 
 // Baixa um PDF (base64) no aparelho
@@ -16196,15 +16223,23 @@ async function enviarParaZapSign() {
   const signers = ctx.signers.filter(s => s.name && (s.email || !plat.integrada));
   if (signers.length === 0) { showAlert('zapsign-alert', plat.integrada ? 'Pelo menos 1 signatário com nome e e-mail é obrigatório.' : 'Informe pelo menos 1 signatário.'); return; }
 
+  const proprio = _origemPdfPropria();
+  if (proprio && !$('zapsign-pdf-proprio').files[0]) { showAlert('zapsign-alert', 'Escolha o PDF do contrato (o arquivo feito fora do Rently).'); return; }
+
   const btn = $('btn-enviar-zapsign');
-  const rotulo = _rotuloBotaoEnviar(plat);
-  btn.disabled = true; btn.textContent = '⏳ Gerando PDF... aguarde';
+  const rotulo = _rotuloBotaoEnviar(plat, proprio);
+  btn.disabled = true; btn.textContent = proprio ? '⏳ Lendo o PDF... aguarde' : '⏳ Gerando PDF... aguarde';
   // A aba da plataforma externa abre JÁ (no clique) — depois de um await o navegador bloquearia
   const aba = (!plat.integrada && plat.url) ? window.open('about:blank', '_blank') : null;
   try {
-    showAlert('zapsign-alert', '📄 Gerando PDF do contrato... aguarde', 'info');
-    const pdfBase64 = await gerarPdfContratoBase64();
-    if (!pdfBase64) throw new Error('Falha ao gerar PDF do contrato. Tente gerar manualmente primeiro (botão 📄 Gerar contrato).');
+    let pdfBase64;
+    if (proprio) {
+      pdfBase64 = await pdfDoArquivoBase64($('zapsign-pdf-proprio').files[0]);
+    } else {
+      showAlert('zapsign-alert', '📄 Gerando PDF do contrato... aguarde', 'info');
+      pdfBase64 = await gerarPdfContratoBase64();
+      if (!pdfBase64) throw new Error('Falha ao gerar PDF do contrato. Tente gerar manualmente primeiro (botão 📄 Gerar contrato).');
+    }
 
     let registro;
     if (plat.integrada) {
@@ -16212,12 +16247,16 @@ async function enviarParaZapSign() {
       showAlert('zapsign-alert', '✍️ Enviando ao DRG-Sign... aguarde (se o servidor estiver dormindo, leva ~1 min para acordar).', 'info');
       registro = await _signEnviar(await _cfgSite(), { docName, pdfBase64, signers, externalId: ctx.contratoId });
     } else {
-      _baixarPdfBase64(pdfBase64, docName);
+      if (!proprio) _baixarPdfBase64(pdfBase64, docName);   // PDF próprio: a pessoa já tem o arquivo
       if (aba) aba.location.href = plat.url;
       registro = {
         provedor: 'externo', plataforma: plat.id, plataformaNome: plat.nome, name: docName, status: 'pending',
         signers: signers.map(s => ({ name: s.name, email: s.email || '', status: 'pending' })), externalId: ctx.contratoId,
       };
+    }
+    if (proprio) {
+      registro.origemPdf = 'proprio';
+      registro.arquivoOriginalNome = $('zapsign-pdf-proprio').files[0].name;
     }
 
     await tenantPath().collection(T.col).doc(ctx.contratoId).update({
@@ -16234,7 +16273,9 @@ async function enviarParaZapSign() {
     await _carregarStatusAssinatura(ctx.tipo, ctx.contratoId);
     showAlert(T.alerta, plat.integrada
       ? `✓ ${T.rotulo} enviado ao DRG-Sign! ${signers.length} signatário(s) vão receber o link por e-mail.`
-      : `✓ PDF baixado${aba ? ` e ${plat.nome} aberta em outra aba` : ''}. Quando voltar assinado, use 📎 Anexar PDF assinado.`, 'success');
+      : proprio
+        ? `✓ Envio registrado${aba ? ` e ${plat.nome} aberta em outra aba` : ''}. Envie lá o seu PDF; quando voltar assinado, use 📎 Anexar PDF assinado.`
+        : `✓ PDF baixado${aba ? ` e ${plat.nome} aberta em outra aba` : ''}. Quando voltar assinado, use 📎 Anexar PDF assinado.`, 'success');
   } catch (err) {
     if (aba) aba.close();
     console.error('Erro ao enviar para assinatura:', err);
@@ -16529,6 +16570,7 @@ window.baixarPdfAssinado = baixarPdfAssinado;
 window.anexarPdfAssinado = anexarPdfAssinado;
 window.desfazerEnvioAssinatura = desfazerEnvioAssinatura;
 window.atualizarCamposPlataformaAssinatura = atualizarCamposPlataformaAssinatura;
+window.trocarOrigemPdfAssinatura = trocarOrigemPdfAssinatura;
 
 // =============================================================
 // PASSKEY (WebAuthn) — login biométrico

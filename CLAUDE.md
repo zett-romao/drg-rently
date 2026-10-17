@@ -658,6 +658,9 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
        Externas: o Rently baixa o PDF e abre o site; a equipe **anexa o PDF assinado** (Storage `tenants/{t}/{contratos|negociacoes}/{id}/assinado-*.pdf`)
        → `zapsign.status='signed'` + `arquivoAssinadoPath` → vigente/aceita. Registro: `zapsign.provedor` = 'drg-sign' | 'externo' (sem provedor = ZapSign antigo).
        "↩ Desfazer envio" apaga o `zapsign` (externo, ou Sign recusado/expirado). Sem plataforma escolhida o botão de assinar some (quem já tinha chave do Sign = drg-sign).
+       **17/10/2026 — PDF feito fora do Rently** (dono: *"subir um contrato já elaborado no computador para assinar… avulso ou relacionado com algum imóvel… muitas vezes o adv do cliente pede para gerar o contrato"*):
+       no modal de envio, opção **PDF próprio** (`zapsign.origemPdf=proprio`); e tela **✍️ Assinaturas** (`assinaturas.js`, coleção `assinaturas`, Storage `tenants/{t}/assinaturas/{id}/`)
+       para documento avulso, com `imovelId` opcional. Coleção fora de `colecaoProtegida` (regra genérica da equipe); menu só p/ quem vê Contratos/Negociações, nunca corretor.
        `sw.js` não cacheia `onrender.com` (status/PDF do Sign). Teste do fluxo: `scratchpad/emu/teste-sign.mjs` (Sign simulado + emulador).
      - **Monitor Legislativo** (`workerLegisUrl`): só a URL (status `/status` é público, read-only). **Não** dar o `legisAdminToken` pra cliente — é controle interno DRG (lei federal é compartilhada).
 
