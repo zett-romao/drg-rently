@@ -44,6 +44,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'auditoria',    label: 'Auditoria',     grupo: 'Administração', somenteLeitura: true },
   { id: 'importacao',    label: 'Importação CSV', grupo: 'Administração' },
   { id: 'configuracoes', label: 'Configurações', grupo: 'Administração' },
+  { id: 'site',          label: 'Meu site (construtor do site da imobiliária)', grupo: 'Administração' },
 ];
 
 // Ações sensíveis — NÃO são módulos. Entram em perfil.acoes{}.
@@ -62,6 +63,7 @@ const ACOES_SENSIVEIS = [
   { id: 'aprovarCobranca',         label: '💳 Aprovar cobrança ao locatário',      desc: 'Gerar boletos/PIX de cobrança via Asaas' },
   { id: 'gerenciarAssinaturaAsaas', label: '🔁 Gerenciar assinatura recorrente',   desc: 'Criar, reajustar e cancelar assinaturas Asaas' },
   { id: 'fecharBalancete',         label: '📊 Fechar/consolidar balancete',        desc: 'Marcar balancete como fechado/enviado', tresNiveis: true },
+  { id: 'publicarSite',            label: '🚀 Publicar o site',                    desc: 'Colocar no ar as alterações feitas em 🌐 Meu site' },
   { id: 'excluirTenant',           label: '🗑 Excluir tenant definitivo',          desc: 'Exclusão permanente de cliente (Super Admin)' },
 ];
 
@@ -116,8 +118,8 @@ const MODULOS_NUCLEO = ['rede', 'corretores'];
 // (lista = "Pode"; o resto é "Não pode", salvo ROLE_ACOES_APROVACAO)
 const ROLE_ACOES_PADRAO = {
   super_admin:  ACOES_SENSIVEIS.map(a => a.id),
-  operador_drg: ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
-  admin:        ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete'],
+  operador_drg: ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite'],
+  admin:        ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite'],
   // operador comum NÃO aprova nada por padrão; mantém o que já fazia antes dos perfis 3.0
   operador:     ['solicitarRepasse','alterarDadosRepasse','repasseRepresentante'],
   corretor:     [],
@@ -920,6 +922,8 @@ function podeVerSecao(name) {
   if (name === 'meusleads') return isCorretor();
   // Assinaturas avulsas: quem vê Contratos ou Negociações (equipe interna)
   if (name === 'assinaturas') return !isCorretor() && (userPodeVerModulo('contratos') || userPodeVerModulo('negociacoes'));
+  // Meu site: gestor, ou quem ele delegar (módulo "Meu site" no perfil). Corretor nunca.
+  if (name === 'site') return !isCorretor() && userPodeVerModulo('site');
   return userPodeVerModulo(name);
 }
 
@@ -1223,6 +1227,7 @@ function showSection(name, _opts = {}) {
     contratos: 'Contratos',
     negociacoes: 'Negociações',
     assinaturas: 'Assinaturas',
+    site: 'Meu site',
     leads: 'Leads (anúncios captados)',
     meusleads: 'Meus leads',
     calendario: 'Calendário de vencimentos',
@@ -1268,6 +1273,9 @@ function showSection(name, _opts = {}) {
   }
   if (name === 'negociacoes' && State.tenant) {
     loadNegociacoes();
+  }
+  if (name === 'site' && State.tenant) {
+    loadMeuSite(); // site-editor.js — construtor do site da imobiliária
   }
   if (name === 'assinaturas' && State.tenant) {
     loadAssinaturasAvulsas(); // assinaturas.js — PDFs feitos fora do Rently

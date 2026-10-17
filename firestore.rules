@@ -138,6 +138,22 @@ service cloud.firestore {
               && soCampos(['status', 'emailEnviadoEm', 'emailEnviadoPara', 'emailEnviadoBcc',
                            'emailLocatarioEnviadoEm', 'emailLocatarioEnviadoPara', 'emailLocatarioEnviadoBcc']));
     }
+    // Meu site (construtor de sites, 17/10/2026): editar o rascunho e publicar são permissões
+    // que o gestor da imobiliária delega em "Equipe e permissões" — sem perfil, só o gestor.
+    function podeEditarSite(tenantId) {
+      return isAdminOf(tenantId) || isDRGTeam()
+             || (isEquipeTenant(tenantId) && exists(caminhoPerfil(tenantId))
+                 && nivelDoPerfil(get(caminhoPerfil(tenantId)).data, 'site', 'editar') == 'sim');
+    }
+    function podePublicarSite(tenantId) {
+      return isAdminOf(tenantId) || isDRGTeam()
+             || (isEquipeTenant(tenantId) && exists(caminhoPerfil(tenantId))
+                 && get(caminhoPerfil(tenantId)).data.get('acoes', {}).get('publicarSite', 'nao') in ['sim', true]);
+    }
+    // Coleções com regra própria: a regra genérica da equipe não grava nelas
+    function colecaoComRegraPropria(colecao) {
+      return colecao in ['auditoria', 'site', 'siteVersoes'];
+    }
     // Registro de auditoria honesto: em nome de quem grava e com a hora do servidor
     function registroDeAuditoriaValido() {
       return request.resource.data.userId == request.auth.uid
@@ -253,14 +269,30 @@ service cloud.firestore {
         allow read: if isEquipeTenant(tenantId)
                     && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'));
         allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
-                      && (collection != 'auditoria' || registroDeAuditoriaValido());
-        allow update: if isEquipeTenant(tenantId) && collection != 'auditoria'
+                      && (collection != 'auditoria' || registroDeAuditoriaValido())
+                      && !(collection in ['site', 'siteVersoes']);
+        allow update: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
-        allow delete: if isEquipeTenant(tenantId) && collection != 'auditoria'
+        allow delete: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
         allow read: if isDRGTeam();
-        allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido());
-        allow update, delete: if isDRGTeam() && collection != 'auditoria';
+        allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
+                      && !(collection in ['site', 'siteVersoes']);
+        allow update, delete: if isDRGTeam() && !colecaoComRegraPropria(collection);
+      }
+
+      // Meu site: rascunho (quem edita) e publicado (quem publica; o site público lê).
+      match /site/{docId} {
+        allow read: if docId == 'publicado';
+        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
+        allow write: if docId == 'rascunho' && podeEditarSite(tenantId);
+        allow write: if docId == 'publicado' && podePublicarSite(tenantId);
+      }
+      // Histórico de publicações: quem publica acrescenta; ninguém altera nem apaga
+      match /siteVersoes/{versaoId} {
+        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
+        allow create: if podePublicarSite(tenantId);
+        allow update, delete: if false;
       }
 
       // Perfis 3.0 — fila "Com aprovação": corretor cria pedido em nome próprio

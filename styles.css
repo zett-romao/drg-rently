@@ -4253,3 +4253,40 @@ details.card > summary:hover {
   .table.tabela-auditoria tbody td { border: none; padding: 3px 0; max-width: none !important; }
   .table.tabela-auditoria td[data-label]::before { content: attr(data-label) ": "; font-weight: 600; color: var(--text-muted, #64748b); font-size: 12px; }
 }
+
+/* 🌐 Meu site — editor (site-editor.js): painel à esquerda, prévia ao vivo à direita */
+.site-barra{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.site-barra-botoes{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.site-status{font-size:13px;color:var(--text-muted,#64748b)}
+.site-grade{display:grid;grid-template-columns:minmax(320px,440px) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:1100px){.site-grade{grid-template-columns:minmax(0,1fr)}}
+.site-painel{max-height:calc(100vh - 230px);overflow:auto;padding-right:4px;min-width:0}
+@media(max-width:1100px){.site-painel{max-height:none}}
+.site-sec{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:10px;background:#fff}
+.site-sec>summary{cursor:pointer;padding:12px 14px;font-weight:600;list-style-position:inside}
+.site-sec-corpo{padding:4px 14px 14px}
+.site-sec .form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.site-sec .form-group{margin-bottom:10px;min-width:0}
+.site-sec .form-group input:not([type=checkbox]):not([type=color]),.site-sec .form-group select,.site-sec .form-group textarea{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;font-size:14px;background:#fff}
+.site-check label{display:flex;gap:8px;align-items:center;font-weight:500}
+.site-cor{display:flex;gap:8px;align-items:center}.site-cor input[type=color]{width:46px;height:38px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);flex:none}
+.site-cor input[type=text]{flex:1;min-width:0}
+.site-imagem{height:90px;border:1px dashed var(--border);border-radius:var(--radius-sm);display:grid;place-items:center;margin-bottom:6px;overflow:hidden;background:#f8fafc}
+.site-imagem img{max-height:100%;max-width:100%;object-fit:contain}
+.site-imagem-botoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.site-item{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:8px;background:#fbfcfe}
+.site-item-botoes{display:flex;gap:6px;flex-wrap:wrap}
+.site-bloco{border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;background:#fff}
+.site-bloco.oculto{opacity:.6}
+.site-bloco-topo{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 10px;flex-wrap:wrap}
+.site-bloco-nome{background:none;border:0;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:0;font:inherit;min-width:0;flex:1}
+.site-bloco-nome span{font-size:12px;color:var(--text-muted,#64748b)}.site-bloco-nome strong{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.site-bloco-corpo{padding:4px 12px 12px;border-top:1px solid var(--border)}
+.site-novo-bloco{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}.site-novo-bloco select{flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.site-previa{position:sticky;top:12px;min-width:0}
+.site-previa-topo{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.site-dispositivos{display:flex;gap:6px}.site-dispositivos .on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.site-moldura{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fff;height:calc(100vh - 230px);min-height:520px;transition:max-width .2s}
+.site-moldura.celular{max-width:390px;margin:0 auto;border:10px solid #1b1d33;border-radius:30px}
+.site-moldura iframe{width:100%;height:100%;border:0;display:block}
+.site-ajuda{font-size:12.5px;background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px}.site-ajuda ol{margin:6px 0 0;padding-left:18px}

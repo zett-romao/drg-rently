@@ -275,6 +275,7 @@
           <a class="nav-link" id="nav-equipe" data-section="equipe" title="Usuários, perfis e delegação de permissões"><span class="nav-ico">👥</span><span>Equipe e permissões</span></a>
           <a class="nav-link" id="nav-auditoria" data-section="auditoria"><span class="nav-ico">📜</span><span>Auditoria</span></a>
           <a class="nav-link" id="nav-superadmin" data-section="superadmin" style="display:none;"><span class="nav-ico">👑</span><span>Super Admin</span></a>
+          <a class="nav-link" data-section="site" title="Construtor do site da imobiliária: textos, imagens, cores, menu e publicação"><span class="nav-ico">🌐</span><span>Meu site</span></a>
           <a class="nav-link" id="nav-configuracoes" data-section="configuracoes"><span class="nav-ico">⚙️</span><span>Configurações</span></a>
           <a class="nav-link" href="manual.html" target="_blank" rel="noopener" title="Abrir manual em nova aba (com opção de imprimir/salvar PDF)"><span class="nav-ico">📘</span><span>Manual / Ajuda</span></a>
         </div>
@@ -1468,6 +1469,19 @@
         </section>
 
         <!-- Auditoria -->
+        <!-- 🌐 Meu site — construtor do site da imobiliária (site-editor.js) -->
+        <section class="section" id="section-site" style="display:none;">
+          <div class="card">
+            <div class="section-header">
+              <div>
+                <h3>🌐 Meu site</h3>
+                <p class="muted">Edite textos, imagens, cores, menu e blocos do site da imobiliária. As alterações ficam em rascunho, com prévia ao lado, e só entram no ar quando alguém com a permissão clica 🚀 Publicar.</p>
+              </div>
+            </div>
+            <div id="site-editor"></div>
+          </div>
+        </section>
+
         <section class="section" id="section-auditoria" style="display:none;">
           <div class="card">
             <div class="section-header">
@@ -5977,10 +5991,12 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
+  <script src="site-padrao.js?v=20261017a"></script>
   <script src="auditoria.js?v=20261017g-auditoria"></script>
-  <script src="app.js?v=20261017g-auditoria"></script>
+  <script src="app.js?v=20261017h-meusite"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
   <script src="assinaturas.js?v=20261017d-sign-embutido"></script>
+  <script src="site-editor.js?v=20261017a"></script>
 </body>
 </html>

@@ -681,6 +681,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
 
 ---
 
+- **2026-10-17**: 🌐 **Meu site — construtor de sites para TODOS os clientes** (dono: *"crie um painel onde eu possa editar todos os itens, texto, imagens deste site… semelhante a um construtor de sites dentro do rently"*; *"pense nos clientes"*; editar e publicar = permissões que o gestor delega).
+  Motor `site-engine.js` + `site.css` + modelo `site-padrao.js` (o site da D.R. Global vira o padrão de todo cliente, com os dados dele); `site.html?t=<slug>` serve qualquer cliente; domínio próprio usa o mesmo motor (drglobalimoveis sincroniza).
+  Editor `site-editor.js` (seção `site`): blocos prontos com campos (NÃO editor livre), prévia ao vivo por postMessage (`?previa=1`), rascunho automático, Publicar (lote: `site/publicado` + `site/rascunho` + `siteVersoes`), histórico, imagens no Storage `tenants/{t}/site/`, verificação de DNS.
+  Permissões: módulo `site` (ver/editar) + ação `publicarSite` (admin já tem). Regras: `podeEditarSite`/`podePublicarSite`, `site/publicado` com leitura pública, `siteVersoes` só cresce; `site`/`siteVersoes` fora da regra genérica. Site próprio pode dar dados iniciais em `site-dados.json`.
+  Pendente (fase 3): ligar domínio de qualquer cliente automaticamente (Cloudflare for SaaS) — hoje o painel orienta e verifica DNS.
+
+---
+
 ## Estilo de comunicação que o usuário prefere
 
 (Herdado do DRG-Kronos)

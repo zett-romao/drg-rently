@@ -22,6 +22,10 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await u('op4', { role: 'operador', tenantId: T, perfilId: 'leitor' });   // só vê contratos/balancetes
   await u('cor1', { role: 'corretor', tenantId: T, ativo: true });
   await u('super', { role: 'super_admin' });
+  await u('opSite', { role: 'operador', tenantId: T, perfilId: 'editorSite' }); // edita o site, não publica
+  await u('opPub', { role: 'operador', tenantId: T, perfilId: 'publicaSite' }); // edita e publica
+  await setDoc(doc(db, 'tenants', T, 'perfis', 'editorSite'), { permissoes: { site: { ver: true, criar: 'nao', editar: 'sim', excluir: 'nao' } }, acoes: { publicarSite: 'nao' } });
+  await setDoc(doc(db, 'tenants', T, 'perfis', 'publicaSite'), { permissoes: { site: { ver: true, criar: 'nao', editar: 'sim', excluir: 'nao' } }, acoes: { publicarSite: 'sim' } });
   const P = (id, d) => setDoc(doc(db, 'tenants', T, 'perfis', id), d);
   await P('restrito', { permissoes: {
     imoveis: { ver: true, criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
@@ -145,6 +149,21 @@ await caso('auditoria: admin apaga registro BLOQUEIA', false, () => deleteDoc(R(
 await caso('auditoria: super admin apaga registro BLOQUEIA', false, () => deleteDoc(R(db('super'), 'auditoria', 'a1')));
 await caso('auditoria: admin lê', true, () => getDoc(R(db('admin1'), 'auditoria', 'a1')));
 await caso('auditoria: corretor lê BLOQUEIA', false, () => getDoc(R(db('cor1'), 'auditoria', 'a1')));
+
+// ---------- Meu site (17/10/2026): editar e publicar são permissões delegadas ----------
+const siteCfg = { config: { identidade: { nome: 'X' } } };
+await caso('site: gestor edita o rascunho', true, () => setDoc(R(db('admin1'), 'site', 'rascunho'), siteCfg));
+await caso('site: gestor publica', true, () => setDoc(R(db('admin1'), 'site', 'publicado'), siteCfg));
+await caso('site: gestor grava versão no histórico', true, () => setDoc(R(db('admin1'), 'siteVersoes', 'v1'), siteCfg));
+await caso('site: visitante lê o site publicado', true, () => getDoc(R(db(), 'site', 'publicado')));
+await caso('site: visitante lê o rascunho BLOQUEIA', false, () => getDoc(R(db(), 'site', 'rascunho')));
+await caso('site: operador sem perfil edita BLOQUEIA', false, () => setDoc(R(db('op0'), 'site', 'rascunho'), siteCfg));
+await caso('site: operador com perfil "editar site" edita o rascunho', true, () => setDoc(R(db('opSite'), 'site', 'rascunho'), siteCfg));
+await caso('site: operador que só edita publica BLOQUEIA', false, () => setDoc(R(db('opSite'), 'site', 'publicado'), siteCfg));
+await caso('site: operador com "🚀 Publicar" publica', true, () => setDoc(R(db('opPub'), 'site', 'publicado'), siteCfg));
+await caso('site: corretor edita BLOQUEIA', false, () => setDoc(R(db('cor1'), 'site', 'rascunho'), siteCfg));
+await caso('site: ninguém apaga o histórico (gestor) BLOQUEIA', false, () => deleteDoc(R(db('admin1'), 'siteVersoes', 'v1')));
+await caso('site: visitante grava BLOQUEIA', false, () => setDoc(R(db(), 'site', 'publicado'), siteCfg));
 
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
