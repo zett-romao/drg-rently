@@ -171,7 +171,37 @@ function montarMenuERodape(tenant, tenantRef) {
       <p class="rodape-copy">© ${new Date().getFullYear()} ${_escPub(tenant.nome || 'DRG-Rently')} · Todos os direitos reservados</p>
       <p class="muted rodape-copy" style="font-size:11px;">Powered by <a href="https://github.com/zett-romao/drg-rently" target="_blank" rel="noopener">DRG-Rently</a></p>`;
   }
+  aplicarSeloMarca(tenant);
   atualizarContadorFavoritos();
+}
+
+// Site próprio (rently-site.js) pode pôr um SELO ao lado do nome da empresa — ex.: o
+// "digital" desenhado da D.R. Global. RENTLY_SITE.selo = SVG (usa currentColor; a cor vem
+// do tema do site); RENTLY_SITE.seloTexto = como o selo se lê (entra no título da aba).
+function aplicarSeloMarca(tenant) {
+  const site = window.RENTLY_SITE || {};
+  if (!site.selo) return;
+  const selo = () => {
+    const s = document.createElement('span');
+    s.className = 'selo-marca';
+    s.innerHTML = site.selo;
+    if (site.seloTexto) s.insertAdjacentHTML('beforeend', `<span class="sr-only"> ${_escPub(site.seloTexto)}</span>`);
+    return s;
+  };
+  ['header-empresa'].map((id) => document.getElementById(id))
+    .concat([...document.querySelectorAll('#rodape-contato h4')])
+    .forEach((el) => { if (el && !el.querySelector('.selo-marca')) el.appendChild(selo()); });
+  // Título da aba: "D.R. Global Imóveis — …" → "D.R. Global Imóveis Digital — …"
+  const nome = tenant && tenant.nome;
+  if (nome && site.seloTexto) {
+    const ajustar = () => {
+      const marca = `${nome} ${site.seloTexto}`;
+      if (document.title.includes(nome) && !document.title.includes(marca)) document.title = document.title.replace(nome, marca);
+    };
+    ajustar();
+    const t = document.querySelector('title');
+    if (t && !t._seloObservado) { t._seloObservado = true; new MutationObserver(ajustar).observe(t, { childList: true }); }
+  }
 }
 
 function abrirMenuPublico() { atualizarContadorFavoritos(); document.body.classList.add('menu-publico-aberto'); }

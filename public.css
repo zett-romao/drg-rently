@@ -1001,3 +1001,8 @@ body.menu-publico-aberto { overflow: hidden; }
   background: #16A34A; color: #fff; text-decoration: none; font-weight: 700; }
 @media print { .acao-agendar, .btn-agendar-cartao, #midia-section, .btn-mais-filtros { display: none !important; } .mapa-regiao iframe { height: 200px; } }
 .mapa-legenda { top: 8px; bottom: auto; } /* embaixo cobria os créditos do OpenStreetMap */
+
+/* Selo ao lado do nome da empresa (site próprio — RENTLY_SITE.selo; ver public-shell.js) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.selo-marca { display: inline-block; height: 1em; width: auto; margin-left: .45em; position: relative; top: .24em; color: inherit; }
+.selo-marca svg { height: 100%; width: auto; display: block; }
