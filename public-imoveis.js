@@ -7,7 +7,8 @@
 const params = new URLSearchParams(window.location.search);
 // No site próprio da imobiliária (ex.: drglobalimoveis.com.br) o rently-site.js fixa o tenant
 const tenantIdOrSlug = params.get('t') || window.RENTLY_TENANT_FIXO || null;
-const finalidadeInicial = (params.get('finalidade') || '').toLowerCase();
+// 'f' é o nome curto usado pela busca de sites próprios (ex.: home do drglobalimoveis.com.br)
+const finalidadeInicial = (params.get('finalidade') || params.get('f') || '').toLowerCase();
 // Favoritos: ?favoritos=1 (os deste aparelho) | ?lista=id1,id2 (lista enviada por alguém)
 const _listaRecebida = (params.get('lista') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 60);
 let _modoLista = params.get('favoritos') === '1' ? 'favoritos' : (_listaRecebida.length ? 'recebida' : null);
@@ -145,6 +146,11 @@ let _allImoveis = []; // cache pra filtros
     ['filtro-bairro', 'filtro-ordem'].forEach(id => $$(id).addEventListener('change', applyFiltros));
     ['filtro-preco-min', 'filtro-preco-max'].forEach(id => $$(id).addEventListener('input', applyFiltros));
     preencherBairros();
+    // Filtros vindos na URL (busca da home do site próprio): b = texto, q = quartos, tipo = subtipo
+    const pBusca = params.get('b') || params.get('busca') || (SUBTIPO_LABEL[params.get('tipo')] || '');
+    if (pBusca) $$('filtro-busca').value = pBusca;
+    if (['1', '2', '3', '4'].includes(params.get('q') || '')) $$('filtro-quartos').value = params.get('q');
+    if (pBusca || params.get('q')) applyFiltros();
 
     $$('loading').style.display = 'none';
     $$('content').style.display = 'block';

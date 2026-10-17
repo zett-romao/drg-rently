@@ -123,7 +123,7 @@ function montarMenuERodape(tenant, tenantRef) {
     ['♥', 'Meus favoritos <span class="contador-fav"></span>', `href="imoveis.html?t=${t}&favoritos=1"`],
     ['📤', 'Anuncie seu imóvel', anunciar],
   ];
-  if (tenant.programaParceiros && tenant.programaParceiros.ativo) links.push(['🤝', 'Seja corretor parceiro', `href="parceiro.html?t=${t}"`]);
+  if (tenant.programaParceiros && tenant.programaParceiros.ativo) links.push(['🤝', 'Seja corretor parceiro', `href="${(siteProprio && siteProprio.parceiro) || 'parceiro.html'}?t=${t}"`]);
   links.push(['📞', 'Contato', `href="#rodape-contato" onclick="fecharMenuPublico()"`]);
 
   // ---- Menu no cabeçalho ----
