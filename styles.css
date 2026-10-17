@@ -2443,7 +2443,8 @@ details.card > summary:hover {
 
 .lanc-row select,
 .lanc-row input[type="text"],
-.lanc-row input[type="number"] {
+.lanc-row input[type="number"],
+.lanc-row input[data-moeda] {
   padding: 7px 10px;
   font-size: 13px;
   border: 1px solid var(--border);

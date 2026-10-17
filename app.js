@@ -236,6 +236,86 @@ function fmtDate(value) {
 }
 
 // =============================================================
+// Campo de DINHEIRO (R$) — máscara brasileira que cresce da direita
+// =============================================================
+// Dono (17/10/2026): "vamos usar ponto e vírgula e valor vai aumentando de acordo com
+// aquilo que vai sendo inserido". Todo <input data-moeda> vira texto com máscara BR
+// (50.000,00) e os dígitos entram pela direita: 5 → 0,05 → 0,50 → 5,00 → 50,00.
+// Para o CÓDIGO nada muda: el.value devolve "50000.00" (ou '') e aceita número/"2500.5"
+// — todas as leituras (parseFloat(el.value)) e gravações existentes seguem iguais.
+// Campos criados depois (innerHTML) são ligados sozinhos pelo MutationObserver.
+const _VALOR_NATIVO = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+function formatarMoedaBR(n) {
+  return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+// Texto da tela → número: os dígitos são centavos (é o que faz o valor "crescer")
+function _moedaDoTexto(txt) {
+  const s = String(txt || '');
+  const dig = s.replace(/\D/g, '');
+  if (!dig) return null;
+  const n = parseInt(dig, 10) / 100;
+  return s.includes('-') ? -n : n;
+}
+// Valor vindo do código: número, "2500", "2500.5" (ou, por via das dúvidas, "2.500,50")
+function _moedaDeMaquina(v) {
+  if (v === '' || v == null) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = s.includes(',') ? parseFloat(s.replace(/\./g, '').replace(',', '.')) : parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+// Texto colado: "50.000", "50.000,00", "R$ 1.234,5", "2500.50"
+function _moedaColada(t) {
+  const s = String(t || '').replace(/[^\d.,-]/g, '');
+  if (!s) return null;
+  if (s.includes(',')) return _moedaDeMaquina(s);
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, ''));   // só milhar
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+function ligarCampoMoeda(el) {
+  if (!el || el._moeda) return;
+  el._moeda = true;
+  const inicial = _VALOR_NATIVO.get.call(el);      // valor que veio no HTML (formato de máquina)
+  el.type = 'text';
+  el.inputMode = 'numeric';
+  el.autocomplete = 'off';
+  if (!el.placeholder) el.placeholder = '0,00';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get() { const n = _moedaDoTexto(_VALOR_NATIVO.get.call(this)); return n == null ? '' : n.toFixed(2); },
+    set(v) { const n = _moedaDeMaquina(v); _VALOR_NATIVO.set.call(this, n == null ? '' : formatarMoedaBR(n)); },
+  });
+  el.value = inicial;
+  // Reformata a cada tecla (os handlers oninput do próprio campo já leem o valor certo pelo getter)
+  el.addEventListener('input', () => {
+    const n = _moedaDoTexto(_VALOR_NATIVO.get.call(el));
+    _VALOR_NATIVO.set.call(el, n == null ? '' : formatarMoedaBR(n));
+    try { const fim = _VALOR_NATIVO.get.call(el).length; el.setSelectionRange(fim, fim); } catch (_) { /* */ }
+  });
+  el.addEventListener('paste', (e) => {
+    const n = _moedaColada((e.clipboardData || window.clipboardData)?.getData('text'));
+    if (n == null) return;
+    e.preventDefault();
+    el.value = n;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+function ligarCamposMoeda(raiz = document) {
+  if (raiz.matches?.('input[data-moeda]')) ligarCampoMoeda(raiz);
+  raiz.querySelectorAll?.('input[data-moeda]').forEach(ligarCampoMoeda);
+}
+ligarCamposMoeda();
+new MutationObserver((muts) => {
+  for (const m of muts) for (const no of m.addedNodes) if (no.nodeType === 1) ligarCamposMoeda(no);
+}).observe(document.documentElement, { childList: true, subtree: true });
+window.formatarMoedaBR = formatarMoedaBR;
+
+// =============================================================
 // Máscaras de entrada (CPF, CNPJ, telefone, CEP)
 // Documento, telefone e CEP são salvos no Firestore SEM máscara
 // (só dígitos). A máscara é aplicada visualmente nos inputs e
@@ -7867,7 +7947,7 @@ function renderLancRow(l) {
       ${badge}
       <select onchange="updateLanc('${l.id}', 'categoria', this.value)">${catOptions}</select>
       <input type="text" value="${(l.descricao || '').replace(/"/g, '&quot;')}" placeholder="Descrição" oninput="updateLanc('${l.id}', 'descricao', this.value)">
-      <input type="number" min="0" step="0.01" value="${l.valor ?? ''}" placeholder="0,00" oninput="updateLanc('${l.id}', 'valor', parseFloat(this.value) || 0)">
+      <input type="text" inputmode="numeric" data-moeda value="${l.valor ?? ''}" placeholder="0,00" oninput="updateLanc('${l.id}', 'valor', parseFloat(this.value) || 0)">
       <label class="${fileClass}" title="${hasFile ? 'Trocar comprovante' : 'Anexar comprovante'}">
         <span>${fileLabel}</span>
         <input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="uploadLancComprovante('${l.id}', this.files[0])">
@@ -8487,7 +8567,7 @@ function renderMultiCards() {
           </div>
           <div class="form-group" style="${hl('valor')}">
             <label>Valor (R$) ${duvidoso('valor') ? '⚠️' : ''}</label>
-            <input type="number" min="0" step="0.01" value="${c.valor || ''}" onchange="updateMultiCampo('${c._id}', 'valor', parseFloat(this.value) || 0)">
+            <input type="text" inputmode="numeric" data-moeda value="${c.valor || ''}" onchange="updateMultiCampo('${c._id}', 'valor', parseFloat(this.value) || 0)">
           </div>
         </div>
         <div class="form-row">
@@ -15647,7 +15727,7 @@ async function carregarBlocoAsaas(tenantId) {
           </div>
           <div class="form-group">
             <label>Valor mensal (R$)</label>
-            <input type="number" id="asaas-sub-valor" min="0" step="0.01" value="${t.valorMensalidade || ''}" placeholder="${t.valorMensalidade || '250.00'}">
+            <input type="text" inputmode="numeric" data-moeda id="asaas-sub-valor" value="${t.valorMensalidade || ''}" placeholder="250,00">
           </div>
           <div class="form-group">
             <label>Primeiro vencimento</label>
@@ -17700,14 +17780,14 @@ function renderCardGarantia() {
         <div class="form-group"><label>Nome do fiador</label><input type="text" value="${escHtml(f.nome)}" oninput="onImportarGarantiaChange('fiador.nome', this.value)" /></div>
         <div class="form-group"><label>CPF</label><input type="text" value="${escHtml(formataCPFCNPJ(f.cpf))}" oninput="onImportarGarantiaChange('fiador.cpf', this.value)" /></div>
         <div class="form-group"><label>Telefone</label><input type="text" value="${escHtml(f.telefone)}" oninput="onImportarGarantiaChange('fiador.telefone', this.value)" /></div>
-        <div class="form-group"><label>Renda mensal</label><input type="number" step="0.01" value="${escHtml(f.renda)}" oninput="onImportarGarantiaChange('fiador.renda', this.value)" /></div>
+        <div class="form-group"><label>Renda mensal</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(f.renda)}" oninput="onImportarGarantiaChange('fiador.renda', this.value)" /></div>
       </div>`;
   } else if (tipo === 'caucao' && d.caucao) {
     const c = d.caucao;
     detalhes = `
       <div class="importar-campos-grid">
         <div class="form-group"><label>Modalidade</label><input type="text" value="${escHtml(c.modalidade)}" oninput="onImportarGarantiaChange('caucao.modalidade', this.value)" /></div>
-        <div class="form-group"><label>Valor</label><input type="number" step="0.01" value="${escHtml(c.valor)}" oninput="onImportarGarantiaChange('caucao.valor', this.value)" /></div>
+        <div class="form-group"><label>Valor</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(c.valor)}" oninput="onImportarGarantiaChange('caucao.valor', this.value)" /></div>
       </div>`;
   } else if (tipo === 'seguro_fianca' && d.seguro) {
     const s = d.seguro;
@@ -17715,8 +17795,8 @@ function renderCardGarantia() {
       <div class="importar-campos-grid">
         <div class="form-group"><label>Seguradora</label><input type="text" value="${escHtml(s.seguradora)}" oninput="onImportarGarantiaChange('seguro.seguradora', this.value)" /></div>
         <div class="form-group"><label>Apólice</label><input type="text" value="${escHtml(s.apolice)}" oninput="onImportarGarantiaChange('seguro.apolice', this.value)" /></div>
-        <div class="form-group"><label>Cobertura</label><input type="number" step="0.01" value="${escHtml(s.cobertura)}" oninput="onImportarGarantiaChange('seguro.cobertura', this.value)" /></div>
-        <div class="form-group"><label>Prêmio</label><input type="number" step="0.01" value="${escHtml(s.premio)}" oninput="onImportarGarantiaChange('seguro.premio', this.value)" /></div>
+        <div class="form-group"><label>Cobertura</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(s.cobertura)}" oninput="onImportarGarantiaChange('seguro.cobertura', this.value)" /></div>
+        <div class="form-group"><label>Prêmio</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(s.premio)}" oninput="onImportarGarantiaChange('seguro.premio', this.value)" /></div>
       </div>`;
   }
 
@@ -17816,10 +17896,10 @@ function renderCardContrato() {
           <div class="form-group"><label>Prazo (meses)</label><input type="number" value="${escHtml(c.prazo_meses)}" oninput="onImportarContratoChange('prazo_meses', this.value)" /></div>
           <div class="form-group"><label>Início (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.inicio)}" oninput="onImportarContratoChange('inicio', this.value)" /></div>
           <div class="form-group"><label>Fim (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.fim)}" oninput="onImportarContratoChange('fim', this.value)" /></div>
-          <div class="form-group"><label>Aluguel (R$)</label><input type="number" step="0.01" value="${escHtml(c.aluguel)}" oninput="onImportarContratoChange('aluguel', this.value)" /></div>
+          <div class="form-group"><label>Aluguel (R$)</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(c.aluguel)}" oninput="onImportarContratoChange('aluguel', this.value)" /></div>
           <div class="form-group"><label>Dia de vencimento</label><input type="number" value="${escHtml(c.dia_vencimento || 5)}" oninput="onImportarContratoChange('dia_vencimento', this.value)" /></div>
           <div class="form-group"><label>Taxa adm. (%)</label><input type="number" step="0.01" value="${escHtml(c.taxa_adm || 10)}" oninput="onImportarContratoChange('taxa_adm', this.value)" /></div>
-          <div class="form-group"><label>Multa rescisória (R$)</label><input type="number" step="0.01" value="${escHtml(c.multa_rescisoria)}" oninput="onImportarContratoChange('multa_rescisoria', this.value)" /></div>
+          <div class="form-group"><label>Multa rescisória (R$)</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(c.multa_rescisoria)}" oninput="onImportarContratoChange('multa_rescisoria', this.value)" /></div>
           <div class="form-group"><label>Índice reajuste</label>
             <select onchange="onImportarContratoChange('reajuste_indice', this.value)">
               ${['','IPCA','IGPM','INCC','INPC'].map(o => `<option value="${o.toLowerCase()}" ${(c.reajuste_indice || '').toLowerCase() === o.toLowerCase() ? 'selected' : ''}>${o || '—'}</option>`).join('')}
@@ -17836,13 +17916,13 @@ function renderCardContrato() {
       <div class="importar-card">
         <div class="importar-card-header"><strong>📋 Dados da negociação (venda)</strong></div>
         <div class="importar-campos-grid">
-          <div class="form-group"><label>Valor total (R$)</label><input type="number" step="0.01" value="${escHtml(c.valor)}" oninput="onImportarContratoChange('valor', this.value)" /></div>
+          <div class="form-group"><label>Valor total (R$)</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(c.valor)}" oninput="onImportarContratoChange('valor', this.value)" /></div>
           <div class="form-group"><label>Forma de pagamento</label>
             <select onchange="onImportarContratoChange('forma_pagamento', this.value)">
               ${['','a_vista','financiamento','permuta','misto'].map(o => `<option value="${o}" ${c.forma_pagamento === o ? 'selected' : ''}>${o || '—'}</option>`).join('')}
             </select>
           </div>
-          <div class="form-group"><label>Entrada (R$)</label><input type="number" step="0.01" value="${escHtml(c.entrada)}" oninput="onImportarContratoChange('entrada', this.value)" /></div>
+          <div class="form-group"><label>Entrada (R$)</label><input type="text" inputmode="numeric" data-moeda value="${escHtml(c.entrada)}" oninput="onImportarContratoChange('entrada', this.value)" /></div>
           <div class="form-group"><label>Data de aceite (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.data_aceite)}" oninput="onImportarContratoChange('data_aceite', this.value)" /></div>
           <div class="form-group"><label>Data de posse (AAAA-MM-DD)</label><input type="text" value="${escHtml(c.data_posse)}" oninput="onImportarContratoChange('data_posse', this.value)" /></div>
           <div class="form-group"><label>Comissão (%)</label><input type="number" step="0.01" value="${escHtml(com.percentual || 6)}" oninput="onImportarComissaoChange('percentual', this.value)" /></div>
@@ -18581,7 +18661,7 @@ function elabHtmlPergunta(p) {
       inputHtml = `<input type="number" step="any" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
       break;
     case 'money':
-      inputHtml = `<input type="number" step="0.01" min="0" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
+      inputHtml = `<input type="text" inputmode="numeric" data-moeda value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;
       break;
     case 'date':
       inputHtml = `<input type="date" value="${escapeHtml(valor)}" oninput="elabResposta('${p.id}', this.value)">`;

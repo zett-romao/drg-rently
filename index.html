@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261017c-assinaturas">
+  <link rel="stylesheet" href="styles.css?v=20261017e-moeda-br">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1635,7 +1635,7 @@
                 </div>
                 <div class="form-group">
                   <label>Valor (R$)</label>
-                  <input type="number" id="lanc-caixa-valor" min="0" step="0.01" placeholder="0,00">
+                  <input type="text" inputmode="numeric" data-moeda id="lanc-caixa-valor" placeholder="0,00">
                 </div>
               </div>
             </div>
@@ -3014,7 +3014,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Renda mensal (R$)</label>
-            <input type="number" id="locatario-renda" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="locatario-renda" placeholder="0,00">
           </div>
         </div>
 
@@ -3235,7 +3235,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <div class="form-row">
               <div class="form-group">
                 <label>Aluguel base (R$)</label>
-                <input type="number" id="balancete-aluguel-base" min="0" step="0.01" disabled>
+                <input type="text" inputmode="numeric" data-moeda id="balancete-aluguel-base" disabled>
               </div>
               <div class="form-group">
                 <label>Taxa (%) — negociável neste balancete</label>
@@ -3366,7 +3366,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Valor mensalidade (R$)</label>
-            <input type="number" id="tenant-valor" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="tenant-valor" placeholder="0,00">
           </div>
           <div class="form-group">
             <label>Próximo vencimento</label>
@@ -3460,7 +3460,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Valor (R$)</label>
-            <input type="number" id="pag-valor" min="0" step="0.01">
+            <input type="text" inputmode="numeric" data-moeda id="pag-valor">
           </div>
           <div class="form-group">
             <label>Observação</label>
@@ -3837,7 +3837,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-row">
             <div class="form-group">
               <label class="required">Valor (R$)</label>
-              <input type="number" id="boleto-valor" min="0" step="0.01">
+              <input type="text" inputmode="numeric" data-moeda id="boleto-valor">
             </div>
             <div class="form-group">
               <label>Vencimento</label>
@@ -4113,7 +4113,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Renda mensal (R$)</label>
-            <input type="number" id="comprador-renda" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="comprador-renda" placeholder="0,00">
           </div>
         </div>
 
@@ -4124,7 +4124,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Valor de entrada (R$)</label>
-            <input type="number" id="comprador-valor-entrada" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="comprador-valor-entrada" placeholder="0,00">
           </div>
         </div>
 
@@ -4222,7 +4222,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label class="required">Valor proposto (R$)</label>
-            <input type="number" id="negociacao-valor" min="0" step="0.01" placeholder="0,00" oninput="recalcularComissaoNegociacao()">
+            <input type="text" inputmode="numeric" data-moeda id="negociacao-valor" placeholder="0,00" oninput="recalcularComissaoNegociacao()">
             <span class="input-status muted" id="negociacao-valor-info">Anunciado: —</span>
           </div>
           <div class="form-group">
@@ -4272,7 +4272,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label>Valor de entrada / sinal (R$)</label>
-            <input type="number" id="negociacao-entrada" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="negociacao-entrada" placeholder="0,00">
           </div>
           <div class="form-group">
             <label>Data do sinal / aceite</label>
@@ -4465,7 +4465,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-row">
             <div class="form-group">
               <label>Renda mensal (R$)</label>
-              <input type="number" id="garantia-fiador-renda" min="0" step="0.01" placeholder="0,00">
+              <input type="text" inputmode="numeric" data-moeda id="garantia-fiador-renda" placeholder="0,00">
             </div>
             <div class="form-group" style="grid-column: span 2;">
               <label>Bens declarados</label>
@@ -4510,7 +4510,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             </div>
             <div class="form-group">
               <label>Valor (R$)</label>
-              <input type="number" id="garantia-caucao-valor" min="0" step="0.01" placeholder="0,00">
+              <input type="text" inputmode="numeric" data-moeda id="garantia-caucao-valor" placeholder="0,00">
             </div>
           </div>
 
@@ -4567,14 +4567,14 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             </div>
             <div class="form-group">
               <label>Cobertura contratada (R$)</label>
-              <input type="number" id="garantia-seguro-cobertura" min="0" step="0.01" placeholder="0,00">
+              <input type="text" inputmode="numeric" data-moeda id="garantia-seguro-cobertura" placeholder="0,00">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group">
               <label>Prêmio total (R$)</label>
-              <input type="number" id="garantia-seguro-premio" min="0" step="0.01" placeholder="0,00">
+              <input type="text" inputmode="numeric" data-moeda id="garantia-seguro-premio" placeholder="0,00">
             </div>
             <div class="form-group">
               <label>Forma de pagamento</label>
@@ -4880,7 +4880,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Valor de mercado / avaliação (R$)</label>
-            <input type="number" id="imovel-valor-mercado" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="imovel-valor-mercado" placeholder="0,00">
             <span class="muted" style="font-size:11px;">Interno — nunca aparece no link público</span>
           </div>
         </div>
@@ -4888,14 +4888,14 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row" id="imovel-loc-fields">
           <div class="form-group">
             <label>Aluguel sugerido (R$)</label>
-            <input type="number" id="imovel-aluguel-sugerido" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="imovel-aluguel-sugerido" placeholder="0,00">
           </div>
         </div>
 
         <div class="form-row" id="imovel-venda-fields" style="display:none;">
           <div class="form-group">
             <label>Valor de venda (R$)</label>
-            <input type="number" id="imovel-valor-venda" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="imovel-valor-venda" placeholder="0,00">
           </div>
           <div class="form-group">
             <label>Aceita financiamento?</label>
@@ -4928,11 +4928,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label>Condomínio (R$ por mês)</label>
-            <input type="number" id="imovel-valor-condominio" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="imovel-valor-condominio" placeholder="0,00">
           </div>
           <div class="form-group">
             <label>IPTU (R$ por mês)</label>
-            <input type="number" id="imovel-valor-iptu" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="imovel-valor-iptu" placeholder="0,00">
             <p class="muted" style="font-size:11px; margin-top:3px;">Valor anual? Divida por 12.</p>
           </div>
         </div>
@@ -5243,7 +5243,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label class="required">Aluguel mensal (R$)</label>
-            <input type="number" id="contrato-aluguel" min="0" step="0.01" placeholder="0,00" oninput="onContratoAluguelChange()">
+            <input type="text" inputmode="numeric" data-moeda id="contrato-aluguel" placeholder="0,00" oninput="onContratoAluguelChange()">
           </div>
           <div class="form-group">
             <label class="required">Dia de vencimento</label>
@@ -5258,7 +5258,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label>Multa rescisória (R$)</label>
-            <input type="number" id="contrato-multa" min="0" step="0.01" placeholder="0,00">
+            <input type="text" inputmode="numeric" data-moeda id="contrato-multa" placeholder="0,00">
             <span class="input-status muted" id="contrato-multa-info">Sugerido: 3× o aluguel</span>
           </div>
           <div class="form-group">
@@ -5602,7 +5602,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label class="required">Valor base devido (R$)</label>
-            <input type="number" id="cobranca-valor-base" min="0" step="0.01" placeholder="0,00" oninput="cobrancaRecalcular()">
+            <input type="text" inputmode="numeric" data-moeda id="cobranca-valor-base" placeholder="0,00" oninput="cobrancaRecalcular()">
             <small class="muted" id="cobranca-valor-base-info">Ex: valor do aluguel ou parcela</small>
           </div>
           <div class="form-group">
@@ -5648,11 +5648,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="cobranca-resultado" style="display:none; margin-top:18px; padding:14px 18px; background:#fafafa; border:2px solid #000; border-radius:8px;">
           <h4 style="margin:0 0 10px;">Composição do débito atualizado</h4>
           <table style="width:100%; font-size:14px;">
-            <tr><td>Valor base</td><td style="text-align:right;"><input type="number" id="cobranca-base-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaRecalcularDoZero()"></td></tr>
-            <tr><td>(+) Correção monetária <span class="muted" id="cobranca-corr-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-corr-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
-            <tr><td>(+) Multa <span class="muted" id="cobranca-multa-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-multa-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
-            <tr><td>(+) Juros <span class="muted" id="cobranca-juros-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-juros-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
-            <tr><td>(+) Honorários <span class="muted" id="cobranca-honor-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="number" id="cobranca-honor-edit" step="0.01" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>Valor base</td><td style="text-align:right;"><input type="text" inputmode="numeric" data-moeda id="cobranca-base-edit" style="width:130px; text-align:right;" oninput="cobrancaRecalcularDoZero()"></td></tr>
+            <tr><td>(+) Correção monetária <span class="muted" id="cobranca-corr-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="text" inputmode="numeric" data-moeda id="cobranca-corr-edit" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Multa <span class="muted" id="cobranca-multa-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="text" inputmode="numeric" data-moeda id="cobranca-multa-edit" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Juros <span class="muted" id="cobranca-juros-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="text" inputmode="numeric" data-moeda id="cobranca-juros-edit" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
+            <tr><td>(+) Honorários <span class="muted" id="cobranca-honor-info" style="font-size:11px;"></span></td><td style="text-align:right;"><input type="text" inputmode="numeric" data-moeda id="cobranca-honor-edit" style="width:130px; text-align:right;" oninput="cobrancaTotalSomente()"></td></tr>
             <tr style="border-top:2px solid #000;"><td style="padding-top:10px; font-size:16px; font-weight:bold;">TOTAL ATUALIZADO</td><td style="padding-top:10px; text-align:right; font-size:18px; font-weight:bold; color:#b91c1c;" id="cobranca-total">R$ 0,00</td></tr>
           </table>
           <p class="muted" style="font-size:11px; margin-top:8px;">Valores são editáveis — você pode ajustar qualquer linha individualmente. Clique em "Recalcular do zero" para refazer o cálculo automático.</p>
@@ -5714,11 +5714,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-row">
             <div class="form-group">
               <label>Multa rescisória aplicada (R$)</label>
-              <input type="number" id="distrato-multa" min="0" step="0.01" placeholder="0,00" title="Se houver multa por rescisão antecipada. Deixe 0 se não aplicável.">
+              <input type="text" inputmode="numeric" data-moeda id="distrato-multa" placeholder="0,00" title="Se houver multa por rescisão antecipada. Deixe 0 se não aplicável.">
             </div>
             <div class="form-group">
               <label>Valores pendentes a quitar (R$)</label>
-              <input type="number" id="distrato-pendencias" min="0" step="0.01" placeholder="0,00" title="Aluguéis em atraso, taxas, etc.">
+              <input type="text" inputmode="numeric" data-moeda id="distrato-pendencias" placeholder="0,00" title="Aluguéis em atraso, taxas, etc.">
             </div>
           </div>
 
@@ -5846,7 +5846,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
               <option value="ilimitado">♾️ Ilimitado (cortesia)</option>
             </select>
           </div>
-          <div class="form-group"><label>Mensalidade (R$)</label><input type="number" id="nc-valor" min="0" step="0.01" placeholder="0,00"></div>
+          <div class="form-group"><label>Mensalidade (R$)</label><input type="text" inputmode="numeric" data-moeda id="nc-valor" placeholder="0,00"></div>
           <div class="form-group"><label>Próximo vencimento</label><input type="date" id="nc-vencimento"></div>
         </div>
       </div>
@@ -5999,7 +5999,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261017d-sign-embutido"></script>
+  <script src="app.js?v=20261017e-moeda-br"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
   <script src="assinaturas.js?v=20261017d-sign-embutido"></script>
