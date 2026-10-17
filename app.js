@@ -868,6 +868,8 @@ window.confirmarMultiComprovantes = function() { return confirmarMultiComprovant
 // Logout
 // =============================================================
 async function doLogout() {
+  // Auditoria: registra a saída ANTES de deslogar (depois não há mais permissão de gravar)
+  try { await logAuditoria('logout', 'sessao', State.user?.uid || null, { email: State.user?.email || '' }); } catch (_) { /* */ }
   // Limpa histórico de navegação pra próximo login começar limpo
   State.navHistory = [];
   atualizarBotaoVoltar();
@@ -14236,6 +14238,11 @@ function exportarRelatorioCsv() {
 // Falha silenciosamente pra não impactar o fluxo principal do usuário.
 async function logAuditoria(acao, entidade, entidadeId, detalhe = null) {
   if (!State.tenant || !State.user) return;
+  // Inclusão/alteração/exclusão no banco do tenant já são registradas pela auditoria
+  // automática (auditoria.js), com os campos — não duplica. Ficam os eventos "de negócio"
+  // (e-mail enviado, lead repassado…) e os do painel DRG (fora do tenant).
+  if (window.registrarAuditoriaAuto && ['create', 'update', 'delete'].includes(acao)
+      && !/^(drg|tenant|usuario_drg|importacao|distrato|consulta)/.test(entidade || '')) return;
   try {
     const safeDetalhe = detalhe ? JSON.parse(JSON.stringify(detalhe).slice(0, 5000)) : null;
     await tenantPath().collection('auditoria').add({
@@ -14247,6 +14254,8 @@ async function logAuditoria(acao, entidade, entidadeId, detalhe = null) {
       userEmail: State.user.email || '',
       userRole: State.userDoc?.role || '',
       detalhe: safeDetalhe,
+      origem: 'tela',
+      tela: State.currentSection || null,
       timestamp: firebase.firestore.FieldValue.serverTimestamp(),
     });
   } catch (err) {
@@ -14302,72 +14311,7 @@ async function enviarTelemetria() {
   }
 }
 
-const AUDIT_ACAO_LABEL = {
-  create: '✚ Criação',
-  update: '✎ Atualização',
-  delete: '✗ Exclusão',
-  login: '🔑 Login',
-  send_email: '✉️ E-mail enviado',
-  gerar_contrato: '📄 Contrato gerado',
-  toggle_ativo: '🔄 Status alterado',
-};
-
-const AUDIT_ENTIDADE_LABEL = {
-  locador: 'Locador',
-  locatario: 'Locatário',
-  comprador: 'Comprador',
-  garantia: 'Garantia',
-  imovel: 'Imóvel',
-  contrato: 'Contrato',
-  negociacao: 'Negociação',
-  balancete: 'Balancete',
-  usuario: 'Usuário',
-  config: 'Configurações',
-  sessao: 'Sessão',
-};
-
-async function loadAuditoria() {
-  const tbody = $('tbody-auditoria');
-  tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
-  if (!State.tenant) { tbody.innerHTML = `<tr><td colspan="6" class="empty">—</td></tr>`; return; }
-
-  const entFiltro = $('filtro-auditoria-entidade').value;
-  const acFiltro = $('filtro-auditoria-acao').value;
-
-  try {
-    let q = tenantPath().collection('auditoria').orderBy('timestamp', 'desc').limit(200);
-    const snap = await q.get();
-    let docs = snap.docs;
-    if (entFiltro) docs = docs.filter(d => d.data().entidade === entFiltro);
-    if (acFiltro)  docs = docs.filter(d => d.data().acao === acFiltro);
-
-    if (docs.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum registro encontrado.</td></tr>`;
-      return;
-    }
-
-    const rows = docs.map(doc => {
-      const a = doc.data();
-      const dt = a.timestamp?.toDate ? a.timestamp.toDate() : null;
-      const dataTxt = dt ? `${dt.toLocaleDateString('pt-BR')} ${dt.toLocaleTimeString('pt-BR')}` : '—';
-      const detalhe = a.detalhe ? (typeof a.detalhe === 'string' ? a.detalhe : JSON.stringify(a.detalhe).slice(0, 80) + '…') : '—';
-      return `
-        <tr>
-          <td><span style="font-family:'Courier New',monospace; font-size:12px;">${dataTxt}</span></td>
-          <td>${a.userNome || a.userEmail || '—'}</td>
-          <td>${AUDIT_ACAO_LABEL[a.acao] || a.acao}</td>
-          <td>${AUDIT_ENTIDADE_LABEL[a.entidade] || a.entidade}</td>
-          <td><span style="font-family:'Courier New',monospace; font-size:11px; color:var(--text-muted);">${a.entidadeId || '—'}</span></td>
-          <td style="font-size:11px; color:var(--text-muted); max-width:300px; overflow:hidden; text-overflow:ellipsis;">${detalhe}</td>
-        </tr>
-      `;
-    });
-    tbody.innerHTML = rows.join('');
-  } catch (err) {
-    console.error('Erro ao carregar auditoria:', err);
-    tbody.innerHTML = `<tr><td colspan="6" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
-  }
-}
+// Tela da Auditoria (filtros, exportação): auditoria.js
 
 // =============================================================
 // USUÁRIOS DO TENANT (operadores) — gerenciamento pelo admin

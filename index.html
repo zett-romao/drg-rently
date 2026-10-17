@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261017e-moeda-br">
+  <link rel="stylesheet" href="styles.css?v=20261017f-auditoria">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1473,60 +1473,38 @@
             <div class="section-header">
               <div>
                 <h3>Auditoria</h3>
-                <p class="muted">Histórico de ações sensíveis no sistema (LGPD).</p>
+                <p class="muted">Tudo o que é feito no sistema: inclusões, alterações, exclusões, arquivos enviados/abertos/excluídos, downloads, impressões, entradas e saídas. Os registros não podem ser alterados nem apagados (LGPD).</p>
               </div>
-              <button class="btn btn-secondary btn-sm" onclick="loadAuditoria()">🔄 Recarregar</button>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="btn btn-secondary btn-sm" onclick="exportarAuditoriaCsv()">📥 Exportar CSV</button>
+              </div>
             </div>
+            <div id="audit-alert" class="alert" style="display:none;"></div>
 
-            <div class="form-row" style="max-width:700px; margin-bottom:14px;">
-              <div class="form-group">
-                <label>Entidade</label>
-                <select id="filtro-auditoria-entidade" onchange="loadAuditoria()">
-                  <option value="">Todas</option>
-                  <option value="locador">Locadores</option>
-                  <option value="locatario">Locatários</option>
-                  <option value="comprador">Compradores</option>
-                  <option value="garantia">Garantias</option>
-                  <option value="imovel">Imóveis</option>
-                  <option value="contrato">Contratos</option>
-                  <option value="negociacao">Negociações</option>
-                  <option value="balancete">Balancetes</option>
-                  <option value="usuario">Usuários do tenant</option>
-                  <option value="config">Configurações</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Ação</label>
-                <select id="filtro-auditoria-acao" onchange="loadAuditoria()">
-                  <option value="">Todas</option>
-                  <option value="create">Criação</option>
-                  <option value="update">Atualização</option>
-                  <option value="delete">Exclusão</option>
-                  <option value="login">Login</option>
-                </select>
-              </div>
+            <div class="audit-filtros">
+              <div class="form-group"><label>De</label><input type="date" id="audit-de"></div>
+              <div class="form-group"><label>Até</label><input type="date" id="audit-ate"></div>
+              <div class="form-group"><label>Usuário</label><select id="audit-usuario" onchange="renderAuditoria()"><option value="">Todos os usuários</option></select></div>
+              <div class="form-group"><label>Evento</label><select id="audit-evento" onchange="renderAuditoria()"><option value="">Todos os eventos</option></select></div>
+              <div class="form-group"><label>Entidade</label><select id="audit-entidade" onchange="renderAuditoria()"><option value="">Tudo</option></select></div>
+              <div class="form-group"><label>Busca</label><input type="search" id="audit-busca" placeholder="nome, ID, campo, arquivo…" oninput="renderAuditoria()"></div>
+              <div class="form-group audit-filtros-botao"><button class="btn btn-primary" id="btn-audit-buscar" onclick="loadAuditoria()">🔎 Buscar</button></div>
             </div>
+            <p class="muted" id="audit-contagem" style="font-size:12px; margin:4px 0 10px;"></p>
 
             <div class="table-wrap">
-              <table class="table">
+              <table class="table tabela-auditoria">
                 <thead>
-                  <tr>
-                    <th>Data / Hora</th>
-                    <th>Usuário</th>
-                    <th>Ação</th>
-                    <th>Entidade</th>
-                    <th>ID do registro</th>
-                    <th>Detalhes</th>
-                  </tr>
+                  <tr><th>Data / hora</th><th>Usuário</th><th>Evento</th><th>Registro</th><th>Detalhes</th></tr>
                 </thead>
                 <tbody id="tbody-auditoria">
-                  <tr><td colspan="6" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="5" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
-            <p class="muted" style="font-size:11px; margin-top:8px;">
-              Mostrando os últimos 200 registros. Logs são imutáveis e mantidos por 5 anos para conformidade LGPD.
-            </p>
+            <div style="text-align:center; margin-top:12px;">
+              <button class="btn btn-secondary" id="btn-audit-mais" onclick="loadAuditoria(true)" style="display:none;">⬇ Carregar mais</button>
+            </div>
           </div>
         </section>
 
@@ -5999,7 +5977,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261017e-moeda-br"></script>
+  <script src="auditoria.js?v=20261017g-auditoria"></script>
+  <script src="app.js?v=20261017g-auditoria"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
   <script src="assinaturas.js?v=20261017d-sign-embutido"></script>

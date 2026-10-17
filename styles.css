@@ -4237,3 +4237,19 @@ details.card > summary:hover {
   }
   .table.tabela-assinaturas td[data-label="Ações"] > div { min-width: 0 !important; margin-top: 6px; }
 }
+
+/* Auditoria: filtros em grade (somem para 1 coluna no celular) e linhas viram cartões */
+.audit-filtros { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 12px; align-items: end; }
+.audit-filtros .form-group { margin-bottom: 0; }
+.audit-filtros select, .audit-filtros input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: #fff; }
+.audit-filtros-botao .btn { width: 100%; min-height: 40px; }
+.tabela-auditoria details summary { cursor: pointer; color: var(--primary-dark, #334155); }
+@media (max-width: 640px) {
+  .table.tabela-auditoria { min-width: 0; }
+  .table.tabela-auditoria thead { display: none; }
+  .table.tabela-auditoria, .table.tabela-auditoria tbody, .table.tabela-auditoria tr,
+  .table.tabela-auditoria tbody td { display: block; width: 100%; box-sizing: border-box; }
+  .table.tabela-auditoria tbody tr { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 10px; background: #fff; }
+  .table.tabela-auditoria tbody td { border: none; padding: 3px 0; max-width: none !important; }
+  .table.tabela-auditoria td[data-label]::before { content: attr(data-label) ": "; font-weight: 600; color: var(--text-muted, #64748b); font-size: 12px; }
+}

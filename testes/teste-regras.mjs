@@ -135,6 +135,17 @@ await caso('visitante: lê estatísticas BLOQUEIA', false, () => getDoc(est(db()
 await caso('visitante: apaga estatística BLOQUEIA', false, () => deleteDoc(est(db())));
 await caso('equipe: lê estatísticas', true, () => getDoc(est(db('op1'))));
 
+// ---------- Auditoria (17/10/2026): imutável e em nome próprio ----------
+const aud = (uid, extra = {}) => ({ acao: 'update', entidade: 'imovel', entidadeId: 'im2', userId: uid, userRole: 'operador', timestamp: serverTimestamp(), ...extra });
+await caso('auditoria: equipe registra em nome próprio', true, () => setDoc(R(db('op1'), 'auditoria', 'a1'), aud('op1')));
+await caso('auditoria: registrar em nome de OUTRO BLOQUEIA', false, () => setDoc(R(db('op1'), 'auditoria', 'a2'), aud('op0')));
+await caso('auditoria: hora forjada BLOQUEIA', false, () => setDoc(R(db('op1'), 'auditoria', 'a3'), aud('op1', { timestamp: new Date(2020, 0, 1) })));
+await caso('auditoria: admin altera registro BLOQUEIA', false, () => updateDoc(R(db('admin1'), 'auditoria', 'a1'), { acao: 'login' }));
+await caso('auditoria: admin apaga registro BLOQUEIA', false, () => deleteDoc(R(db('admin1'), 'auditoria', 'a1')));
+await caso('auditoria: super admin apaga registro BLOQUEIA', false, () => deleteDoc(R(db('super'), 'auditoria', 'a1')));
+await caso('auditoria: admin lê', true, () => getDoc(R(db('admin1'), 'auditoria', 'a1')));
+await caso('auditoria: corretor lê BLOQUEIA', false, () => getDoc(R(db('cor1'), 'auditoria', 'a1')));
+
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
 process.exit(falhas ? 1 : 0);

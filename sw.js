@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v24-20261017e-moeda-br';
+const CACHE_VERSION = 'drg-rently-v25-20261017f-auditoria';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

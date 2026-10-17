@@ -138,6 +138,11 @@ service cloud.firestore {
               && soCampos(['status', 'emailEnviadoEm', 'emailEnviadoPara', 'emailEnviadoBcc',
                            'emailLocatarioEnviadoEm', 'emailLocatarioEnviadoPara', 'emailLocatarioEnviadoBcc']));
     }
+    // Registro de auditoria honesto: em nome de quem grava e com a hora do servidor
+    function registroDeAuditoriaValido() {
+      return request.resource.data.userId == request.auth.uid
+             && request.resource.data.timestamp == request.time;
+    }
     // Excluir contrato apaga a garantia dele junto
     function exclusaoEmCascata(tenantId, colecao) {
       return colecao == 'garantias' && podeNoModulo(tenantId, 'contratos', 'excluir');
@@ -242,14 +247,20 @@ service cloud.firestore {
 
       // Subcoleções genéricas — só equipe interna (corretor NÃO entra aqui).
       // Gravação conferida pelo perfil (fase 4); leitura continua livre para a equipe.
+      // Auditoria (17/10/2026): IMUTÁVEL — ninguém altera nem apaga, e cada um só registra em
+      // nome próprio, com a hora do servidor. Lê quem enxerga o módulo Auditoria.
       match /{collection}/{docId} {
-        allow read: if isEquipeTenant(tenantId);
-        allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar');
-        allow update: if isEquipeTenant(tenantId)
+        allow read: if isEquipeTenant(tenantId)
+                    && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'));
+        allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
+                      && (collection != 'auditoria' || registroDeAuditoriaValido());
+        allow update: if isEquipeTenant(tenantId) && collection != 'auditoria'
                       && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
-        allow delete: if isEquipeTenant(tenantId)
+        allow delete: if isEquipeTenant(tenantId) && collection != 'auditoria'
                       && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
-        allow read, write: if isDRGTeam();
+        allow read: if isDRGTeam();
+        allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido());
+        allow update, delete: if isDRGTeam() && collection != 'auditoria';
       }
 
       // Perfis 3.0 — fila "Com aprovação": corretor cria pedido em nome próprio

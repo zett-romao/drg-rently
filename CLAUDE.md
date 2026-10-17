@@ -673,6 +673,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
 
 ---
 
+- **2026-10-17**: 🔓 **Auditoria = TUDO** (dono: *"precisa registrar tudo que é feito dentro do sistema, inclusões, exclusões, baixa de arquivos… filtrar por eventos, por período e por usuário"*).
+  `auditoria.js` (carregado ANTES do app.js) intercepta Firestore (set/update/delete/add, lote, transação), Storage (envio, exclusão, abrir documento — foto não) e o navegador
+  (link `download` = exportação; `window.print`). Ignora `auditoria, contadores, estatisticas, vitrine, imoveisRede, comissoes` (espelhos) e preferências do usuário; mascara campos sensíveis.
+  `logAuditoria()` das telas não grava mais create/update/delete do tenant (o automático já grava) — só eventos de negócio. Tela: período (consulta só por `timestamp`, sem índice composto),
+  usuário/evento/entidade/busca na tela, "Carregar mais", CSV. **Regra: auditoria imutável** (ninguém altera/apaga, nem DRG; só em nome próprio com hora do servidor; lê quem vê o módulo).
+
+---
+
 ## Estilo de comunicação que o usuário prefere
 
 (Herdado do DRG-Kronos)
