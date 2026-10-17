@@ -450,7 +450,7 @@ Contratos importados ficam com `importadoPorIA: true` e aparecem no Dashboard em
 
 | Plataforma | Como funciona |
 |---|---|
-| **DRG-Sign** (recomendada) | **Integrada.** O Rently envia, acompanha quem assinou e baixa o PDF final. Cole a **chave de integração** gerada no DRG-Sign (Configurações → Integração (API) → “+ Gerar chave”). 1 crédito do Sign por contrato. |
+| **DRG-Sign** (recomendada) | **Integrada.** Abre a **tela do próprio DRG-Sign** dentro do Rently: vários PDFs num envelope (inclusive os já salvos aqui e o contrato do advogado), agenda de contatos, posicionar as assinaturas na página, selfie/documento/código, via final — e depois o detalhe com hash e cadeia de custódia. Cole a **chave de integração** gerada no DRG-Sign (Configurações → Integração (API) → “+ Gerar chave”). 1 crédito do Sign por contrato. |
 | gov.br, Clicksign, D4Sign, DocuSign, Autentique, Outra | **Externa.** O Rently baixa o PDF do contrato e abre o site da plataforma; você envia por lá, com a sua conta. Quando voltar assinado, anexe o PDF no contrato. |
 | No papel | O Rently baixa o PDF para imprimir; depois de assinado, digitalize e anexe. |
 

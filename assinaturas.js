@@ -2,7 +2,7 @@
 // DRG-Rently — ASSINATURAS AVULSAS
 // =============================================================
 // Carregado DEPOIS do app.js (usa $, tenantPath, storage, confirmar, escapeHtml,
-// plataformaAssinatura, _signEnviar, _signConsultar, _cfgSite, pdfDoArquivoBase64...).
+// plataformaAssinatura, _signConsultar, _cfgSite, pdfDoArquivoBase64...).
 //
 // Pedido do dono (17/10/2026): subir um contrato JÁ ELABORADO no computador (muitas vezes
 // feito pelo advogado do cliente) e mandar assinar de dentro do Rently — avulso ou ligado
@@ -56,7 +56,9 @@ function renderAssinaturasAvulsas() {
     const [rotulo, classe] = _AV_STATUS[z.status] || [z.status || '—', ''];
     const assinaram = (z.signers || []).filter(s => s.status === 'signed').length;
     const id = a._id;
-    const botoes = [`<button type="button" class="btn btn-secondary btn-sm" id="btn-av-orig-${id}" onclick="abrirArquivoAvulsa('${id}', 'original')">📄 Original</button>`];
+    const botoes = [];
+    if (z.provedor === 'drg-sign' && z.openId) botoes.push(`<button type="button" class="btn btn-secondary btn-sm" id="btn-av-ver-${id}" onclick="verNoSign('avulsa', '${id}', '${escapeHtml(String(z.openId))}', 'btn-av-ver-${id}')">🔎 Ver no DRG-Sign</button>`);
+    if (a.arquivoOriginalPath) botoes.push(`<button type="button" class="btn btn-secondary btn-sm" id="btn-av-orig-${id}" onclick="abrirArquivoAvulsa('${id}', 'original')">📄 Original</button>`);
     if (z.status === 'signed') {
       botoes.push(`<button type="button" class="btn btn-primary btn-sm" id="btn-av-ass-${id}" onclick="abrirArquivoAvulsa('${id}', 'assinado')">✅ PDF assinado</button>`);
     } else if (z.provedor === 'drg-sign') {
@@ -68,7 +70,7 @@ function renderAssinaturasAvulsas() {
     botoes.push(`<button type="button" class="btn btn-danger btn-sm" id="btn-av-excluir-${id}" onclick="excluirAvulsa('${id}')" title="Excluir este registro">🗑 Excluir</button>`);
     return `<tr>
       <td data-label="Documento"><strong>${escapeHtml(a.titulo || '—')}</strong>
-        <div class="muted" style="font-size:11px;">${escapeHtml(a.arquivoOriginalNome || '')} · ${fmtDate(a.criadoEm)}${a.criadoPorNome ? ' · ' + escapeHtml(a.criadoPorNome) : ''}</div>
+        <div class="muted" style="font-size:11px;">${escapeHtml(a.arquivoOriginalNome || (z.provedor === 'drg-sign' ? 'no DRG-Sign' : ''))} · ${fmtDate(a.criadoEm)}${a.criadoPorNome ? ' · ' + escapeHtml(a.criadoPorNome) : ''}</div>
         <div class="muted" style="font-size:11px;">${(z.signers || []).map(s => `${s.status === 'signed' ? '✅' : s.status === 'refused' ? '❌' : '⏳'} ${escapeHtml(s.name)}`).join(' · ')}</div></td>
       <td data-label="Imóvel">${a.imovelId ? escapeHtml(a.imovelApelido || 'Imóvel') : '<span class="muted">Avulso</span>'}</td>
       <td data-label="Plataforma">${escapeHtml(_nomeDoEnvio(z))}${z.provedor === 'drg-sign' && z.token ? `<div class="muted" style="font-size:11px;">${escapeHtml(z.token)}</div>` : ''}</td>
@@ -86,12 +88,14 @@ async function abrirNovaAssinaturaAvulsa(imovelIdInicial) {
   _avulsa = { plataforma: plat, signers: [] };
   $('av-titulo').value = '';
   $('av-arquivo').value = '';
+  $('av-bloco-doc').style.display = plat.integrada ? 'none' : '';
+  $('av-bloco-signers').style.display = plat.integrada ? 'none' : '';
   $('av-plataforma').innerHTML = plat.integrada
-    ? 'Vai pelo <strong>DRG-Sign</strong>: cada signatário recebe o link por e-mail, confirma CPF e data de nascimento e assina; registro em blockchain. Gasta 1 crédito do Sign.'
+    ? 'Vai pelo <strong>DRG-Sign</strong>. Escolha o imóvel, se houver, e a <strong>tela de envio do Sign</strong> abre a seguir — com os PDFs já salvos aqui para aproveitar, a agenda de contatos, o posicionamento das assinaturas e a autenticação (selfie, documento, código).'
     : plat.id === 'papel'
       ? 'Plataforma escolhida: <strong>no papel</strong>. O documento fica registrado aqui; depois de assinado, digitalize e use <strong>📎 Anexar assinado</strong>.'
       : `Plataforma escolhida: <strong>${escapeHtml(plat.nome)}</strong>. O Rently registra o envio${plat.url ? ' e abre o site dela' : ''}; envie o PDF por lá e, quando voltar assinado, use <strong>📎 Anexar assinado</strong>.`;
-  $('btn-av-enviar').textContent = plat.integrada ? '📧 Enviar para assinatura' : (plat.url ? `↗ Registrar e abrir ${plat.curto || plat.nome}` : '✓ Registrar envio');
+  $('btn-av-enviar').textContent = plat.integrada ? '✍️ Abrir a tela do DRG-Sign' : (plat.url ? `↗ Registrar e abrir ${plat.curto || plat.nome}` : '✓ Registrar envio');
   $('btn-av-enviar').disabled = false;
 
   // Imóveis do sistema (opcional)
@@ -152,6 +156,7 @@ async function enviarAssinaturaAvulsa() {
   if (!_avulsa) return;
   clearAlert('av-alert');
   const plat = _avulsa.plataforma;
+  if (plat.integrada) return _abrirAvulsaNoSign();
   const titulo = $('av-titulo').value.trim();
   const file = $('av-arquivo').files[0];
   const signers = _avulsa.signers.map(s => ({ ...s, name: s.name.trim(), email: s.email.trim() })).filter(s => s.name);
@@ -174,11 +179,7 @@ async function enviarAssinaturaAvulsa() {
     subiu = true;
 
     let assinatura;
-    if (plat.integrada) {
-      btn.textContent = '⏳ Enviando ao DRG-Sign... aguarde ~1 min';
-      showAlert('av-alert', '✍️ Enviando ao DRG-Sign... aguarde (se o servidor estiver dormindo, leva ~1 min para acordar).', 'info');
-      assinatura = await _signEnviar(await _cfgSite(), { docName: titulo, pdfBase64, signers, externalId: `avulsa-${ref.id}` });
-    } else {
+    {   // plataformas externas (o DRG-Sign vai pela tela do Sign — _abrirAvulsaNoSign)
       assinatura = {
         provedor: 'externo', plataforma: plat.id, plataformaNome: plat.nome, name: titulo, status: 'pending',
         signers: signers.map(s => ({ name: s.name, email: s.email, status: 'pending' })),
@@ -214,6 +215,33 @@ async function enviarAssinaturaAvulsa() {
     if (subiu) storage.ref().child(pathOriginal).delete().catch(() => {});   // não deixa arquivo órfão
     console.error('Erro ao enviar documento avulso:', err);
     showAlert('av-alert', 'Erro: ' + err.message);
+    btn.disabled = false; btn.textContent = rotulo;
+  }
+}
+
+// DRG-Sign: abre a tela do Sign já com o proprietário (se houver imóvel) e os PDFs salvos aqui
+async function _abrirAvulsaNoSign() {
+  const btn = $('btn-av-enviar');
+  const rotulo = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Abrindo o DRG-Sign... aguarde ~1 min';
+  try {
+    const imovelId = $('av-imovel').value || null;
+    const opt = $('av-imovel').selectedOptions[0];
+    const locadorId = opt?.dataset.locador || null;
+    const sugestoes = imovelId ? [
+      ...await coletarSugestoesAssinatura([{ pasta: `imoveis/${imovelId}`, origem: 'Imóvel' }, { pasta: `locadores/${locadorId}`, origem: 'Proprietário' }]),
+      ...await sugestoesDeAvulsasDoImovel(imovelId),
+    ] : [];
+    const signers = _avulsa.signers.map(s => ({ ...s, name: s.name.trim(), email: s.email.trim() })).filter(s => s.name);
+    const id = tenantPath().collection('assinaturas').doc().id;
+    await abrirTelaSign({
+      tipo: 'avulsa', id, titulo: '', signers, sugestoes,
+      extra: { imovelId, imovelApelido: imovelId ? (opt?.textContent || '').split(' · ')[0] : null },
+    });
+    fecharAssinaturaAvulsa();
+  } catch (err) {
+    showAlert('av-alert', 'Erro: ' + err.message);
+  } finally {
     btn.disabled = false; btn.textContent = rotulo;
   }
 }
@@ -334,3 +362,225 @@ window.atualizarStatusAvulsa = atualizarStatusAvulsa;
 window.anexarAssinadoAvulsa = anexarAssinadoAvulsa;
 window.abrirArquivoAvulsa = abrirArquivoAvulsa;
 window.excluirAvulsa = excluirAvulsa;
+
+// =============================================================
+// TELA DO DRG-SIGN EMBUTIDA (envio e detalhe)
+// =============================================================
+// Dono (17/10/2026): "A tela precisa ser idêntica… com posicionamento de assinaturas,
+// aproveitamento de documentos e assinaturas já salvos… hash e cadeia de custódia".
+// Em vez de copiar o Sign, o Rently ABRE A TELA DO PRÓPRIO SIGN num iframe: a API cria
+// uma sessão curta (POST /api/v1/sessoes, com a chave da conta) e o Sign mostra o
+// "Novo documento" completo — já com o PDF, os signatários e os documentos salvos aqui
+// para aproveitar — e, depois, o detalhe com hash, carimbo e cadeia de custódia.
+// O Sign avisa por postMessage ('criado' / 'status' / 'excluido'); ao fechar, o Rently
+// ainda confere pela API (external_id) — nada se perde se o aviso não chegar.
+
+let _telaSign = null;   // { tipo, id, modo, externalId, origemSign, registrado, extra }
+
+const _externalIdRently = (tipo, id) => `rently:${State.tenant.id}:${tipo}:${id}`;
+
+// ---------- Documentos já salvos no Rently (para aproveitar no envelope) ----------
+async function coletarSugestoesAssinatura(pastas) {
+  const sugestoes = [];
+  const vistos = new Set();
+  async function varrer(ref, origem, nivel) {
+    let lista;
+    try { lista = await ref.listAll(); } catch (_) { return; }   // pasta pode não existir
+    for (const item of lista.items) {
+      if (!/\.pdf$/i.test(item.name) || vistos.has(item.fullPath)) continue;
+      vistos.add(item.fullPath);
+      try { sugestoes.push({ nome: item.name, url: await item.getDownloadURL(), origem }); } catch (_) { /* sem acesso: pula */ }
+    }
+    if (nivel < 1) for (const sub of lista.prefixes) await varrer(sub, origem, nivel + 1);
+  }
+  for (const { pasta, origem } of pastas) {
+    if (pasta && !/\/(undefined|null|)$/.test(pasta)) await varrer(storageTenantRef().child(pasta), origem, 0);
+  }
+  return sugestoes.slice(0, 40);
+}
+
+// PDFs já enviados por "Assinaturas" para o mesmo imóvel (original e assinado)
+async function sugestoesDeAvulsasDoImovel(imovelId) {
+  if (!imovelId) return [];
+  try {
+    const snap = await tenantPath().collection('assinaturas').where('imovelId', '==', imovelId).limit(15).get();
+    const out = [];
+    for (const d of snap.docs) {
+      const a = d.data();
+      for (const [path, rot] of [[a.arquivoOriginalPath, 'original'], [a.assinatura?.arquivoAssinadoPath, 'assinado']]) {
+        if (!path) continue;
+        try { out.push({ nome: `${a.titulo} (${rot}).pdf`, url: await storage.ref().child(path).getDownloadURL(), origem: 'Assinaturas do imóvel' }); } catch (_) { /* */ }
+      }
+    }
+    return out;
+  } catch (_) { return []; }
+}
+
+// ---------- Abrir / fechar a tela ----------
+async function abrirTelaSign({ tipo, id, modo = 'novo', documentoId = null, titulo = '', signers = [], arquivos = [], sugestoes = [], extra = {} }) {
+  const cfg = await _cfgSite();
+  if (!cfg.signApiKey) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
+  const externalId = _externalIdRently(tipo, id);
+  const res = await fetch(`${_signBase(cfg)}/api/v1/sessoes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ..._signHeaders(cfg) },
+    body: JSON.stringify({
+      modo, documento_id: documentoId, titulo, external_id: externalId, origem: location.origin, sugestoes,
+      arquivos: arquivos.map(a => ({ nome: a.nome, pdf_base64: a.base64, sugerido: !!a.sugerido })),
+      signatarios: signers.map(s => ({ nome: s.name, email: s.email || '', telefone: s.telefone || '', qualificacao: s.role || '' })),
+    }),
+  });
+  if (!res.ok) throw await _signErro(res);
+  const { url } = await res.json();
+  _telaSign = { tipo, id, modo, externalId, origemSign: new URL(url).origin, registrado: modo === 'ver', extra };
+  $('sign-embed-titulo').textContent = modo === 'ver' ? '🔎 DRG-Sign — documento, hash e cadeia de custódia' : '✍️ DRG-Sign — enviar para assinatura';
+  $('sign-embed-frame').src = url;
+  $('modal-sign-embed').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+async function fecharTelaSign() {
+  const ctx = _telaSign;
+  $('modal-sign-embed').style.display = 'none';
+  $('sign-embed-frame').src = 'about:blank';
+  document.body.style.overflow = '';
+  _telaSign = null;
+  if (!ctx) return;
+  // Fechou antes do aviso chegar? Confere pela API se o envelope foi criado.
+  if (!ctx.registrado) {
+    try {
+      const cfg = await _cfgSite();
+      const r = await fetch(`${_signBase(cfg)}/api/v1/documentos?external_id=${encodeURIComponent(ctx.externalId)}`, { headers: _signHeaders(cfg) });
+      if (r.ok) {
+        const lista = await r.json();
+        if (lista.length) await _registrarEnvioSign(ctx, { documento_id: lista[0].documento_id, codigo: lista[0].codigo, titulo: lista[0].titulo, status: lista[0].status, signatarios: lista[0].signatarios });
+      }
+    } catch (e) { console.warn('Conferência do envio no Sign falhou:', e); }
+  }
+  await _recarregarOndeEsta(ctx);
+}
+
+async function _recarregarOndeEsta(ctx) {
+  if (ctx.tipo === 'avulsa') { if (typeof loadAssinaturasAvulsas === 'function') await loadAssinaturasAvulsas(); }
+  else if ($(_ASS[ctx.tipo].idEl).value === ctx.id) await _carregarStatusAssinatura(ctx.tipo, ctx.id);
+}
+
+// ---------- Avisos do Sign (postMessage) ----------
+window.addEventListener('message', async (ev) => {
+  const ctx = _telaSign;
+  const m = ev.data;
+  if (!ctx || ev.origin !== ctx.origemSign || !m || m.origem !== 'drg-sign') return;
+  try {
+    if (m.tipo === 'criado') {
+      $('sign-embed-titulo').textContent = '🔎 DRG-Sign — documento, hash e cadeia de custódia';   // a tela do Sign já foi para o detalhe
+      await _registrarEnvioSign(ctx, m); ctx.registrado = true; await _recarregarOndeEsta(ctx);
+    }
+    else if (m.tipo === 'status') await _atualizarRegistroSign(ctx, m);
+    else if (m.tipo === 'excluido') { await _removerRegistroSign(ctx, m); await _recarregarOndeEsta(ctx); }
+  } catch (e) { console.error('Aviso do Sign não gravado:', e); }
+});
+
+function _registroDoSign(m) {
+  const conv = _signParaRently({ status: m.status, signatarios: m.signatarios || [] });
+  return { provedor: 'drg-sign', plataforma: 'drg-sign', openId: String(m.documento_id), token: m.codigo || '', name: m.titulo || '', ...conv };
+}
+
+async function _registrarEnvioSign(ctx, m) {
+  const reg = _registroDoSign(m);
+  const quando = { enviadoEm: firebase.firestore.FieldValue.serverTimestamp(), enviadoPor: State.user.uid, externalId: ctx.externalId };
+  if (ctx.tipo === 'avulsa') {
+    await tenantPath().collection('assinaturas').doc(ctx.id).set({
+      titulo: m.titulo || 'Documento', imovelId: ctx.extra.imovelId || null, imovelApelido: ctx.extra.imovelApelido || null,
+      arquivoOriginalPath: null, arquivoOriginalNome: null,
+      assinatura: { ...reg, ...quando },
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
+      criadoPorNome: State.userDoc?.nome || State.user?.email || '',
+    }, { merge: true });
+    logAuditoria('assinatura_avulsa_envio', 'assinatura', ctx.id, { plataforma: 'drg-sign' });
+    showAlert('assinaturas-alert', `✓ “${m.titulo || 'Documento'}” enviado pelo DRG-Sign.`, 'success');
+  } else {
+    const T = _ASS[ctx.tipo];
+    await tenantPath().collection(T.col).doc(ctx.id).update({ zapsign: { ...reg, ...quando } });
+    logAuditoria('zapsign_envio', ctx.tipo, ctx.id, { plataforma: 'drg-sign', signers: reg.signers.length });
+    showAlert(T.alerta, `✓ ${T.rotulo} enviado pelo DRG-Sign! ${reg.signers.length} signatário(s).`, 'success');
+  }
+}
+
+async function _atualizarRegistroSign(ctx, m) {
+  const reg = _registroDoSign(m);
+  if (ctx.tipo === 'avulsa') {
+    const ref = tenantPath().collection('assinaturas').doc(ctx.id);
+    const d = (await ref.get()).data();
+    if (!d || String(d.assinatura?.openId) !== String(m.documento_id)) return;
+    await ref.update({ 'assinatura.status': reg.status, 'assinatura.signers': reg.signers });
+    return;
+  }
+  const T = _ASS[ctx.tipo];
+  const ref = tenantPath().collection(T.col).doc(ctx.id);
+  const d = (await ref.get()).data();
+  if (!d || String(d.zapsign?.openId) !== String(m.documento_id)) return;
+  if (d.zapsign.status === reg.status && JSON.stringify(d.zapsign.signers || []) === JSON.stringify(reg.signers)) return;
+  await ref.update({ 'zapsign.status': reg.status, 'zapsign.signers': reg.signers });
+  if (reg.status === 'signed') await _aplicarAssinado(ctx.tipo, ctx.id, d.status);
+}
+
+async function _removerRegistroSign(ctx, m) {
+  if (ctx.tipo === 'avulsa') {
+    const ref = tenantPath().collection('assinaturas').doc(ctx.id);
+    const d = (await ref.get()).data();
+    if (d && String(d.assinatura?.openId) === String(m.documento_id)) await ref.delete();
+    return;
+  }
+  const T = _ASS[ctx.tipo];
+  const ref = tenantPath().collection(T.col).doc(ctx.id);
+  const d = (await ref.get()).data();
+  if (d && String(d.zapsign?.openId) === String(m.documento_id)) await ref.update({ zapsign: firebase.firestore.FieldValue.delete() });
+}
+
+// ---------- Contrato / negociação → tela do Sign ----------
+// Chamado pelo _abrirEnvio (app.js) quando a plataforma é o DRG-Sign.
+async function abrirEnvioPeloSign(tipo, id, d, imovel, signers) {
+  const T = _ASS[tipo];
+  // O contrato gerado pelo Rently vai OFERECIDO (não anexado): na tela do Sign a pessoa escolhe
+  // entre ele, os PDFs já salvos aqui ou um arquivo novo (ex.: o feito pelo advogado).
+  const arquivos = [];
+  try {
+    _zapsignContexto = { contratoId: id, tipo };
+    const b64 = await gerarPdfContratoBase64();
+    if (b64) arquivos.push({ nome: `${tipo === 'contrato' ? 'Contrato de Locação' : 'Contrato de Compra e Venda'} - ${imovel?.apelido || 'Imóvel'} (gerado pelo Rently).pdf`, base64: b64, sugerido: true });
+  } catch (e) { console.warn('Contrato do Rently não gerado (segue sem ele):', e); }
+  const pastas = tipo === 'contrato'
+    ? [{ pasta: `contratos/${id}`, origem: 'Contrato' }, { pasta: `imoveis/${d.imovelId}`, origem: 'Imóvel' },
+       { pasta: `locadores/${d.locadorId}`, origem: 'Locador' }, { pasta: `locatarios/${d.locatarioId}`, origem: 'Locatário' },
+       { pasta: `garantias/${d.garantiaId}`, origem: 'Garantia' }]
+    : [{ pasta: `negociacoes/${id}`, origem: 'Negociação' }, { pasta: `imoveis/${d.imovelId}`, origem: 'Imóvel' },
+       { pasta: `locadores/${d.vendedorId}`, origem: 'Vendedor' }, { pasta: `compradores/${d.compradorId}`, origem: 'Comprador' }];
+  const sugestoes = [...await coletarSugestoesAssinatura(pastas), ...await sugestoesDeAvulsasDoImovel(d.imovelId)];
+  await abrirTelaSign({
+    tipo, id, titulo: `${tipo === 'contrato' ? 'Contrato de Locação' : 'Contrato de Compra e Venda'} - ${imovel?.apelido || 'Imóvel'}`,
+    signers, arquivos, sugestoes,
+  });
+  clearAlert(T.alerta);
+}
+
+// "🔎 Ver no DRG-Sign": o detalhe completo do documento (hash, carimbo, cadeia de custódia)
+async function verNoSign(tipo, id, documentoId, btnId) {
+  const b = btnId ? $(btnId) : null;
+  const txt = b ? b.textContent : '';
+  if (b) { if (b.disabled) return; b.disabled = true; b.textContent = '⏳ Abrindo... aguarde'; }
+  try {
+    await abrirTelaSign({ tipo, id, modo: 'ver', documentoId: Number(documentoId) });
+  } catch (err) {
+    const alvo = tipo === 'avulsa' ? 'assinaturas-alert' : _ASS[tipo].alerta;
+    showAlert(alvo, 'Erro: ' + err.message);
+  } finally { if (b) { b.disabled = false; b.textContent = txt; } }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('modal-sign-embed')?.style.display === 'flex') fecharTelaSign();
+});
+
+window.abrirTelaSign = abrirTelaSign;
+window.fecharTelaSign = fecharTelaSign;
+window.verNoSign = verNoSign;
+window.abrirEnvioPeloSign = abrirEnvioPeloSign;

@@ -5425,6 +5425,20 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
+  <!-- MODAL: tela do DRG-Sign embutida (envio completo / detalhe com hash e custódia) — assinaturas.js -->
+  <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-sign-embed" style="display:none; padding:0;">
+    <div style="background:#fff; width:100%; height:100%; max-width:1200px; max-height:100%; display:flex; flex-direction:column; border-radius:0;">
+      <div class="modal-header" style="flex:0 0 auto;">
+        <h3 id="sign-embed-titulo">✍️ DRG-Sign</h3>
+        <button class="modal-close" onclick="fecharTelaSign()" aria-label="Fechar">×</button>
+      </div>
+      <iframe id="sign-embed-frame" title="DRG-Sign" src="about:blank" style="flex:1 1 auto; width:100%; border:0; min-height:0;"
+        allow="camera; microphone; geolocation; clipboard-write"></iframe>
+    </div>
+  </div>
+
+  <!-- ============================================ -->
   <!-- MODAL: Assinatura avulsa (PDF próprio) — assinaturas.js -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-assinatura-avulsa" style="display:none;" onclick="if (event.target === this) fecharAssinaturaAvulsa()">
@@ -5437,6 +5451,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="av-alert" class="alert alert-error" style="display:none;"></div>
         <p class="muted" id="av-plataforma" style="font-size:13px; margin-bottom:14px;"></p>
 
+        <div id="av-bloco-doc">
         <h4 class="form-section-title">📄 Documento</h4>
         <div class="form-group">
           <label>Nome do documento *</label>
@@ -5447,15 +5462,18 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <input type="file" id="av-arquivo" accept="application/pdf,.pdf">
           <span class="muted" style="font-size:11px;">O PDF exatamente como foi feito (até 20 MB). Fica guardado aqui junto com o assinado.</span>
         </div>
+        </div>
         <div class="form-group">
           <label>Imóvel (opcional)</label>
           <select id="av-imovel" onchange="trocarImovelAvulsa()" style="width:100%; min-height:42px; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:14px; background:#fff;"></select>
           <span class="muted" style="font-size:11px;">Ligar a um imóvel ajuda a achar depois. Escolhendo o imóvel, o proprietário entra como signatário.</span>
         </div>
 
+        <div id="av-bloco-signers">
         <h4 class="form-section-title">👥 Signatários</h4>
         <div id="av-signers"></div>
         <button type="button" class="btn btn-secondary btn-sm" onclick="addSignerAvulsa()" style="margin-top:4px;">+ Adicionar signatário</button>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="fecharAssinaturaAvulsa()">Cancelar</button>
@@ -5981,9 +5999,9 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261017b-assinaturas-avulsas"></script>
+  <script src="app.js?v=20261017d-sign-embutido"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
-  <script src="assinaturas.js?v=20261017c-avulsas"></script>
+  <script src="assinaturas.js?v=20261017d-sign-embutido"></script>
 </body>
 </html>

@@ -661,6 +661,11 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
        **17/10/2026 — PDF feito fora do Rently** (dono: *"subir um contrato já elaborado no computador para assinar… avulso ou relacionado com algum imóvel… muitas vezes o adv do cliente pede para gerar o contrato"*):
        no modal de envio, opção **PDF próprio** (`zapsign.origemPdf=proprio`); e tela **✍️ Assinaturas** (`assinaturas.js`, coleção `assinaturas`, Storage `tenants/{t}/assinaturas/{id}/`)
        para documento avulso, com `imovelId` opcional. Coleção fora de `colecaoProtegida` (regra genérica da equipe); menu só p/ quem vê Contratos/Negociações, nunca corretor.
+       **17/10/2026 — DRG-Sign = A TELA DO PRÓPRIO SIGN embutida** (dono: *"A tela precisa ser idêntica… posicionamento de assinaturas, aproveitamento de documentos e assinaturas já salvos… hash e cadeia de custódia"*):
+       com plataforma `drg-sign`, "✍️ Assinar" e "📤 Enviar PDF" abrem `#modal-sign-embed` (iframe) via `POST /api/v1/sessoes` (Sign a3a2a70). O Rently passa signatários, o contrato gerado
+       (oferecido, não anexado) e os PDFs das pastas do Storage do registro (`contratos|imoveis|locadores|locatarios|garantias|negociacoes|compradores/{id}`) + avulsas do imóvel.
+       O Sign avisa por postMessage (`criado`/`status`/`excluido`, origem conferida) e, ao fechar, o Rently confere por `GET /api/v1/documentos?external_id=rently:{t}:{tipo}:{id}`.
+       "🔎 Ver no DRG-Sign" abre o detalhe (hash, carimbo, linha do tempo). Nunca recriar a tela do Sign no Rently. Teste: `scratchpad/emu/teste-sign-embed.mjs` (+ Postgres local `scratchpad/pgtest`).
        `sw.js` não cacheia `onrender.com` (status/PDF do Sign). Teste do fluxo: `scratchpad/emu/teste-sign.mjs` (Sign simulado + emulador).
      - **Monitor Legislativo** (`workerLegisUrl`): só a URL (status `/status` é público, read-only). **Não** dar o `legisAdminToken` pra cliente — é controle interno DRG (lei federal é compartilhada).
 

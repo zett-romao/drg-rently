@@ -16047,21 +16047,6 @@ function _signParaRently(d) {
     signers: (d.signatarios || []).map(s => ({ name: s.nome, email: s.email || '', status: _SIGN_SIG[s.status] || 'pending' })),
   };
 }
-async function _signEnviar(cfg, { docName, pdfBase64, signers, externalId }) {
-  const res = await fetch(`${_signBase(cfg)}/api/v1/documentos`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ..._signHeaders(cfg) },
-    body: JSON.stringify({
-      titulo: docName,
-      arquivos: [{ nome: docName, pdf_base64: pdfBase64 }],
-      signatarios: signers.map(s => ({ nome: s.name, email: s.email, canal: 'EMAIL', qualificacao: s.role || undefined })),
-      external_id: `rently:${State.tenant?.id || ''}:${externalId}`,
-    }),
-  });
-  if (!res.ok) throw await _signErro(res);
-  const d = await res.json();
-  return { provedor: 'drg-sign', plataforma: 'drg-sign', openId: String(d.documento_id), token: d.codigo, name: d.titulo, ..._signParaRently(d), externalId };
-}
 async function _signConsultar(cfg, zs) {
   if (!cfg.signApiKey) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
   const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(zs.openId)}`, { headers: _signHeaders(cfg) });
@@ -16105,6 +16090,13 @@ async function _abrirEnvio(tipo) {
     }
 
     _zapsignContexto = { contratoId: id, tipo, signers, plataforma: plat };
+    if (plat.integrada) {
+      // DRG-Sign: a tela de envio é a DO PRÓPRIO SIGN (envelope, agenda, posicionar assinaturas,
+      // autenticação…), aberta dentro do Rently já com as pessoas e os documentos daqui.
+      await abrirEnvioPeloSign(tipo, id, d, imovel, signers);
+      _zapsignContexto = null;
+      return;
+    }
     _textoModalAssinatura(plat);
     $('zapsign-doc-name').value = `${tipo === 'contrato' ? 'Contrato de Locação' : 'Contrato de Compra e Venda'} - ${imovel?.apelido || 'Imóvel'}`;
     $('zapsign-message').value = `Por favor, leia e assine o contrato de ${tipo === 'contrato' ? 'locação' : 'compra e venda'}. Em caso de dúvidas, entre em contato com nossa imobiliária.`;
@@ -16119,8 +16111,15 @@ async function _abrirEnvio(tipo) {
     showAlert(T.alerta, 'Erro: ' + err.message);
   }
 }
-const abrirEnvioZapSign = () => _abrirEnvio('contrato');
-const abrirEnvioZapSignNegociacao = () => _abrirEnvio('negociacao');
+// Botão nunca mudo: abrir pode levar ~1 min (gera o PDF, lista documentos, acorda o Sign)
+async function _abrirEnvioComBotao(tipo) {
+  const b = $(_ASS[tipo].btnEnviar);
+  const txt = b ? b.textContent : '';
+  if (b) { if (b.disabled) return; b.disabled = true; b.textContent = '⏳ Abrindo... aguarde'; }
+  try { await _abrirEnvio(tipo); } finally { if (b) { b.disabled = false; b.textContent = txt; } }
+}
+const abrirEnvioZapSign = () => _abrirEnvioComBotao('contrato');
+const abrirEnvioZapSignNegociacao = () => _abrirEnvioComBotao('negociacao');
 
 function closeEnvioZapSign() {
   $('modal-zapsign').style.display = 'none';
@@ -16242,11 +16241,7 @@ async function enviarParaZapSign() {
     }
 
     let registro;
-    if (plat.integrada) {
-      btn.textContent = '⏳ Enviando ao DRG-Sign... aguarde ~1 min';
-      showAlert('zapsign-alert', '✍️ Enviando ao DRG-Sign... aguarde (se o servidor estiver dormindo, leva ~1 min para acordar).', 'info');
-      registro = await _signEnviar(await _cfgSite(), { docName, pdfBase64, signers, externalId: ctx.contratoId });
-    } else {
+    {   // plataformas externas (o DRG-Sign usa a tela do próprio Sign — abrirEnvioPeloSign)
       if (!proprio) _baixarPdfBase64(pdfBase64, docName);   // PDF próprio: a pessoa já tem o arquivo
       if (aba) aba.location.href = plat.url;
       registro = {
@@ -16286,8 +16281,10 @@ async function enviarParaZapSign() {
 
 // Gera o PDF do contrato em base64 usando html2pdf.js
 async function gerarPdfContratoBase64() {
-  // 1) Garante que o HTML do contrato está renderizado em #contrato-preview-content
+  // 1) Renderiza o contrato DESTE registro em #contrato-preview-content. Sempre do zero:
+  //    reaproveitar o que estava na tela podia levar o texto de OUTRO contrato aberto antes.
   const preview = $('contrato-preview-content');
+  if (preview) preview.innerHTML = '';
   if (!preview || !preview.innerHTML.trim()) {
     // Detecta se é negociação (venda) ou contrato (locação) pelo contexto.
     const ehNegociacao = _zapsignContexto?.tipo === 'negociacao';
@@ -16385,6 +16382,9 @@ async function _carregarStatusAssinatura(tipo, id) {
     }).join('');
 
     const botoes = [];
+    if (integrada && zs.openId) {
+      botoes.push(`<button type="button" class="btn btn-secondary btn-sm" id="btn-ass-ver-${tipo}" onclick="verNoSign('${tipo}', '${id}', '${escapeHtml(String(zs.openId))}', 'btn-ass-ver-${tipo}')">🔎 Ver no DRG-Sign (hash e custódia)</button>`);
+    }
     if (zs.status === 'signed') {
       botoes.push(zs.signedFileUrl && !zs.arquivoAssinadoPath
         ? `<a href="${escapeHtml(zs.signedFileUrl)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">📄 Baixar PDF assinado</a>`

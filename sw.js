@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v22-20261017b-assinaturas-avulsas';
+const CACHE_VERSION = 'drg-rently-v23-20261017d-sign-embutido';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
