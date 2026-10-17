@@ -537,7 +537,7 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   `podeGravar`, `nivelDoPerfil`). Grava direto só com "✅ Pode" no módulo da coleção
   (`colecaoProtegida`, espelho de `MODULO_COLECAO`); sem perfil nenhum = padrão do código (libera,
   como antes); admin tem piso. Efeitos colaterais previstos em `efeitoColateralPermitido`
-  (contrato/venda/distrato mudam **só** `status` do imóvel; ZapSign; envio do balancete por e-mail)
+  (contrato/venda/distrato mudam **só** `status` do imóvel; assinatura DRG-Sign/ZapSign; envio do balancete por e-mail)
   e `exclusaoEmCascata` (garantia do contrato). **Mudou um efeito colateral no app → atualizar a
   regra.** Testado no emulador (49 cenários; suíte em `testes/teste-regras.mjs`).
   Ainda só na tela: "não concede o que não tem" ao editar perfis.
@@ -644,7 +644,15 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
      - **IA/Gemini** (`workerGeminiUrl`): cola URL compartilhada da DRG. Sem módulo separado — IA é embutida em balancetes/cadastros/contratos. Cota Gemini free é **compartilhada entre todos os tenants**.
      - **Portais/Feed** (`workerFeedUrl`): URL compartilhada + módulo **Portais** habilitado no plano.
      - **E-mail/Resend** (`workerUrl` + `emailFrom`): URL/chave compartilhadas da DRG. ⚠️ `onboarding@resend.dev` só entrega pra você; pra entregar a locadores precisa **domínio verificado** na conta Resend (pode verificar o domínio da cliente na MESMA conta — não criar conta Resend por cliente; o worker usa 1 chave só).
-     - **ZapSign** (`workerZapsignUrl` + `zapsignToken`): worker compartilhado, mas **token é da conta ZapSign DA CLIENTE** (X-ZapSign-Token por request; créditos/docs ficam na conta dela).
+     - ~~**ZapSign** (`workerZapsignUrl` + `zapsignToken`): worker compartilhado, mas **token é da conta ZapSign DA CLIENTE** (X-ZapSign-Token por request; créditos/docs ficam na conta dela).~~
+       🔓 **ALTERADA 16/10/2026** (dono: *"TROQUE O ZAPSIGN … agora é o SIGN, nosso software"*; acoplamento Rently→Sign autorizado por ele):
+       **Assinatura = DRG-Sign** (`signApiKey` + `signApiUrl` opcional, padrão `https://drg-sign-api.onrender.com`). A chave `sgn_…`
+       é da **conta Sign DA CLIENTE** (Sign → Configurações → Integração (API)); cada envelope gasta 1 crédito dela. A cliente cola a chave — a assistente nunca digita.
+       API: `POST /api/v1/documentos` (JSON, PDF base64, `external_id = rently:<tenant>:<id>`), `GET /api/v1/documentos/:id`, `GET …/final` (PDF), `Authorization: Bearer`.
+       O resultado continua no campo **`zapsign`** do contrato/negociação (mesmo formato: `openId`, `status` pending|signed|refused|expired, `signers`) **+ `provedor: 'drg-sign'`** —
+       a regra `efeitoColateralPermitido` depende desse nome; não renomear. ZapSign fica como legado (usado só se não houver `signApiKey`, e para consultar envios antigos).
+       Signatário confirma CPF + nascimento ao assinar; assinatura eletrônica simples + blockchain — **não é ICP-Brasil**, não escrever isso nas telas.
+       `sw.js` não cacheia `onrender.com` (status/PDF do Sign). Teste do fluxo: `scratchpad/emu/teste-sign.mjs` (Sign simulado + emulador).
      - **Monitor Legislativo** (`workerLegisUrl`): só a URL (status `/status` é público, read-only). **Não** dar o `legisAdminToken` pra cliente — é controle interno DRG (lei federal é compartilhada).
 
 - **2026-05-29**: Menu lateral — arraste pra reordenar agora exige **long-press (~450ms)**. Antes os `.nav-link` tinham `draggable="true"` + `cursor: grab` fixo (mãozinha o tempo todo). Agora cursor é normal (`default`); `mousedown` arma um timer que adiciona `.drag-armed` (cursor grab) e libera o drag; `dragstart` faz `preventDefault()` se não estiver armado. Const `LONG_PRESS_MS` em `enableSidebarDnD`. **Não reverter** pra draggable-sempre — foi pedido explícito do dono.

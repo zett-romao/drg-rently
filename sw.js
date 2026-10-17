@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v19-20261016a-siteproprio';
+const CACHE_VERSION = 'drg-rently-v20-20261016b-drgsign';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
@@ -25,6 +25,7 @@ const NEVER_CACHE_HOSTS = [
   'firebase.googleapis.com',
   'gstatic.com',
   'workers.dev', // todos os workers Cloudflare da DRG
+  'onrender.com', // DRG-Sign (status e PDF assinado não podem vir do cache)
   'brasilapi.com.br',
   'viacep.com.br',
 ];

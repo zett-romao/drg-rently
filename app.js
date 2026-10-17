@@ -11699,6 +11699,10 @@ async function loadConfigImobiliaria() {
     if (zsUrl) zsUrl.value = cfg.workerZapsignUrl || '';
     const zsTok = $('cfg-zapsign-token');
     if (zsTok) zsTok.value = cfg.zapsignToken || '';
+    const sgUrl = $('cfg-sign-api-url');
+    if (sgUrl) sgUrl.value = cfg.signApiUrl || '';
+    const sgKey = $('cfg-sign-api-key');
+    if (sgKey) sgKey.value = cfg.signApiKey || '';
     const asUrl = $('cfg-worker-asaas-url');
     if (asUrl) asUrl.value = cfg.workerAsaasUrl || '';
     const asTok = $('cfg-asaas-tenant-token');
@@ -11823,6 +11827,8 @@ async function saveConfigImobiliaria() {
         workerLegisUrl: $('cfg-worker-legis-url')?.value.trim() || '',
         legisAdminToken: $('cfg-legis-admin-token')?.value.trim() || '',
         zapsignToken: $('cfg-zapsign-token')?.value.trim() || '',
+        signApiUrl: $('cfg-sign-api-url')?.value.trim() || '',
+        signApiKey: $('cfg-sign-api-key')?.value.trim() || '',
         workerAsaasUrl: $('cfg-worker-asaas-url')?.value.trim() || '',
         asaasTenantToken: $('cfg-asaas-tenant-token')?.value.trim() || '',
         // Bureaus de crédito
@@ -15944,10 +15950,118 @@ window.reajustarSubscriptionAsaas = reajustarSubscriptionAsaas;
 window.cobrancaAvulsaAsaas = cobrancaAvulsaAsaas;
 
 // =============================================================
-// ASSINATURA ELETRÔNICA — Integração ZapSign
+// ASSINATURA ELETRÔNICA — DRG-Sign (nosso) · ZapSign fica como legado
 // =============================================================
+// 🔓 ALTERADA 16/10/2026 (dono: "TROQUE O ZAPSIGN … agora é o SIGN, nosso software").
+// Provedor = DRG-Sign quando há chave (cfg.signApiKey); senão ZapSign (quem já tinha).
+// O resultado continua gravado no campo `zapsign` do contrato/negociação — mesmo
+// formato (openId, status pending|signed|refused|expired, signers) — porque a regra
+// do Firestore (efeitoColateralPermitido) e as telas já dependem dele. O que diz de
+// qual provedor veio é `zapsign.provedor` ('drg-sign' | ausente = ZapSign).
 
+const SIGN_API_PADRAO = 'https://drg-sign-api.onrender.com';
 let _zapsignContexto = null; // { contratoId, signers: [...] }
+
+function provedorAssinatura(cfg) {
+  if (cfg && cfg.signApiKey) return 'drg-sign';
+  if (cfg && cfg.workerZapsignUrl && cfg.zapsignToken) return 'zapsign';
+  return null;
+}
+const _signBase = (cfg) => String(cfg.signApiUrl || SIGN_API_PADRAO).replace(/\/+$/, '');
+const _signHeaders = (cfg) => ({ Authorization: `Bearer ${cfg.signApiKey}` });
+async function _signErro(res) {
+  const d = await res.json().catch(() => ({}));
+  if (res.status === 401) return new Error('Chave do DRG-Sign inválida ou revogada. Gere outra no Sign (Configurações → Integração) e cole em Configurações → Assinatura eletrônica.');
+  if (res.status === 402 || /cr[eé]dito|saldo/i.test(d.erro || '')) return new Error(d.erro || 'Sem créditos no DRG-Sign.');
+  return new Error(d.erro || `Erro ${res.status} no DRG-Sign`);
+}
+// Status do Sign → vocabulário que o Rently já usa
+const _SIGN_DOC = { AGUARDANDO: 'pending', PARCIAL: 'pending', ASSINADO: 'signed', RECUSADO: 'refused', EXPIRADO: 'expired', CANCELADO: 'expired' };
+const _SIGN_SIG = { ASSINOU: 'signed', RECUSOU: 'refused' };
+function _signParaRently(d) {
+  return {
+    status: _SIGN_DOC[d.status] || 'pending',
+    signers: (d.signatarios || []).map(s => ({ name: s.nome, email: s.email || '', status: _SIGN_SIG[s.status] || 'pending' })),
+  };
+}
+
+// Envia o PDF → devolve o objeto `zapsign` a gravar (sem enviadoEm/enviadoPor)
+async function assinaturaEnviar(cfg, { docName, pdfBase64, signers, externalId }) {
+  if (provedorAssinatura(cfg) === 'drg-sign') {
+    const res = await fetch(`${_signBase(cfg)}/api/v1/documentos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ..._signHeaders(cfg) },
+      body: JSON.stringify({
+        titulo: docName,
+        arquivos: [{ nome: docName, pdf_base64: pdfBase64 }],
+        signatarios: signers.map(s => ({ nome: s.name, email: s.email, canal: 'EMAIL', qualificacao: s.role || undefined })),
+        external_id: `rently:${State.tenant?.id || ''}:${externalId}`,
+      }),
+    });
+    if (!res.ok) throw await _signErro(res);
+    const d = await res.json();
+    return { provedor: 'drg-sign', openId: String(d.documento_id), token: d.codigo, name: d.titulo, ..._signParaRently(d), externalId };
+  }
+  // ZapSign (legado)
+  const res = await fetch(`${String(cfg.workerZapsignUrl || '').replace(/\/+$/, '')}/docs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-ZapSign-Token': cfg.zapsignToken },
+    body: JSON.stringify({
+      name: docName, pdfBase64,
+      signers: signers.map(s => ({ name: s.name, email: s.email, cpf: s.cpf || undefined })),
+      externalId, brandColor: '#475569',
+    }),
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || `Erro ${res.status} ao chamar ZapSign`);
+  }
+  const r = await res.json();
+  return { openId: r.openId, token: r.token, name: r.name, status: r.status || 'pending', signers: r.signers || [], externalId };
+}
+
+// Consulta o status de um envio já gravado → { status, signers, signedFileUrl? }
+async function assinaturaConsultar(cfg, zs) {
+  if (zs.provedor === 'drg-sign') {
+    if (!cfg.signApiKey) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
+    const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(zs.openId)}`, { headers: _signHeaders(cfg) });
+    if (!res.ok) throw await _signErro(res);
+    return _signParaRently(await res.json());
+  }
+  if (!cfg.workerZapsignUrl || !cfg.zapsignToken) throw new Error('Este envio foi pelo ZapSign, que não está mais configurado.');
+  const res = await fetch(`${String(cfg.workerZapsignUrl).replace(/\/+$/, '')}/docs/${zs.openId}`, { headers: { 'X-ZapSign-Token': cfg.zapsignToken } });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Erro ao consultar status');
+  }
+  const data = await res.json();
+  return { status: data.status, signers: data.signers || [], signedFileUrl: data.signedFileUrl };
+}
+
+// Abre o PDF assinado numa aba. A aba é aberta ANTES do await (senão o navegador
+// bloqueia como pop-up) e recebe o PDF quando ele chega.
+async function assinaturaAbrirPdf(cfg, zs) {
+  const aba = window.open('', '_blank');
+  if (aba) aba.document.write('<p style="font-family:sans-serif;padding:24px;">⏳ Buscando o PDF assinado… aguarde (o DRG-Sign pode levar ~1 min para acordar).</p>');
+  try {
+    let url;
+    if (zs.provedor === 'drg-sign') {
+      const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(zs.openId)}/final`, { headers: _signHeaders(cfg) });
+      if (!res.ok) throw await _signErro(res);
+      url = URL.createObjectURL(await res.blob());
+    } else {
+      const res = await fetch(`${String(cfg.workerZapsignUrl || '').replace(/\/+$/, '')}/docs/${zs.openId}/pdf`, { headers: { 'X-ZapSign-Token': cfg.zapsignToken } });
+      const data = await res.json();
+      if (!res.ok || !data.signedFileUrl) throw new Error(data.error || 'PDF assinado ainda não disponível.');
+      url = data.signedFileUrl;
+    }
+    if (aba) aba.location.href = url; else window.open(url, '_blank');
+  } catch (e) {
+    if (aba) aba.close();
+    throw e;
+  }
+}
+const _nomeProvedor = (p) => (p === 'drg-sign' ? 'DRG-Sign' : 'ZapSign');
 
 // Abre o modal de envio: monta signatários a partir do contrato atual
 async function abrirEnvioZapSign() {
@@ -15960,8 +16074,8 @@ async function abrirEnvioZapSign() {
   // Confere config ZapSign
   const cfgSnap = await tenantPath().collection('config').doc('site').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-  if (!cfg.workerZapsignUrl || !cfg.zapsignToken) {
-    showAlert('contrato-alert', 'Configure URL do Worker ZapSign + Token em Configurações → Assinatura Eletrônica.');
+  if (!provedorAssinatura(cfg)) {
+    showAlert('contrato-alert', 'Configure a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
     return;
   }
 
@@ -15996,6 +16110,7 @@ async function abrirEnvioZapSign() {
 
     _zapsignContexto = { contratoId, signers, contrato: c, imovel };
 
+    _textoModalAssinatura(cfg);
     $('zapsign-doc-name').value = `Contrato de Locação - ${imovel?.apelido || 'Imóvel'}`;
     $('zapsign-message').value = 'Por favor, leia e assine o contrato de locação. Em caso de dúvidas, entre em contato com nossa imobiliária.';
 
@@ -16027,7 +16142,7 @@ function renderSignersZapSign() {
           <label>E-mail</label>
           <input type="email" value="${escapeHtml(s.email || '')}" onchange="updateSignerZapSign(${idx}, 'email', this.value)">
         </div>
-        <div class="form-group" style="max-width:160px;">
+        <div class="form-group" style="max-width:160px;${_zapsignContexto.provedor === 'drg-sign' ? ' display:none;' : ''}">
           <label>CPF (opcional)</label>
           <input type="text" value="${escapeHtml(s.cpf || '')}" onchange="updateSignerZapSign(${idx}, 'cpf', this.value)">
         </div>
@@ -16072,44 +16187,23 @@ async function enviarParaZapSign() {
 
   try {
     // 1) Gera o HTML do contrato (chama função existente sem mostrar modal)
-    showAlert('zapsign-alert', '📄 Gerando PDF do contrato...', 'info');
+    showAlert('zapsign-alert', '📄 Gerando PDF do contrato... aguarde', 'info');
     const pdfBase64 = await gerarPdfContratoBase64();
     if (!pdfBase64) throw new Error('Falha ao gerar PDF do contrato. Tente gerar manualmente primeiro (botão 📄 Gerar contrato).');
 
-    btn.textContent = '⏳ Enviando ao ZapSign...';
-    showAlert('zapsign-alert', '✍️ Enviando ao ZapSign...', 'info');
-
-    // 2) Busca config
+    // 2) Config e provedor (DRG-Sign; ZapSign só para quem ainda não trocou)
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
-    const cfg = cfgSnap.data();
+    const cfg = cfgSnap.data() || {};
+    const provedor = provedorAssinatura(cfg);
+    if (!provedor) throw new Error('Configure a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
+    const nomeProv = _nomeProvedor(provedor);
+    btn.textContent = provedor === 'drg-sign' ? '⏳ Enviando ao DRG-Sign... aguarde ~1 min' : '⏳ Enviando ao ZapSign...';
+    showAlert('zapsign-alert', provedor === 'drg-sign'
+      ? '✍️ Enviando ao DRG-Sign... aguarde (se o servidor estiver dormindo, leva ~1 min para acordar).'
+      : '✍️ Enviando ao ZapSign...', 'info');
 
-    // 3) Chama Worker
-    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
-    const res = await fetch(`${workerUrl}/docs`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-ZapSign-Token': cfg.zapsignToken,
-      },
-      body: JSON.stringify({
-        name: docName,
-        pdfBase64,
-        signers: signers.map(s => ({
-          name: s.name,
-          email: s.email,
-          cpf: s.cpf || undefined,
-        })),
-        externalId: _zapsignContexto.contratoId,
-        brandColor: '#475569',
-      }),
-    });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || `Erro ${res.status} ao chamar ZapSign`);
-    }
-
-    const result = await res.json();
+    // 3) Envia
+    const result = await assinaturaEnviar(cfg, { docName, pdfBase64, signers, externalId: _zapsignContexto.contratoId });
 
     // 4) Salva no contrato ou na negociação (depende do tipo)
     const ehNegociacao = _zapsignContexto.tipo === 'negociacao';
@@ -16119,31 +16213,24 @@ async function enviarParaZapSign() {
 
     await tenantPath().collection(colecao).doc(_zapsignContexto.contratoId).update({
       zapsign: {
-        openId: result.openId,
-        token: result.token,
-        name: result.name,
-        status: result.status || 'pending',
-        signers: result.signers || [],
+        ...Object.fromEntries(Object.entries(result).filter(([, v]) => v !== undefined)),
         enviadoEm: firebase.firestore.FieldValue.serverTimestamp(),
         enviadoPor: State.user.uid,
-        externalId: _zapsignContexto.contratoId,
       },
     });
 
-    logAuditoria('zapsign_envio', entidadeAuditoria, _zapsignContexto.contratoId, { signers: signers.length });
+    logAuditoria('zapsign_envio', entidadeAuditoria, _zapsignContexto.contratoId, { signers: signers.length, provedor });
 
+    // closeEnvioZapSign zera o contexto — guarda o id antes
+    const idEnviado = _zapsignContexto.contratoId;
     closeEnvioZapSign();
-    // Recarrega status no modal correspondente
-    if (ehNegociacao) {
-      await carregarStatusZapSignNegociacao(_zapsignContexto.contratoId);
-    } else {
-      await carregarStatusZapSign(_zapsignContexto.contratoId);
-    }
-    showAlert(alertEl, `✅ ${ehNegociacao ? 'Contrato de venda' : 'Contrato'} enviado pra ZapSign! ${signers.length} signatário(s) vão receber e-mail.`, 'success');
+    btn.disabled = false; btn.textContent = '📧 Enviar para assinatura';   // modal já fechou: pronto pro próximo
+    if (ehNegociacao) await carregarStatusZapSignNegociacao(idEnviado);
+    else await carregarStatusZapSign(idEnviado);
+    showAlert(alertEl, `✓ ${ehNegociacao ? 'Contrato de venda' : 'Contrato'} enviado ao ${nomeProv}! ${signers.length} signatário(s) vão receber o link por e-mail.`, 'success');
   } catch (err) {
-    console.error('Erro ao enviar ZapSign:', err);
+    console.error('Erro ao enviar para assinatura:', err);
     showAlert('zapsign-alert', 'Erro: ' + err.message);
-  } finally {
     btn.disabled = false; btn.textContent = '📧 Enviar para assinatura';
   }
 }
@@ -16232,9 +16319,9 @@ async function carregarStatusZapSign(contratoId) {
     // Verifica config ZapSign
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const zapsignConfigurado = !!(cfg.workerZapsignUrl && cfg.zapsignToken);
+    const zapsignConfigurado = !!provedorAssinatura(cfg);
 
-    if (!zapsignConfigurado) {
+    if (!zapsignConfigurado && !(c.zapsign && c.zapsign.openId)) {
       btnEnviar.style.display = 'none';
       btnStatus.style.display = 'none';
       box.style.display = 'none';
@@ -16270,14 +16357,14 @@ async function carregarStatusZapSign(contratoId) {
     let downloadBtn = '';
     if (zs.status === 'signed' || zs.signedFileUrl) {
       const url = zs.signedFileUrl;
-      downloadBtn = url
+      downloadBtn = (url && zs.provedor !== 'drg-sign')
         ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:8px;">📄 Baixar PDF assinado</a>`
-        : `<button class="btn btn-primary btn-sm" onclick="baixarPdfAssinadoZapSign()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
+        : `<button class="btn btn-primary btn-sm" id="btn-zapsign-pdf" onclick="baixarPdfAssinadoZapSign()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
     }
 
     $('zapsign-status-content').innerHTML = `
       <div style="margin-bottom:8px;"><strong>Status:</strong> ${statusLabel}</div>
-      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')}</div>
+      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')} <span class="muted" style="font-size:11px;">· ${_nomeProvedor(zs.provedor)}${zs.provedor === 'drg-sign' && zs.token ? ' · ' + escapeHtml(zs.token) : ''}</span></div>
       ${signersHtml}
       ${downloadBtn}
     `;
@@ -16290,24 +16377,14 @@ async function atualizarStatusZapSign() {
   const contratoId = $('contrato-id').value;
   if (!contratoId) return;
   const btn = $('btn-zapsign-status');
-  btn.disabled = true; btn.textContent = '⏳ Consultando...';
+  btn.disabled = true; btn.textContent = '⏳ Consultando... aguarde';
   try {
     const cSnap = await tenantPath().collection('contratos').doc(contratoId).get();
     const c = cSnap.data();
     if (!c.zapsign || !c.zapsign.openId) { showAlert('contrato-alert', 'Sem assinatura registrada.'); return; }
 
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
-    const cfg = cfgSnap.data();
-    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
-
-    const res = await fetch(`${workerUrl}/docs/${c.zapsign.openId}`, {
-      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Erro ao consultar status');
-    }
-    const data = await res.json();
+    const data = await assinaturaConsultar(cfgSnap.data() || {}, c.zapsign);
 
     // Atualiza Firestore
     const updateData = {
@@ -16320,11 +16397,13 @@ async function atualizarStatusZapSign() {
     // Se totalmente assinado, atualiza status do contrato pra vigente (se ainda for rascunho)
     if (data.status === 'signed' && c.status === 'rascunho') {
       await tenantPath().collection('contratos').doc(contratoId).update({ status: 'vigente' });
+      // o formulário aberto também (senão "Salvar" devolveria o contrato a rascunho)
+      if ($('contrato-id').value === contratoId && $('contrato-status')) $('contrato-status').value = 'vigente';
       logAuditoria('zapsign_signed', 'contrato', contratoId, {});
     }
 
     await carregarStatusZapSign(contratoId);
-    showAlert('contrato-alert', `Status atualizado: ${data.status === 'signed' ? '✅ Totalmente assinado' : '⏳ Aguardando assinaturas'}`, 'success');
+    showAlert('contrato-alert', `✓ Status atualizado: ${{ signed: '✅ Totalmente assinado', refused: '❌ Recusado', expired: '⏰ Expirado' }[data.status] || '⏳ Aguardando assinaturas'}`, 'success');
   } catch (err) {
     showAlert('contrato-alert', 'Erro: ' + err.message);
   } finally {
@@ -16341,17 +16420,8 @@ async function baixarPdfAssinadoZapSign() {
     if (!c.zapsign || !c.zapsign.openId) return;
 
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
-    const cfg = cfgSnap.data();
-    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
-
-    const res = await fetch(`${workerUrl}/docs/${c.zapsign.openId}/pdf`, {
-      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
-    });
-    const data = await res.json();
-    if (!res.ok || !data.signedFileUrl) {
-      throw new Error(data.error || 'PDF assinado ainda não disponível.');
-    }
-    window.open(data.signedFileUrl, '_blank');
+    await _comBotaoPdf('btn-zapsign-pdf', () => assinaturaAbrirPdf(cfgSnap.data() || {}, c.zapsign));
+    showAlert('contrato-alert', '✓ PDF assinado aberto em outra aba.', 'success');
   } catch (err) {
     showAlert('contrato-alert', 'Erro: ' + err.message);
   }
@@ -16373,8 +16443,8 @@ async function abrirEnvioZapSignNegociacao() {
 
   const cfgSnap = await tenantPath().collection('config').doc('site').get();
   const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-  if (!cfg.workerZapsignUrl || !cfg.zapsignToken) {
-    showAlert('negociacao-alert', 'Configure URL do Worker ZapSign + Token em Configurações → Assinatura Eletrônica.');
+  if (!provedorAssinatura(cfg)) {
+    showAlert('negociacao-alert', 'Configure a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
     return;
   }
 
@@ -16420,6 +16490,7 @@ async function abrirEnvioZapSignNegociacao() {
       imovel,
     };
 
+    _textoModalAssinatura(cfg);
     $('zapsign-doc-name').value = `Contrato de Compra e Venda - ${imovel?.apelido || 'Imóvel'}`;
     $('zapsign-message').value = 'Por favor, leia e assine o contrato de compra e venda. Em caso de dúvidas, entre em contato com nossa imobiliária.';
 
@@ -16437,7 +16508,7 @@ async function atualizarStatusZapSignNegociacao() {
   const negociacaoId = $('negociacao-id').value;
   if (!negociacaoId) return;
   const btn = $('btn-zapsign-negociacao-status');
-  btn.disabled = true; btn.textContent = '⏳ Consultando...';
+  btn.disabled = true; btn.textContent = '⏳ Consultando... aguarde';
   try {
     const nSnap = await tenantPath().collection('negociacoes').doc(negociacaoId).get();
     const n = nSnap.data();
@@ -16447,17 +16518,7 @@ async function atualizarStatusZapSignNegociacao() {
     }
 
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
-    const cfg = cfgSnap.data();
-    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
-
-    const res = await fetch(`${workerUrl}/docs/${n.zapsign.openId}`, {
-      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Erro ao consultar status');
-    }
-    const data = await res.json();
+    const data = await assinaturaConsultar(cfgSnap.data() || {}, n.zapsign);
 
     const updateData = {
       'zapsign.status': data.status,
@@ -16469,11 +16530,12 @@ async function atualizarStatusZapSignNegociacao() {
     // Se 100% assinado e negociação ainda em rascunho/em_negociacao → marca "aceita"
     if (data.status === 'signed' && (n.status === 'rascunho' || n.status === 'em_negociacao')) {
       await tenantPath().collection('negociacoes').doc(negociacaoId).update({ status: 'aceita' });
+      if ($('negociacao-id').value === negociacaoId && $('negociacao-status')) $('negociacao-status').value = 'aceita';
       logAuditoria('zapsign_signed', 'negociacao', negociacaoId, {});
     }
 
     await carregarStatusZapSignNegociacao(negociacaoId);
-    showAlert('negociacao-alert', `Status atualizado: ${data.status === 'signed' ? '✅ Totalmente assinado' : '⏳ Aguardando assinaturas'}`, 'success');
+    showAlert('negociacao-alert', `✓ Status atualizado: ${{ signed: '✅ Totalmente assinado', refused: '❌ Recusado', expired: '⏰ Expirado' }[data.status] || '⏳ Aguardando assinaturas'}`, 'success');
   } catch (err) {
     showAlert('negociacao-alert', 'Erro: ' + err.message);
   } finally {
@@ -16502,9 +16564,9 @@ async function carregarStatusZapSignNegociacao(negociacaoId) {
 
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const zapsignConfigurado = !!(cfg.workerZapsignUrl && cfg.zapsignToken);
+    const zapsignConfigurado = !!provedorAssinatura(cfg);
 
-    if (!zapsignConfigurado) {
+    if (!zapsignConfigurado && !(n.zapsign && n.zapsign.openId)) {
       btnEnviar.style.display = 'none';
       btnStatus.style.display = 'none';
       box.style.display = 'none';
@@ -16538,14 +16600,14 @@ async function carregarStatusZapSignNegociacao(negociacaoId) {
     let downloadBtn = '';
     if (zs.status === 'signed' || zs.signedFileUrl) {
       const url = zs.signedFileUrl;
-      downloadBtn = url
+      downloadBtn = (url && zs.provedor !== 'drg-sign')
         ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="btn btn-primary btn-sm" style="margin-top:8px;">📄 Baixar PDF assinado</a>`
-        : `<button class="btn btn-primary btn-sm" onclick="baixarPdfAssinadoZapSignNegociacao()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
+        : `<button class="btn btn-primary btn-sm" id="btn-zapsign-negociacao-pdf" onclick="baixarPdfAssinadoZapSignNegociacao()" style="margin-top:8px;">📄 Baixar PDF assinado</button>`;
     }
 
     $('zapsign-negociacao-status-content').innerHTML = `
       <div style="margin-bottom:8px;"><strong>Status:</strong> ${statusLabel}</div>
-      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')}</div>
+      <div style="margin-bottom:4px;"><strong>Documento:</strong> ${escapeHtml(zs.name || '—')} <span class="muted" style="font-size:11px;">· ${_nomeProvedor(zs.provedor)}${zs.provedor === 'drg-sign' && zs.token ? ' · ' + escapeHtml(zs.token) : ''}</span></div>
       ${signersHtml}
       ${downloadBtn}
     `;
@@ -16563,20 +16625,33 @@ async function baixarPdfAssinadoZapSignNegociacao() {
     if (!n.zapsign || !n.zapsign.openId) return;
 
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
-    const cfg = cfgSnap.data();
-    const workerUrl = (cfg.workerZapsignUrl || '').replace(/\/+$/, '');
-
-    const res = await fetch(`${workerUrl}/docs/${n.zapsign.openId}/pdf`, {
-      headers: { 'X-ZapSign-Token': cfg.zapsignToken },
-    });
-    const data = await res.json();
-    if (!res.ok || !data.signedFileUrl) {
-      throw new Error(data.error || 'PDF assinado ainda não disponível.');
-    }
-    window.open(data.signedFileUrl, '_blank');
+    await _comBotaoPdf('btn-zapsign-negociacao-pdf', () => assinaturaAbrirPdf(cfgSnap.data() || {}, n.zapsign));
+    showAlert('negociacao-alert', '✓ PDF assinado aberto em outra aba.', 'success');
   } catch (err) {
     showAlert('negociacao-alert', 'Erro: ' + err.message);
   }
+}
+
+// Botão do PDF: trava + "aguarde" enquanto busca (regra nº 1), destrava no fim
+async function _comBotaoPdf(id, fn) {
+  const b = $(id);
+  const txt = b ? b.textContent : '';
+  if (b) { b.disabled = true; b.textContent = '⏳ Buscando PDF... aguarde'; }
+  try { await fn(); } finally { if (b) { b.disabled = false; b.textContent = txt; } }
+}
+
+// Texto do modal de envio conforme o provedor configurado
+function _textoModalAssinatura(cfg) {
+  const sign = provedorAssinatura(cfg) === 'drg-sign';
+  if (_zapsignContexto) _zapsignContexto.provedor = sign ? 'drg-sign' : 'zapsign';
+  const intro = $('zapsign-intro');
+  if (intro) intro.innerHTML = sign
+    ? 'O contrato será enviado ao <strong>DRG-Sign</strong>. Cada signatário recebe um e-mail com o link para assinar online — confirma CPF e data de nascimento na hora, e a assinatura ganha registro em blockchain. Gasta 1 crédito do Sign.'
+    : 'O contrato será enviado ao <strong>ZapSign</strong>. Cada signatário recebe um e-mail com o link para assinar online.';
+  const aviso = $('zapsign-aviso');
+  if (aviso) aviso.innerHTML = `⚠️ <strong>Atenção:</strong> uma vez enviado, o documento não pode ser editado no ${sign ? 'DRG-Sign' : 'ZapSign'} — só cancelado e reenviado. Confira tudo antes!`;
+  const tit = $('zapsign-titulo');
+  if (tit) tit.textContent = `✍️ Enviar para assinatura · ${sign ? 'DRG-Sign' : 'ZapSign'}`;
 }
 
 // Exposição global pra onclick funcionar
@@ -20426,14 +20501,14 @@ async function elabEnviarZapSign() {
   }
   // Reusa o fluxo existente: seta contrato-id (mesmo sem o modal de contrato aberto) e chama abrirEnvioZapSign
   if (_elabContrato.modalidade !== 'locacao') {
-    showAlert('elab-alert', 'Envio para ZapSign disponível apenas para contratos de locação na Fase A. Vendas usam o módulo de Negociações.');
+    showAlert('elab-alert', 'Envio para assinatura aqui é só para contratos de locação. Vendas usam o módulo de Negociações.');
     return;
   }
   $('contrato-id').value = _elabContrato.contratoSalvoId;
   if (typeof abrirEnvioZapSign === 'function') {
     await abrirEnvioZapSign();
   } else {
-    showAlert('elab-alert', 'Função de envio ZapSign não disponível.');
+    showAlert('elab-alert', 'Função de envio para assinatura não disponível.');
   }
 }
 
