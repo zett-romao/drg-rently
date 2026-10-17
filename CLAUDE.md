@@ -734,8 +734,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   `TXT _rently.www → <tenantId>` (o TXT é a prova de posse: ninguém liga domínio alheio ao seu site). Worker serve `rently.dev.br`
   com `RENTLY_TENANT_FIXO` injetado (`/` = site.html). API `/api/dominios` (GET/POST/DELETE) com o ID token do Firebase verificado
   (RS256) — pode admin, quem tem 🚀 Publicar, equipe DRG. Tela: 🌐 Meu site → Endereço e domínio (🔍 Verificar / 🔗 Ligar / ✂️ Desligar).
-  ⚠️ **Falta a parte do dono na Cloudflare** (zona rently.dev.br na Cloudflare, SSL for SaaS, fallback `sites.rently.dev.br`, rota
-  `*/*` no worker, variável `CF_ZONE_ID` + secret `CF_API_TOKEN`). Até lá a API responde 503 explicando. Testes: worker com mocks (18 casos).
+  ✅ **Cloudflare configurada em 17/10/2026**: zona rently.dev.br (conta zett.romao, plano Free; NS apollo/roxy.ns.cloudflare.com,
+  trocados no Registro.br pelo dono; registros do GitHub Pages em "DNS only"), SSL for SaaS ativo (100 grátis, cartão final 9528 p/ excedente),
+  fallback origin `sites.rently.dev.br` (AAAA 100:: proxied) **Active**, rota `*/*` → drg-rently-sites, `CF_ZONE_ID` no wrangler-sites.toml,
+  secret `CF_API_TOKEN` (Zone · SSL and Certificates · Edit, só rently.dev.br) colado pelo dono. Testes: worker com mocks (18 casos).
 - **2026-10-17**: 🛡 **Proteção contra golpes** (`protecao.js`; dono aprovou 1 a 7, *"não convém burocratizar muito"*):
   1 contrato de parceria (modelo editável em Corretores → 🛡 Proteção da rede; vai pelo DRG-Sign; opção "só usa depois de assinar", nasce desligada);
   2 "Tenho um cliente" (`registrosCliente` imutável + `registrosClienteChave` SHA-256 do celular: o 2º corretor é recusado);
