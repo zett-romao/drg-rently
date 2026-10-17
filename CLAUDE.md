@@ -34,7 +34,7 @@ Versão controlada por `APP_VERSION` no topo de `app.js` (atualmente `0.1.0`).
 - GitHub Pages (hosting) — **no ar**
 - Cloudflare Workers (vários, já deployados): `drg-rently-gemini` (IA Vision),
   `drg-rently-resend` (e-mail), `drg-rently-feed` (XML portais),
-  `drg-rently-zapsign` (assinatura), `drg-rently-legis-monitor` (monitor de leis),
+  `drg-rently-legis-monitor` (monitor de leis),
   `drg-rently-passkey` (login biométrico), `drg-rently-asaas` (cobrança).
   URLs/secrets em `MANUAL_URLS_E_CHAVES.md` (gitignored, não versionado).
 
@@ -537,7 +537,7 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   `podeGravar`, `nivelDoPerfil`). Grava direto só com "✅ Pode" no módulo da coleção
   (`colecaoProtegida`, espelho de `MODULO_COLECAO`); sem perfil nenhum = padrão do código (libera,
   como antes); admin tem piso. Efeitos colaterais previstos em `efeitoColateralPermitido`
-  (contrato/venda/distrato mudam **só** `status` do imóvel; assinatura DRG-Sign/ZapSign; envio do balancete por e-mail)
+  (contrato/venda/distrato mudam **só** `status` do imóvel; assinatura eletrônica; envio do balancete por e-mail)
   e `exclusaoEmCascata` (garantia do contrato). **Mudou um efeito colateral no app → atualizar a
   regra.** Testado no emulador (49 cenários; suíte em `testes/teste-regras.mjs`).
   Ainda só na tela: "não concede o que não tem" ao editar perfis.
@@ -652,6 +652,12 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
        O resultado continua no campo **`zapsign`** do contrato/negociação (mesmo formato: `openId`, `status` pending|signed|refused|expired, `signers`) **+ `provedor: 'drg-sign'`** —
        a regra `efeitoColateralPermitido` depende desse nome; não renomear. ZapSign fica como legado (usado só se não houver `signApiKey`, e para consultar envios antigos).
        Signatário confirma CPF + nascimento ao assinar; assinatura eletrônica simples + blockchain — **não é ICP-Brasil**, não escrever isso nas telas.
+       🔓 **ALTERADA 17/10/2026** (dono: *"VAMOS TIRAR O ZAP SIGN, MAS VAMOS DEIXAR UMA FERRAMENTA PARA O CLIENTE ESCOLHER QUAL PLATAFORMA DE ASSINATURA ELE QUER"*):
+       **ZapSign removido** (worker, toml, workflow, campos; o salvar apaga `workerZapsignUrl`/`zapsignToken` do banco). Configurações → **Plataforma de assinatura**
+       (`assinaturaPlataforma`): `drg-sign` (integrada) · `govbr` · `clicksign` · `d4sign` · `docusign` · `autentique` · `outra` (`assinaturaOutraNome/Url`) · `papel`.
+       Externas: o Rently baixa o PDF e abre o site; a equipe **anexa o PDF assinado** (Storage `tenants/{t}/{contratos|negociacoes}/{id}/assinado-*.pdf`)
+       → `zapsign.status='signed'` + `arquivoAssinadoPath` → vigente/aceita. Registro: `zapsign.provedor` = 'drg-sign' | 'externo' (sem provedor = ZapSign antigo).
+       "↩ Desfazer envio" apaga o `zapsign` (externo, ou Sign recusado/expirado). Sem plataforma escolhida o botão de assinar some (quem já tinha chave do Sign = drg-sign).
        `sw.js` não cacheia `onrender.com` (status/PDF do Sign). Teste do fluxo: `scratchpad/emu/teste-sign.mjs` (Sign simulado + emulador).
      - **Monitor Legislativo** (`workerLegisUrl`): só a URL (status `/status` é público, read-only). **Não** dar o `legisAdminToken` pra cliente — é controle interno DRG (lei federal é compartilhada).
 

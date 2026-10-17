@@ -51,7 +51,7 @@ Sugestão: `imoveis.drglobal.com.br`. O GitHub Pages é **um domínio por reposi
    criar antes do DNS existir, senão o site sai do ar.)
 3. Firebase → Authentication → Authorized domains: adicionar o domínio novo.
 4. Google Cloud → Credentials → chave do navegador: liberar `https://imoveis.drglobal.com.br/*`.
-5. Workers: acrescentar a origem nova em `ALLOWED_ORIGINS` (gemini, resend, zapsign, asaas,
+5. Workers: acrescentar a origem nova em `ALLOWED_ORIGINS` (gemini, resend, asaas,
    passkey…) e `SITE_URL` no worker do feed (prévia do WhatsApp) → commit = deploy.
 6. ⚠️ **Login por biometria (passkey) é preso ao domínio**: quem usa vai precisar cadastrar de novo.
 7. Links antigos (`zett-romao.github.io/drg-rently/...`) passam a redirecionar sozinhos (GitHub).

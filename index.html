@@ -2273,9 +2273,24 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
             </div>
             <div id="asaas-tenant-status" class="status-inline" style="display:none; margin-bottom:14px;"></div>
 
-            <h4 class="form-section-title">✍️ Assinatura Eletrônica (DRG-Sign)</h4>
+            <h4 class="form-section-title">✍️ Assinatura Eletrônica</h4>
 
-            <div class="form-row">
+            <div class="form-group">
+              <label>Plataforma de assinatura</label>
+              <select id="cfg-assinatura-plataforma" onchange="atualizarCamposPlataformaAssinatura(); saveConfigImobiliaria()" style="width:100%; min-height:42px; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:14px; background:#fff;">
+                <option value="">— escolha —</option>
+                <option value="drg-sign">DRG-Sign (integrada — recomendada)</option>
+                <option value="govbr">gov.br (gratuita, com conta gov.br prata/ouro)</option>
+                <option value="clicksign">Clicksign</option>
+                <option value="d4sign">D4Sign</option>
+                <option value="docusign">DocuSign</option>
+                <option value="autentique">Autentique</option>
+                <option value="outra">Outra plataforma…</option>
+                <option value="papel">No papel (imprimir e digitalizar)</option>
+              </select>
+            </div>
+
+            <div id="cfg-ass-bloco-sign" class="form-row" style="display:none;">
               <div class="form-group">
                 <label>Chave de integração do DRG-Sign</label>
                 <input type="password" id="cfg-sign-api-key" oninput="saveConfigImobiliaria()" placeholder="sgn_…" autocomplete="off" style="font-family:'Courier New',monospace; font-size:12px;">
@@ -2287,26 +2302,22 @@ Em caso de rescisão antecipada, fica estabelecida multa de {{contrato.multa}}, 
                 <span class="muted" style="font-size:11px;">Deixe em branco para usar o padrão.</span>
               </div>
             </div>
-            <p class="muted" style="font-size:12px; margin-bottom:14px; background:#eff6ff; padding:10px; border-radius:6px; border-left:3px solid var(--primary);">
-              💡 Com a chave do DRG-Sign, contratos de locação e de compra e venda ganham o botão <strong>✍️ Enviar pra assinatura</strong>. Locador, locatário, fiador (ou vendedor e comprador) recebem o link por e-mail, confirmam CPF e data de nascimento na hora de assinar, e o PDF final volta com a folha de assinaturas e registro em blockchain. Ao concluir, “🔄 Atualizar status” deixa o contrato vigente (ou a negociação aceita).
-            </p>
 
-            <details style="margin-bottom:14px;">
-              <summary class="muted" style="cursor:pointer; font-size:12px;">ZapSign (legado — só para quem ainda tem envios antigos lá)</summary>
-            <div class="form-row" style="margin-top:8px;">
+            <div id="cfg-ass-bloco-outra" class="form-row" style="display:none;">
               <div class="form-group">
-                <label>URL do Worker (ZapSign proxy)</label>
-                <input type="url" id="cfg-worker-zapsign-url" oninput="saveConfigImobiliaria()" placeholder="https://drg-rently-zapsign.SEU-USUARIO.workers.dev">
-                <span class="muted" style="font-size:11px;">Worker que conecta ao ZapSign. Veja <code>cloudflare-worker-zapsign.js</code>.</span>
+                <label>Nome da plataforma</label>
+                <input type="text" id="cfg-assinatura-outra-nome" oninput="saveConfigImobiliaria()" placeholder="Ex.: Docusign da matriz, Assine Online…">
               </div>
               <div class="form-group">
-                <label>Seu token ZapSign (API)</label>
-                <input type="text" id="cfg-zapsign-token" oninput="saveConfigImobiliaria()" placeholder="Token da sua conta ZapSign" style="font-family:'Courier New',monospace; font-size:12px;">
-                <span class="muted" style="font-size:11px;">Pegue em <a href="https://app.zapsign.com.br" target="_blank" rel="noopener">app.zapsign.com.br</a> → Configurações → API. <strong>Cada tenant usa o próprio token</strong> (não compartilhe).</span>
+                <label>Endereço (site) da plataforma</label>
+                <input type="url" id="cfg-assinatura-outra-url" oninput="saveConfigImobiliaria()" placeholder="https://…">
+                <span class="muted" style="font-size:11px;">Abre em outra aba na hora de assinar. Pode deixar em branco.</span>
               </div>
             </div>
-            <p class="muted" style="font-size:11px; margin:0;">Com a chave do DRG-Sign preenchida, os envios novos vão pelo Sign; o ZapSign só continua consultando os envios antigos.</p>
-            </details>
+
+            <p id="cfg-ass-dica" class="muted" style="font-size:12px; margin-bottom:14px; background:#eff6ff; padding:10px; border-radius:6px; border-left:3px solid var(--primary);">
+              Sem plataforma escolhida, o botão <strong>✍️ Assinar</strong> não aparece nos contratos.
+            </p>
 
             <h4 class="form-section-title">🔍 Pesquisa de Crédito (Quod + Idwall)</h4>
             <div style="background:linear-gradient(135deg, #ecfeff, #f0f9ff); border:1px solid #67e8f9; border-radius:8px; padding:12px; margin-bottom:14px;">
@@ -5383,13 +5394,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   </div>
 
   <!-- ============================================ -->
-  <!-- MODAL: Envio para ZapSign -->
+  <!-- MODAL: Envio para assinatura (plataforma escolhida em Configurações; ids zapsign-* são históricos) -->
   <!-- ============================================ -->
   <div class="modal-overlay" id="modal-zapsign" style="display:none;">
     <div class="modal modal-lg">
       <div class="modal-header">
         <h3 id="zapsign-titulo">✍️ Enviar contrato para assinatura</h3>
-        <button class="modal-close" onclick="closeEnvioZapSign()">×</button>
+        <button class="modal-close" onclick="closeEnvioZapSign()" aria-label="Fechar">×</button>
       </div>
       <div class="modal-body">
         <div id="zapsign-alert" class="alert alert-error" style="display:none;"></div>
@@ -5411,9 +5422,12 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div id="zapsign-signers-list"></div>
         <button type="button" class="btn btn-secondary btn-sm" onclick="addSignerZapSign()" style="margin-top:8px;">+ Adicionar signatário</button>
 
+        <!-- Mensagem: nenhuma plataforma usa hoje; o campo fica oculto (o JS ainda preenche) -->
+        <div id="zapsign-mensagem-bloco" style="display:none;">
         <h4 class="form-section-title">💬 Mensagem</h4>
         <div class="form-group">
           <textarea id="zapsign-message" rows="3" placeholder="Mensagem que vai junto no e-mail (opcional)">Por favor, leia e assine o contrato de locação. Em caso de dúvidas, entre em contato.</textarea>
+        </div>
         </div>
 
         <p class="muted" id="zapsign-aviso" style="font-size:11px; background:#fef3c7; padding:10px; border-radius:6px; border-left:3px solid #fcd34d;">
@@ -5886,7 +5900,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="app.js?v=20261016b-drgsign"></script>
+  <script src="app.js?v=20261017a-plataforma-assinatura"></script>
   <script src="rede.js?v=20261013f-leads"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
 </body>

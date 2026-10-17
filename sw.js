@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v20-20261016b-drgsign';
+const CACHE_VERSION = 'drg-rently-v21-20261017a-plataforma-assinatura';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

@@ -49,7 +49,7 @@
 7. [Contratos](#7-contratos)
    - 7a. [Elaborar contrato pelo Wizard](#7a-elaborar-contrato-pelo-wizard)
    - 7b. [Importar contrato existente via IA](#7b-importar-contrato-existente-via-ia)
-   - 7c. [Assinatura eletrônica (ZapSign)](#7c-assinatura-eletrônica-zapsign)
+   - 7c. [Assinatura eletrônica (escolha a plataforma)](#7c-assinatura-eletrônica-escolha-a-plataforma)
    - 7d. [Distrato no contrato vigente](#7d-distrato-no-contrato-vigente)
    - 7e. [Cobrança de débito atualizado](#7e-cobrança-de-débito-atualizado)
 8. [Negociações (Vendas)](#8-negociações-vendas)
@@ -441,29 +441,30 @@ Contratos importados ficam com `importadoPorIA: true` e aparecem no Dashboard em
 
 ---
 
-### 7c. Assinatura eletrônica (ZapSign)
+### 7c. Assinatura eletrônica (escolha a plataforma)
 
-✍️ **Novo em 2026-05** — Cliente assina o contrato no celular/computador sem precisar imprimir.
+✍️ Cliente assina o contrato no celular/computador sem precisar imprimir — pela plataforma que **a imobiliária escolher**.
 
-#### Pré-requisitos
-1. Conta na **ZapSign** (https://app.zapsign.com.br) — plano que aceita seu volume mensal
-2. **Token API** gerado em Configurações da ZapSign → Integrações → API
-3. Cole o token em **DRG-Rently → Configurações → ✍️ Assinatura Eletrônica**
-4. Cole também a **URL do Worker** (fornecida pela DRG)
+#### Escolher a plataforma
+**Configurações → ✍️ Assinatura Eletrônica → Plataforma de assinatura**:
 
-#### Como enviar pra assinatura
-1. Abre o contrato (rascunho ou vigente)
-2. Botão **✍️ Enviar pra assinatura**
-3. Confirma os signatários (auto-preenche: locador, locatário, fiador com e-mail)
-4. Edita mensagem se quiser
-5. **Enviar** — ZapSign envia e-mail pra cada signatário
-6. Volta ao contrato e veja status em tempo real:
-   - ⏳ Pendente · 📧 Enviado · ✅ Assinado por X de Y
-7. Quando todos assinam:
-   - ✅ Status do contrato muda de `rascunho` → `vigente` automaticamente
-   - PDF final assinado fica baixável (com certificado digital ICP-Brasil)
+| Plataforma | Como funciona |
+|---|---|
+| **DRG-Sign** (recomendada) | **Integrada.** O Rently envia, acompanha quem assinou e baixa o PDF final. Cole a **chave de integração** gerada no DRG-Sign (Configurações → Integração (API) → “+ Gerar chave”). 1 crédito do Sign por contrato. |
+| gov.br, Clicksign, D4Sign, DocuSign, Autentique, Outra | **Externa.** O Rently baixa o PDF do contrato e abre o site da plataforma; você envia por lá, com a sua conta. Quando voltar assinado, anexe o PDF no contrato. |
+| No papel | O Rently baixa o PDF para imprimir; depois de assinado, digitalize e anexe. |
 
-> 💡 **Locação E Venda** suportadas (desde a Fase F item 7).
+#### Como mandar assinar
+1. Abra o contrato (ou a negociação de compra e venda) e clique **✍️ Assinar (plataforma)**
+2. Confira os signatários (já vêm locador, locatário e fiador — ou vendedor e comprador — com e-mail)
+3. **DRG-Sign:** clique **📧 Enviar para assinatura** — cada um recebe o link por e-mail, confirma CPF e data de nascimento e assina; registro em blockchain. Depois use **🔄 Atualizar status**.
+   **Externa / papel:** clique **📄 Baixar PDF…**, envie pela plataforma e, quando voltar assinado, **📎 Anexar PDF assinado**.
+4. Quando estiver tudo assinado:
+   - ✅ o contrato passa de `rascunho` → `vigente` (a negociação vira `aceita`)
+   - o PDF assinado fica em **📄 Baixar PDF assinado**
+5. Escolheu errado ou foi recusado? **↩ Desfazer envio** e mande de novo.
+
+> 💡 Locação e venda suportadas. A assinatura do DRG-Sign é eletrônica simples com registro em blockchain (não é certificado ICP-Brasil).
 
 ---
 

@@ -71,7 +71,6 @@ Mesmo codebase atende três modos:
   - `drg-rently-resend` — envio de e-mail via Resend (balancetes, leads)
   - `drg-rently-gemini` — Gemini Vision com 4 modos (boleto, contrato, multi, documento_pessoa)
   - `drg-rently-feed` — gera XML feed pros portais imobiliários
-  - `drg-rently-zapsign` — proxy de assinatura eletrônica (cada tenant com sua chave)
   - `drg-rently-legis-monitor` — monitor diário Planalto (cron) + endpoints CRUD URLs
   - `drg-rently-passkey` — WebAuthn (passkeys) + emite custom token Firebase (RS256)
   - `drg-rently-asaas` — Asaas dual-auth (admin DRG p/ mensalidade SaaS + tenant p/ cobrança própria)

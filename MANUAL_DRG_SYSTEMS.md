@@ -787,7 +787,6 @@ Na tabela de tenants do Super Admin, cada linha tem agora ações dependendo do 
 | **drg-rently-passkey** | `drg-rently-passkey.zett-romao.workers.dev` | WebAuthn passkeys + custom token Firebase | `FIREBASE_SERVICE_ACCOUNT_JSON` |
 | **drg-rently-asaas** | `drg-rently-asaas.zett-romao.workers.dev` | Asaas (cobrar mensalidade DRG + endpoints /tenant/*) | `ASAAS_API_KEY`, `WEBHOOK_TOKEN`, `FIREBASE_API_KEY` |
 | **drg-rently-feed** | `drg-rently-feed.zett-romao.workers.dev` | XML feed para portais imobiliários | — |
-| **drg-rently-zapsign** | `drg-rently-zapsign.zett-romao.workers.dev` | ZapSign (proxy de assinatura eletrônica) | — (cada tenant usa sua chave) |
 | **drg-rently-telemetria** | (opcional) | Telemetria de instâncias self-hosted (Modelo C) | — |
 
 **Workflows CI/CD** em `.github/workflows/`:
@@ -864,7 +863,7 @@ Conteúdo:
 4. Asaas
 5. Gemini
 6. Resend
-7. ZapSign
+7. Assinatura eletrônica (DRG-Sign)
 8. Monitor Legislativo
 9. Passkey
 10. Conta administrativa
