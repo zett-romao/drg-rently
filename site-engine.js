@@ -119,11 +119,18 @@
     </div><div class="copy">© ${new Date().getFullYear()} ${esc(nome)}. Todos os direitos reservados.</div><div class="by"><em>by DR Systems</em></div>`;
   }
   function formatarTel(d) { const s = String(d).replace(/\D/g, ''); const l = s.startsWith('55') && s.length >= 12 ? s.slice(2) : s; return l.length >= 10 ? `+55 ${l.slice(0, 2)} ${l.slice(2, -4)}-${l.slice(-4)}` : s; }
+  // Azul sobre a foto do topo: b.veuNivel 0–100 (Meu site → bloco Destaque). 60 = "suave", o padrão aprovado.
+  function estiloVeu(b) {
+    const n = Number.isFinite(Number(b.veuNivel)) && b.veuNivel !== '' ? Math.max(0, Math.min(100, Number(b.veuNivel))) : null;
+    if (n === null) return '';
+    const p = (v) => `color-mix(in srgb,var(--navy) ${Math.round(v)}%,transparent)`;
+    return `--veu:linear-gradient(90deg,${p(55 + 0.4 * n)} 0%,${p(0.75 * n)} 50%,${p(Math.max(0, 0.9 * n - 40))} 100%);--veu-cel:${p(45 + 0.45 * n)};`;
+  }
   const botao = (b, cls) => (b && b.rotulo ? `<a class="btn ${cls}" ${attrLink(b.destino)}>${esc(b.rotulo)}</a>` : '');
   const cab = (b, centro = true) => `<div class="${centro ? 'center' : ''}">${b.eyebrow ? `<div class="eyebrow">${esc(b.eyebrow)}</div>` : ''}${b.titulo ? `<h2>${esc(b.titulo)}</h2>` : ''}${b.texto ? `<p class="lead">${esc(b.texto)}</p>` : ''}</div>`;
 
   const BLOCO = {
-    destaque: (b) => `<section class="hero" id="${esc(b.id)}" style="--hero-img:${b.imagem ? `url('${esc(b.imagem)}')` : 'none'}"><div class="wrap">
+    destaque: (b) => `<section class="hero veu-${esc(b.veu || 'suave')}" id="${esc(b.id)}" style="${estiloVeu(b)}--hero-img:${b.imagem ? `url('${esc(b.imagem)}')` : 'none'}"><div class="wrap">
       ${b.eyebrow ? `<div class="eyebrow">${esc(b.eyebrow)}</div>` : ''}<h1>${esc(b.titulo)}</h1>${b.texto ? `<p>${esc(b.texto)}</p>` : ''}
       <div class="ctas">${botao(b.botao1, 'btn-gold')}${botao(b.botao2, 'btn-out')}</div></div></section>`,
     busca: (b) => `<div class="wrap search" id="${esc(b.id)}"><form data-busca>
@@ -165,7 +172,7 @@
     // Área do corretor: topo com as duas portas (quero ser parceiro / já sou corretor)
     acessoCorretor: (b) => {
       const aberto = (tenant.programaParceiros || {}).ativo === true;
-      return `<section class="hero hero-corretor" id="${esc(b.id)}" style="--hero-img:${b.imagem ? `url('${esc(b.imagem)}')` : 'none'}"><div class="wrap">
+      return `<section class="hero hero-corretor veu-${esc(b.veu || 'suave')}" id="${esc(b.id)}" style="${estiloVeu(b)}--hero-img:${b.imagem ? `url('${esc(b.imagem)}')` : 'none'}"><div class="wrap">
       ${b.eyebrow ? `<div class="eyebrow">${esc(b.eyebrow)}</div>` : ''}<h1>${esc(b.titulo)}</h1>${b.texto ? `<p>${esc(b.texto)}</p>` : ''}
       <div class="portas">
         <div class="porta">${b.parceiroEyebrow ? `<div class="eyebrow">${esc(b.parceiroEyebrow)}</div>` : ''}<h2>${esc(b.parceiroTitulo || 'Seja corretor parceiro')}</h2><p>${esc(b.parceiroTexto || '')}</p>

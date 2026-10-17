@@ -124,6 +124,12 @@ function _campo(rotulo, path, tipo = 'texto', extra = {}) {
   if (tipo === 'check') return `<div class="form-group site-check"><label><input type="checkbox" id="${id}" ${v ? 'checked' : ''} onchange="campoSite('${path}', this)"> ${rotulo}</label>${dica}</div>`;
   if (tipo === 'cor') return `<div class="form-group"><label for="${id}">${rotulo}</label><div class="site-cor"><input type="color" id="${id}" value="${_escS(v || '#000000')}" ${on}><input type="text" value="${_escS(v || '')}" maxlength="7" aria-label="${rotulo} (código)" oninput="if(/^#[0-9a-f]{6}$/i.test(this.value)){document.getElementById('${id}').value=this.value;campoSite('${path}', this)}"></div>${dica}</div>`;
   if (tipo === 'select') return `<div class="form-group"><label for="${id}">${rotulo}</label><select id="${id}" onchange="campoSite('${path}', this)">${extra.opcoes.map(([val, txt]) => `<option value="${_escS(val)}" ${String(v) === String(val) ? 'selected' : ''}>${_escS(txt)}</option>`).join('')}</select>${dica}</div>`;
+  if (tipo === 'faixa') {
+    const val = (v === undefined || v === null || v === '') ? (extra.padrao ?? 50) : Number(v);
+    return `<div class="form-group"><label for="${id}">${rotulo}: <strong id="${id}-valor">${val}%</strong></label>
+      <input type="range" id="${id}" min="0" max="100" step="5" value="${val}" style="width:100%;" oninput="document.getElementById('${id}-valor').textContent=this.value+'%';campoSite('${path}', this)">
+      <div style="display:flex;justify-content:space-between;font-size:11px;" class="muted"><span>Foto natural</span><span>Padrão (60%)</span><span>Todo azul</span></div>${dica}</div>`;
+  }
   if (tipo === 'numero') return `<div class="form-group"><label for="${id}">${rotulo}</label><input type="number" id="${id}" value="${_escS(v ?? '')}" min="${extra.min ?? 0}" max="${extra.max ?? 99}" ${on}>${dica}</div>`;
   if (tipo === 'imagem') return `<div class="form-group"><label for="${id}">${rotulo}</label>
     <div class="site-imagem">${v ? `<img src="${_escS(v)}" alt="">` : '<span class="muted">Sem imagem</span>'}</div>
@@ -206,6 +212,7 @@ function _blocoEditor(b, i, n) {
   const campos = {
     destaque: () => `${_campo('Linha acima do título (opcional)', p + '.eyebrow')}${_campo('Título', p + '.titulo', 'textarea', { linhas: 2 })}${_campo('Texto', p + '.texto', 'textarea')}
       ${_campo('Imagem de fundo', p + '.imagem', 'imagem')}
+      ${_campo('Azul sobre a foto', p + '.veuNivel', 'faixa', { padrao: 60, dica: '0% = foto em cores naturais · 60% = padrão · 100% = quase todo azul. No celular o azul fica uniforme para o texto não sumir.' })}
       <div class="form-row">${_campo('Botão 1 — texto', p + '.botao1.rotulo')}${_campo('Botão 1 — leva para', p + '.botao1.destino', 'destino')}</div>
       <div class="form-row">${_campo('Botão 2 — texto', p + '.botao2.rotulo', 'texto', { dica: 'Em branco, sem botão.' })}${_campo('Botão 2 — leva para', p + '.botao2.destino', 'destino')}</div>`,
     busca: () => '<p class="muted" style="font-size:12px;">Busca de imóveis por finalidade, tipo, quartos e bairro. Não tem textos para editar.</p>',
@@ -233,6 +240,7 @@ function _blocoEditor(b, i, n) {
       <button type="button" class="btn btn-secondary btn-sm" onclick="addItemSite('${p}.itens', {pergunta:'Nova pergunta?', resposta:'Resposta.'})">+ Pergunta</button>`,
     acessoCorretor: () => `${_campo('Linha acima do título', p + '.eyebrow')}${_campo('Título', p + '.titulo', 'textarea', { linhas: 2 })}${_campo('Texto', p + '.texto', 'textarea')}
       ${_campo('Imagem de fundo (opcional)', p + '.imagem', 'imagem')}
+      ${_campo('Azul sobre a foto', p + '.veuNivel', 'faixa', { padrao: 60, dica: '0% = foto em cores naturais · 60% = padrão · 100% = quase todo azul. No celular o azul fica uniforme para o texto não sumir.' })}
       <div class="site-item"><strong style="font-size:13px;">Porta 1 — quero ser parceiro</strong>
         <div class="form-row">${_campo('Linha acima', p + '.parceiroEyebrow')}${_campo('Título', p + '.parceiroTitulo')}</div>
         ${_campo('Texto', p + '.parceiroTexto', 'textarea', { linhas: 2 })}${_campo('Botão', p + '.parceiroBotao', 'texto', { dica: 'Leva ao cadastro de corretor parceiro.' })}
@@ -435,7 +443,7 @@ async function desligarDominioSite() {
 // ---------- edição ----------
 function campoSite(path, el) {
   let v = el.type === 'checkbox' ? el.checked : el.value;
-  if (el.type === 'number') v = el.value === '' ? '' : Number(el.value);
+  if (el.type === 'number' || el.type === 'range') v = el.value === '' ? '' : Number(el.value);
   _sSet(_site.cfg, path, v);
   _marcarAlterado();
 }

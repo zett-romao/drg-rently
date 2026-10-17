@@ -40,7 +40,15 @@ nav a.on,nav a:hover{color:var(--gold)}nav .btn{color:#fff}
 @media(max-width:600px){:root{--altura-cab:100px}.brand{font-size:1.3rem;gap:12px}.brand img{height:60px}.brand-creci{font-size:.62rem}.brand-txt .selo,.brand-txt .selo-texto{flex-basis:100%;margin:2px 0 0;top:0;height:.85em}}
 
 /* destaque */
-.hero{background:linear-gradient(120deg,color-mix(in srgb,var(--navy) 93%,transparent),color-mix(in srgb,var(--navy2) 80%,transparent)),var(--hero-img,none) center/cover;background-color:var(--navy);color:#fff;padding:96px 0 110px}
+/* Azul sobre a foto do topo — escolhido no Meu site (bloco Destaque): forte | medio | suave (padrão, aprovado 17/10/2026) | claro.
+   Degradê: escuro atrás do texto (esquerda), claro sobre a foto (direita). No celular o texto ocupa a largura toda: véu uniforme. */
+.hero{--veu:linear-gradient(90deg,color-mix(in srgb,var(--navy) 78%,transparent) 0%,color-mix(in srgb,var(--navy) 40%,transparent) 50%,color-mix(in srgb,var(--navy) 10%,transparent) 100%);
+  --veu-cel:color-mix(in srgb,var(--navy) 68%,transparent);
+  background:var(--veu),var(--hero-img,none) center/cover;background-color:var(--navy);color:#fff;padding:96px 0 110px}
+.hero.veu-forte{--veu:linear-gradient(120deg,color-mix(in srgb,var(--navy) 93%,transparent),color-mix(in srgb,var(--navy2) 80%,transparent));--veu-cel:color-mix(in srgb,var(--navy) 88%,transparent)}
+.hero.veu-medio{--veu:linear-gradient(90deg,color-mix(in srgb,var(--navy) 85%,transparent) 0%,color-mix(in srgb,var(--navy) 60%,transparent) 50%,color-mix(in srgb,var(--navy) 30%,transparent) 100%);--veu-cel:color-mix(in srgb,var(--navy) 76%,transparent)}
+.hero.veu-claro{--veu:linear-gradient(90deg,color-mix(in srgb,var(--navy) 70%,transparent) 0%,color-mix(in srgb,var(--navy) 25%,transparent) 55%,transparent 100%);--veu-cel:color-mix(in srgb,var(--navy) 60%,transparent)}
+@media(max-width:760px){.hero{background:linear-gradient(var(--veu-cel),var(--veu-cel)),var(--hero-img,none) center/cover;background-color:var(--navy)}}
 .hero h1{color:#fff;font-size:clamp(2rem,5vw,3.3rem);max-width:760px}.hero p{font-size:1.15rem;max-width:620px;opacity:.92}
 .hero .eyebrow{color:var(--gold2)}
 .hero .ctas{display:flex;gap:14px;flex-wrap:wrap;margin-top:28px}
