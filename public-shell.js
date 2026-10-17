@@ -113,8 +113,11 @@ function montarMenuERodape(tenant, tenantRef) {
   const anunciar = naVitrine && typeof abrirAnunciarImovel === 'function'
     ? `href="#" onclick="fecharMenuPublico(); abrirAnunciarImovel(); return false;"`
     : `href="imoveis.html?t=${t}&anunciar=1"`;
+  // Site próprio (rently-site.js): "Início" é a página institucional e a vitrine vira "Imóveis"
+  const siteProprio = window.RENTLY_SITE || null;
   const links = [
-    ['🏠', 'Início', `href="imoveis.html?t=${t}"`],
+    ...(siteProprio && siteProprio.inicio ? [['🏠', 'Início', `href="${siteProprio.inicio}"`]] : []),
+    ['🏘', siteProprio ? 'Imóveis' : 'Início', `href="imoveis.html?t=${t}"`],
     ['🔑', 'Alugar', `href="imoveis.html?t=${t}&finalidade=locacao"`],
     ['💼', 'Comprar', `href="imoveis.html?t=${t}&finalidade=venda"`],
     ['♥', 'Meus favoritos <span class="contador-fav"></span>', `href="imoveis.html?t=${t}&favoritos=1"`],

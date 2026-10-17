@@ -5,7 +5,8 @@
 // =============================================================
 
 const params = new URLSearchParams(window.location.search);
-const tenantIdOrSlug = params.get('t');
+// No site próprio da imobiliária (ex.: drglobalimoveis.com.br) o rently-site.js fixa o tenant
+const tenantIdOrSlug = params.get('t') || window.RENTLY_TENANT_FIXO || null;
 const finalidadeInicial = (params.get('finalidade') || '').toLowerCase();
 // Favoritos: ?favoritos=1 (os deste aparelho) | ?lista=id1,id2 (lista enviada por alguém)
 const _listaRecebida = (params.get('lista') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 60);

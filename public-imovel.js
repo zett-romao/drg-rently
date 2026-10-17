@@ -6,7 +6,8 @@
 
 const params = new URLSearchParams(window.location.search);
 const imovelId = params.get('id');
-const tenantIdOrSlug = params.get('t');
+// No site próprio da imobiliária (ex.: drglobalimoveis.com.br) o rently-site.js fixa o tenant
+const tenantIdOrSlug = params.get('t') || window.RENTLY_TENANT_FIXO || null;
 
 // Resolve slug → tenantId
 async function resolveTenantId(slugOrId) {

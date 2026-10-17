@@ -11599,7 +11599,8 @@ function openImovelLink() {
 // ---------- Configurações da imobiliária ----------
 
 function vitrineUrl(tenantIdOrSlug, finalidade) {
-  const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/');
+  // Site próprio da imobiliária (ex.: drglobalimoveis.com.br) tem prioridade sobre o endereço do Rently
+  const base = (State.tenant && State.tenant.siteProprio) || (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '/'));
   let url = `${base}imoveis.html?t=${tenantIdOrSlug}`;
   if (finalidade === 'locacao' || finalidade === 'venda') {
     url += `&finalidade=${finalidade}`;
@@ -11669,6 +11670,7 @@ async function loadConfigImobiliaria() {
   $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
   $('cfg-email-contato').value = State.tenant.emailContato || '';
   $('cfg-slug').value = State.tenant.slug || '';
+  if ($('cfg-site-proprio')) $('cfg-site-proprio').value = State.tenant.siteProprio || '';
   const slugAtivo = State.tenant.slug || State.tenant.id;
   $('cfg-vitrine-url').value = vitrineUrl(slugAtivo);
   const inputAluguel = $('cfg-vitrine-url-aluguel');
@@ -11766,6 +11768,13 @@ async function saveConfigImobiliaria() {
       const telefoneDigits = $('cfg-telefone').value.replace(/\D/g, '') || null;
       const emailContato = $('cfg-email-contato').value.trim() || null;
       const slug = $('cfg-slug').value.trim().toLowerCase() || null;
+      // Site próprio: só https e só o domínio (sem caminho), normalizado com "/" no fim
+      let siteProprio = ($('cfg-site-proprio')?.value || '').trim().toLowerCase().replace(/\/+$/, '');
+      if (siteProprio && !/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(siteProprio)) {
+        showAlert('cfg-alert', 'Site próprio inválido. Use só o endereço com https, ex.: https://drglobalimoveis.com.br');
+        return;
+      }
+      siteProprio = siteProprio ? siteProprio + '/' : null;
 
       // Valida slug se preenchido
       if (slug) {
@@ -11785,8 +11794,10 @@ async function saveConfigImobiliaria() {
         telefone: telefoneDigits,
         emailContato,
         slug,
+        siteProprio,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
+      State.tenant.siteProprio = siteProprio;
       // Sincroniza no State pra a UI usar imediatamente
       State.tenant.telefone = telefoneDigits;
       State.tenant.emailContato = emailContato;

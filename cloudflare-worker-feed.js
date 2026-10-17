@@ -619,9 +619,10 @@ async function paginaCompartilhar(url, env, FIRESTORE, KEY) {
   if (!ID_OK.test(t) || (id && !ID_OK.test(id))) return new Response('Link inválido', { status: 400 });
 
   const enc = encodeURIComponent;
-  const destino = id
-    ? `${site}imovel.html?id=${enc(id)}&t=${enc(t)}`
-    : `${site}imoveis.html?t=${enc(t)}${lista.length ? `&lista=${lista.map(enc).join(',')}` : ''}`;
+  const montarDestino = (base) => id
+    ? `${base}imovel.html?id=${enc(id)}&t=${enc(t)}`
+    : `${base}imoveis.html?t=${enc(t)}${lista.length ? `&lista=${lista.map(enc).join(',')}` : ''}`;
+  let destino = montarDestino(site);
 
   let titulo = 'Imóveis disponíveis', descricao = 'Confira os imóveis disponíveis.', imagem = `${site}logo.png`;
   try {
@@ -630,6 +631,10 @@ async function paginaCompartilhar(url, env, FIRESTORE, KEY) {
       const tRes = await fetch(`${FIRESTORE}/tenants/${tenantId}?key=${KEY}`);
       const tenant = tRes.ok ? parseFirestoreDoc(await tRes.json()) : {};
       const nome = tenant.nome || 'Imobiliária';
+      // Site próprio da imobiliária (ex.: drglobalimoveis.com.br, que serve a vitrine do Rently):
+      // o link abre lá. Só https e só domínio — validado aqui e na tela de Configurações.
+      const proprio = String(tenant.siteProprio || '').trim().toLowerCase();
+      if (/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+\/$/.test(proprio)) destino = montarDestino(proprio);
       if (tenant.logoUrl) imagem = tenant.logoUrl;
       titulo = `${nome} — Imóveis disponíveis`; // vale se o imóvel/lista não for achado
       const lerVitrine = async (vid) => {
