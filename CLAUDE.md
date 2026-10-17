@@ -403,8 +403,9 @@ config → botão "Reaplicar a todos os imóveis".
 
 **Travas (firestore.rules):** corretor fica FORA da regra genérica de subcoleção
 (`isEquipeTenant`). Ele só tem: imóveis/locadores/fotos/arquivos que ele mesmo criou,
-fichas visíveis/dele/liberadas, `corretores` (leitura), `perfis` (leitura), `config/rede`
-(leitura). Não pode ligar `linkPublico` (publicar no site é decisão da imobiliária).
+fichas visíveis/dele/liberadas, `corretores` (leitura **só do próprio cartão** desde 17/10/2026),
+`leadsCorretor` (cópia sem contato dos leads dele), `perfis` (leitura), `config/rede`
+(leitura). 🔒 Ver "Contato — o cliente é da imobiliária" em Regras travadas. Não pode ligar `linkPublico` (publicar no site é decisão da imobiliária).
 Fotos que ele grava precisam ter URL do `firebasestorage.googleapis.com`.
 **Consultas do corretor precisam bater com a regra** (Firestore não filtra) → use
 `queryDoUsuario()` (filtra `criadoPor`) em vez de `.collection(x).get()`.
@@ -541,6 +542,41 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   e `exclusaoEmCascata` (garantia do contrato). **Mudou um efeito colateral no app → atualizar a
   regra.** Testado no emulador (49 cenários; suíte em `testes/teste-regras.mjs`).
   Ainda só na tela: "não concede o que não tem" ao editar perfis.
+
+### Contato — o cliente é da imobiliária (blindagem de contato)
+
+- **Original (comportamento travado em 07/08/2026):** a ficha da rede levava o **contato do
+  corretor captador** (nome, telefone, e-mail, CRECI) e, se liberado, o **proprietário** (nome e
+  telefone); todo corretor lia o cartão de todos os colegas; o corretor escolhia com quem
+  compartilhar a ficha completa; o lead repassado chegava ao corretor **com telefone e e-mail do
+  cliente** (no WhatsApp do repasse e em "Meus leads", com botão direto para o cliente); textos
+  públicos (título, descrição, tags, permuta, vídeo/tour) eram livres; marca d'água opcional;
+  página pública dizia "Fale com o corretor".
+- 🔓 **ALTERADA 17/10/2026** (o dono: *"vedado ao corretor divulgar números de celulares ou emails
+  deles próprios o contato sera sempre o da imobiliária, o contato será sempre nosso com o cliente
+  seja de que for e nosso com o corretor… dinheiro injetado sera sempre o da imobiliária nos
+  anuncios e portais"*):
+  1. **Ficha da rede sem contato pessoal:** sai captador (contato) e proprietário; a ficha mostra
+     "Contato para negociar" = **sempre a imobiliária**. Nome do captador só a equipe vê.
+  2. **Corretor lê só o próprio cartão** em `corretores/` — colegas não trocam contato pelo sistema.
+  3. **Compartilhar a ficha completa é decisão da imobiliária** (regra barra o corretor de mudar
+     `compartilhadoCom`, inclusive via fila de aprovação).
+  4. **Lead sem contato do cliente para o corretor:** ele não lê mais `leadsImoveis`; lê a cópia
+     `leadsCorretor/{id}` (primeiro nome, imóvel, mensagem com telefone/e-mail/link trocados por
+     aviso, nota da imobiliária) e atualiza só o atendimento. Botão **💬 Falar com a imobiliária**
+     (WhatsApp da imobiliária). O WhatsApp do repasse ao corretor não leva telefone/e-mail do cliente.
+  5. **Texto público do corretor sem contato** (regra `semContato`/`textosPublicosLimpos` +
+     `validarTextosDoCorretor` na tela): apelido, título, descrição, tags, permuta, endereço,
+     nome/legenda de foto, ficha (inclui obs). Barra telefone (8+ dígitos, com ou sem separador,
+     ou por extenso), e-mail, @perfil, link/site, WhatsApp/Instagram/Facebook/Telegram/"me chama".
+     Vídeo/tour só YouTube, Vimeo, Matterport, Kuula, Momento360. Vale também no pedido da fila
+     (`alteracoesPendentes`). A equipe da imobiliária continua livre (pode pôr o telefone DELA).
+  6. **Marca d'água obrigatória** nas fotos do corretor, com a **logo da imobiliária** (Configurações;
+     reserva: logo do sistema). Sem logo aplicada, a foto do corretor não sobe. Nome do arquivo neutro.
+  7. Página pública: "💬 Fale com a imobiliária".
+- **Fichas antigas** ainda guardam o contato do captador/proprietário até alguém clicar
+  **Corretores → Visibilidade da rede → Reaplicar a todos** (uma vez por cliente, depois do deploy).
+- Testes: `testes/teste-regras.mjs` (132 casos, seção "Blindagem").
 
 ## Histórico de decisões
 

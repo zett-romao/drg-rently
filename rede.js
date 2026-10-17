@@ -10,7 +10,14 @@
 //   tenants/{tid}/imoveisRede/{id}/completo/dados — ficha COMPLETA (captador + corretores liberados)
 //
 // O imóvel original (imoveis/{id}) continua trancado: corretor só abre o que
-// ele captou. Os outros corretores leem só a ficha — a trava é no firestore.rules.
+// ele captou.
+//
+// 🔒 BLINDAGEM DE CONTATO (17/10/2026, ordem do dono): o contato é SEMPRE o da
+// imobiliária — com o cliente (comprador, inquilino, proprietário) e entre corretores.
+// A ficha não carrega telefone/e-mail/nome do captador nem do proprietário; o lead
+// chega ao corretor sem telefone/e-mail do cliente (leadsCorretor); textos públicos
+// escritos pelo corretor não podem ter telefone, e-mail, link nem @perfil. Quem paga
+// anúncio e portal é a imobiliária — o cliente que chega é dela. Os outros corretores leem só a ficha — a trava é no firestore.rules.
 // Os campos da ficha são escolhidos em tela (Corretores → Visibilidade da rede),
 // nada fica fixo no código além da lista de campos possíveis.
 
@@ -27,15 +34,61 @@ const REDE_CAMPOS = [
   { id: 'descricao',        label: 'Descrição e tags' },
   { id: 'condicoes',        label: 'Aceita financiamento / FGTS' },
   { id: 'midia',            label: 'Vídeo e tour virtual' },
-  { id: 'captador',         label: 'Contato do corretor captador' },
-  { id: 'proprietario',     label: 'Proprietário (nome e telefone)', sensivel: true },
   { id: 'documentacao',     label: 'Matrícula e IPTU', sensivel: true },
   { id: 'obsInternas',      label: 'Observações internas', sensivel: true },
 ];
 const REDE_CAMPOS_PADRAO = ['identificacao', 'tipo', 'fotos', 'valores', 'localizacao',
-  'metragem', 'comodos', 'descricao', 'condicoes', 'midia', 'captador'];
+  'metragem', 'comodos', 'descricao', 'condicoes', 'midia'];
+// (Contato do captador e proprietário saíram da ficha: a ficha mostra sempre o contato da imobiliária)
 const REDE_TODOS_CAMPOS = REDE_CAMPOS.map(c => c.id);
 const REDE_MAX_FOTOS = 20;
+
+// ---------- Blindagem de contato ----------
+// Espelho da função semContato() do firestore.rules — mudou lá, muda aqui.
+const RE_CONTATO = /(https?:|www\.|wa\.me|bit\.ly|linktr|[a-z0-9]\.(com|net|org|me|ly|io|app|site|link|br)([^a-z0-9]|$)|@[a-z0-9_]|[0-9]([ .()-]*[0-9]){7,}|whats|wpp|telegram|instagram|facebook|tik ?tok|gmail|hotmail|outlook|arroba|me chama|chama no|ligue|ligar para|meu (cel|tel|n[uú]mero|contato|zap)|((zero|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove)[ ,.-]+){5,})/;
+// Vídeo e tour: só destes serviços (espelho de urlMidiaOk() nas regras)
+const RE_MIDIA_OK = /^https:\/\/(www\.|m\.|player\.|my\.)?(youtube\.com|youtu\.be|vimeo\.com|matterport\.com|kuula\.co|momento360\.com)\//;
+
+function temContato(s) {
+  return typeof s === 'string' && RE_CONTATO.test(s.toLowerCase());
+}
+// Troca telefone, e-mail e link por um aviso (mensagem do cliente que vai ao corretor)
+function ocultarContatos(s) {
+  if (!s) return s || null;
+  return String(s)
+    .replace(/(https?:\/\/\S+|www\.\S+)/gi, '[link removido]')
+    .replace(/\S+@\S+/g, '[e-mail com a imobiliária]')
+    .replace(/\+?[0-9][0-9 .()-]{6,}[0-9]/g, '[telefone com a imobiliária]');
+}
+// Confere os textos que o CORRETOR grava e que vão a público (site, portais, ficha).
+// Devolve a mensagem de erro (com o campo) ou null.
+function validarTextosDoCorretor(d) {
+  if (!isCorretor() || !d) return null;
+  const end = d.endereco || {};
+  const campos = [
+    ['Apelido', d.apelido], ['Título do anúncio', d.tituloAnuncio], ['Descrição', d.descricaoLonga],
+    ['Observação da permuta', d.permutaObs], ['Tags', Array.isArray(d.tags) ? d.tags.join(' ') : null],
+    ['Rua', end.logradouro], ['Bairro', end.bairro], ['Cidade', end.cidade], ['Complemento', end.complemento],
+  ];
+  const ruim = campos.find(([, v]) => temContato(v));
+  if (ruim) {
+    return `🔒 <strong>${ruim[0]}</strong>: tire telefone, e-mail, link, @perfil ou menção a WhatsApp/redes. `
+      + 'O contato com o cliente é sempre o da imobiliária — o site e os portais já mostram os botões dela. '
+      + '(Valores muito grandes: escreva "R$ 12,5 milhões".)';
+  }
+  for (const [rotulo, v] of [['Vídeo', d.videoUrl], ['Tour virtual', d.tourUrl]]) {
+    if (v && !RE_MIDIA_OK.test(String(v).toLowerCase())) {
+      return `🔒 <strong>${rotulo}</strong>: use um link do YouTube, Vimeo, Matterport, Kuula ou Momento360. `
+        + 'Links de perfil, site pessoal ou WhatsApp não são aceitos.';
+    }
+  }
+  return null;
+}
+// Contato da imobiliária (o único que circula)
+function contatoImobiliaria() {
+  const t = State.tenant || {};
+  return { nome: t.nome || null, telefone: t.whatsapp || t.telefone || null, email: t.emailContato || null, creci: t.creci || null };
+}
 
 // Só aceita links https (barra javascript:, data: etc. vindos de dados gravados por terceiros)
 function urlSegura(u) {
@@ -147,14 +200,14 @@ function montarDadosRede(im, campos, ctx) {
     aceitaPermuta: im.aceitaPermuta || null, permutaObs: im.permutaObs || null,
   });
   if (tem('midia')) Object.assign(f, { videoUrl: im.videoUrl || null, tourUrl: im.tourUrl || null });
-  if (tem('captador')) f.captador = ctx.captador || null;
-  if (tem('proprietario')) f.proprietario = ctx.proprietario || null;
   if (tem('documentacao')) Object.assign(f, { matricula: im.matricula || null, iptu: im.iptu || null });
-  if (tem('obsInternas')) f.obs = im.obs || null;
+  // obs vai à ficha só se a imobiliária liberou — e, gravada pelo corretor, sem contato dentro
+  if (tem('obsInternas')) f.obs = (isCorretor() && temContato(im.obs)) ? null : (im.obs || null);
   return f;
 }
 
-// Dados de contato do captador (cartão de corretor → usuário → imobiliária)
+// Nome do captador para a TELA DA EQUIPE (cartão de corretor → usuário → imobiliária).
+// Nunca vai para a ficha: corretor não vê nome nem contato de colega.
 async function contatoCaptador(uid) {
   if (uid) {
     try {
@@ -184,23 +237,14 @@ async function sincronizarFichaRede(imovelId) {
   const im = imSnap.data();
   const cfg = await getConfigRede();
 
-  const [fotosSnap, captador, locSnap] = await Promise.all([
-    tenantPath().collection('imoveis').doc(imovelId).collection('fotos').orderBy('ordem').limit(REDE_MAX_FOTOS).get().catch(() => null),
-    contatoCaptador(im.criadoPor),
-    im.locadorId ? tenantPath().collection('locadores').doc(im.locadorId).get().catch(() => null) : null,
-  ]);
-  const ctx = {
-    fotos: fotosSnap ? fotosSnap.docs.map(d => d.data().url).filter(Boolean) : [],
-    captador,
-    proprietario: locSnap && locSnap.exists
-      ? { nome: locSnap.data().nome || null, telefone: locSnap.data().telefone || null }
-      : null,
-  };
+  const fotosSnap = await tenantPath().collection('imoveis').doc(imovelId).collection('fotos')
+    .orderBy('ordem').limit(REDE_MAX_FOTOS).get().catch(() => null);
+  // 🔒 sem captador e sem proprietário: o contato da ficha é sempre o da imobiliária
+  const ctx = { fotos: fotosSnap ? fotosSnap.docs.map(d => d.data().url).filter(Boolean) : [] };
 
   const vis = (im.redeVisibilidade && im.redeVisibilidade !== 'padrao') ? im.redeVisibilidade : cfg.visibilidadePadrao;
   const meta = {
     captadorUid: im.criadoPor || null,
-    captadorNome: captador?.nome || null,
     codigoAnuncio: im.codigoAnuncio || null, // não é dado sensível: serve para achar o anúncio
     visivel: vis === 'rede' && !im.rascunho,
     compartilhadoCom: Array.isArray(im.compartilhadoCom) ? im.compartilhadoCom : [],
@@ -383,6 +427,12 @@ async function prepararRedeNoModalImovel(id) {
 
   const lista = $('imovel-rede-compartilhar');
   const marcados = Array.isArray(im.compartilhadoCom) ? im.compartilhadoCom : [];
+  // 🔒 Corretor não vê a lista de colegas nem decide com quem a ficha completa é
+  // compartilhada — quem liga corretor a corretor é a imobiliária (a regra também barra).
+  if (isCorretor()) {
+    lista.innerHTML = `<p class="muted" style="font-size:12px;">🔒 Quem libera a ficha completa para outro corretor é a imobiliária${marcados.length ? ` (hoje liberada para ${marcados.length} corretor(es))` : ''}. O contato com cliente e com colegas é sempre pela imobiliária.</p>`;
+    return;
+  }
   let corretores = [];
   try { _corretoresAtivosCache = null; corretores = await listarCorretoresAtivos(); } catch (_) {}
   corretores = corretores.filter(c => c.uid !== captadorUid);
@@ -397,8 +447,10 @@ async function prepararRedeNoModalImovel(id) {
 
 function lerRedeDoModalImovel() {
   if (!$('imovel-rede-section')) return {};
+  const visibilidade = { redeVisibilidade: $('imovel-rede-visibilidade').value || 'padrao' };
+  if (isCorretor()) return visibilidade; // compartilhar é decisão da imobiliária
   return {
-    redeVisibilidade: $('imovel-rede-visibilidade').value || 'padrao',
+    ...visibilidade,
     compartilhadoCom: Array.from(document.querySelectorAll('.imovel-rede-share-chk:checked')).map(el => el.value),
   };
 }
@@ -679,6 +731,13 @@ async function loadRede() {
         _completo: !isCorretor() || f.captadorUid === uid || (f.compartilhadoCom || []).includes(uid),
       };
     }).sort((a, b) => String(a.apelido || a.endereco?.bairro || '').localeCompare(String(b.apelido || b.endereco?.bairro || ''), 'pt-BR'));
+    // Nome do captador: só a equipe vê (vem do cadastro de corretores, não da ficha)
+    if (!isCorretor()) {
+      try {
+        const nomes = new Map((await tenantPath().collection('corretores').get()).docs.map(d => [d.id, d.data().nome || null]));
+        _redeCarregada.forEach(f => { f._captadorNome = nomes.get(f.captadorUid) || null; });
+      } catch (_) {}
+    }
     renderRede();
   } catch (err) {
     console.error('Erro ao carregar rede:', err);
@@ -713,7 +772,7 @@ function renderRede() {
     });
   }
   if (busca) {
-    lista = lista.filter(f => [f.codigoAnuncio, f.apelido, f.endereco?.bairro, f.endereco?.cidade, f.endereco?.logradouro, f.captadorNome, ...(f.tags || [])]
+    lista = lista.filter(f => [f.codigoAnuncio, f.apelido, f.endereco?.bairro, f.endereco?.cidade, f.endereco?.logradouro, f._captadorNome, ...(f.tags || [])]
       .filter(Boolean).join(' ').toLowerCase().includes(busca));
   }
   if (lista.length === 0) {
@@ -743,7 +802,7 @@ function renderRede() {
           ${local ? `<div class="muted" style="font-size:12px;">📍 ${escapeHtml(local)}</div>` : ''}
           ${carac ? `<div style="font-size:12px;">${escapeHtml(carac)}</div>` : ''}
           ${valorRedeTxt(f) ? `<div style="font-weight:600; color:var(--primary);">${valorRedeTxt(f)}</div>` : ''}
-          ${f.captadorNome ? `<div class="muted" style="font-size:11px;">Captador: ${escapeHtml(f.captadorNome)}</div>` : ''}
+          ${f._captadorNome ? `<div class="muted" style="font-size:11px;">Captador: ${escapeHtml(f._captadorNome)}</div>` : (f._meu && isCorretor() ? '<div class="muted" style="font-size:11px;">Captado por você</div>' : '')}
         </div>
       </div>`;
   }).join('');
@@ -786,8 +845,8 @@ async function abrirFichaRede(id) {
       ${linha('Financiamento / FGTS', [f.aceitaFinanciamento, f.permiteFGTS].some(Boolean) ? `${escapeHtml(f.aceitaFinanciamento || '—')} / ${escapeHtml(f.permiteFGTS || '—')}` : '')}
       ${linha('Matrícula', escapeHtml(f.matricula || ''))}
       ${linha('IPTU', escapeHtml(f.iptu || ''))}
-      ${linha('Captador', contato(f.captador))}
-      ${linha('Proprietário', contato(f.proprietario))}
+      ${linha('Contato para negociar', contato(contatoImobiliaria()) + ' <span class="muted" style="font-size:11px;">(sempre a imobiliária)</span>')}
+      ${!isCorretor() && f._captadorNome ? linha('Captador', escapeHtml(f._captadorNome)) : ''}
       ${linha('Vídeo', urlSegura(f.videoUrl) ? `<a href="${urlSegura(f.videoUrl)}" target="_blank" rel="noopener">abrir</a>` : '')}
       ${linha('Tour virtual', urlSegura(f.tourUrl) ? `<a href="${urlSegura(f.tourUrl)}" target="_blank" rel="noopener">abrir</a>` : '')}
     </table>
@@ -1125,6 +1184,7 @@ const LEAD_CANAL_LABEL = {
   whatsapp: '💬 WhatsApp', telefone: '📞 Telefone', email: '✉️ E-mail', presencial: '🤝 Presencial',
   indicacao: '🙋 Indicação', zap: 'ZAP Imóveis', vivareal: 'Viva Real', olx: 'OLX',
   imovelweb: 'Imovelweb', chavesnamao: 'Chaves na Mão', facebook: 'Facebook / Instagram', outro: 'Outro',
+  interesse_imovel: '📅 Pedido no site', vitrine_publica: '🏠 Anuncie (site)', manual: '✍️ Manual',
 };
 
 function entradaHistoricoLead(acao, extra = {}) {
@@ -1193,12 +1253,11 @@ function mensagemRepasseWhats(lead, corretor, nota) {
   const linhas = [
     `Olá ${corretor.nome || ''}! Novo lead pra você — ${State.tenant?.nome || 'imobiliária'}:`,
     '',
-    `👤 ${lead.nome || 'sem nome'}`,
-    lead.telefone ? `📱 ${maskTelefone(lead.telefone)}` : '',
-    lead.email ? `✉️ ${lead.email}` : '',
+    `👤 ${primeiroNome(lead.nome) || 'Cliente'}`,
+    '🔒 O contato do cliente fica com a imobiliária — combine a visita com a gente.',
     (lead.codigoAnuncio || lead.tituloImovel) ? `🏠 ${[lead.codigoAnuncio, lead.tituloImovel].filter(Boolean).join(' — ')}` : '',
     lead.melhorHorario && lead.melhorHorario !== 'qualquer' ? `🕐 Melhor horário: ${LEAD_HORARIO_LABEL[lead.melhorHorario] || lead.melhorHorario}` : '',
-    (lead.mensagem || lead.descricao) ? `💬 ${(lead.mensagem || lead.descricao).slice(0, 300)}` : '',
+    (lead.mensagem || lead.descricao) ? `💬 ${ocultarContatos((lead.mensagem || lead.descricao).slice(0, 300))}` : '',
     nota ? `📝 Obs.: ${nota}` : '',
     '',
     `Detalhes em "Meus leads": ${urlDoSistema()}`,
@@ -1243,9 +1302,11 @@ async function confirmarRepassarLead() {
     if (r.pendente) {
       if (janela) janela.close();
       closeRepassarLead();
+      // (a cópia sem contato para o corretor é criada pela tela de Leads depois da aprovação)
       await confirmar({ titulo: '🕓 Enviado para aprovação', mensagem: msgGravacao(r), confirmar: 'OK' });
       return;
     }
+    await gravarLeadDoCorretor(leadId, { ...lead, ...dados, atribuidoEm: new Date() }, uid);
     logAuditoria('repassar', 'lead', leadId, { para: uid, paraNome: corretor?.nome || null });
     if (janela) {
       janela.location.href = `https://wa.me/${telefoneWhatsApp(corretor.telefone)}?text=${encodeURIComponent(mensagemRepasseWhats(lead, corretor, nota))}`;
@@ -1336,6 +1397,62 @@ async function salvarLeadManual() {
   }
 }
 
+// ---------- Cópia do lead para o corretor — SEM contato do cliente ----------
+// tenants/{t}/leadsCorretor/{leadId}: só primeiro nome, imóvel, mensagem sem telefone/e-mail/link,
+// nota da imobiliária e o atendimento (status, anotação, histórico, devolução). O corretor
+// lê/atualiza só esta cópia; o lead original (com telefone e e-mail) é só da equipe.
+function primeiroNome(nome) {
+  return String(nome || '').trim().split(/\s+/)[0] || '';
+}
+
+async function gravarLeadDoCorretor(leadId, lead, uid) {
+  const ref = tenantPath().collection('leadsCorretor').doc(leadId);
+  if (!uid) { await ref.delete().catch(() => {}); return; } // tirado do corretor
+  await ref.set({
+    corretorUid: uid,
+    primeiroNome: primeiroNome(lead.nome) || 'Cliente',
+    imovelId: lead.imovelId || null,
+    codigoAnuncio: lead.codigoAnuncio || null,
+    tituloImovel: lead.tituloImovel || null,
+    finalidade: lead.finalidade || null,
+    melhorHorario: lead.melhorHorario || null,
+    canal: lead.canal || lead.origem || null,
+    mensagem: ocultarContatos(String(lead.mensagem || lead.descricao || '').slice(0, 1000)) || null,
+    notaRepasse: lead.notaRepasse || null,
+    atribuidoEm: lead.atribuidoEm || firebase.firestore.FieldValue.serverTimestamp(),
+    status: lead.status || 'novo',
+    notaCorretor: lead.notaCorretor || null,
+    historico: Array.isArray(lead.historico) ? lead.historico.slice(-30) : [],
+  });
+}
+
+// Tela de Leads da equipe: o atendimento do corretor mora na cópia — mescla na lista
+// (status, anotação, devolução) e cria a cópia que faltar (leads repassados antes da blindagem).
+async function mesclarAtendimentoDosCorretores(leads) {
+  if (isCorretor() || !Array.isArray(leads)) return;
+  let copias;
+  try { copias = new Map((await tenantPath().collection('leadsCorretor').get()).docs.map(d => [d.id, d.data()])); }
+  catch (e) { console.warn('Atendimento dos corretores indisponível:', e); return; }
+  for (const l of leads) {
+    const c = copias.get(l._id);
+    if (!c) {
+      if (l.corretorUid && !['convertido', 'descartado', 'devolvido'].includes(l.status || 'novo')) {
+        gravarLeadDoCorretor(l._id, l, l.corretorUid).catch(e => console.warn('Cópia do lead não criada:', l._id, e));
+      }
+      continue;
+    }
+    if (c.corretorUid && c.corretorUid !== l.corretorUid) continue; // cópia velha de outro corretor
+    if (c.status === 'devolvido') {
+      Object.assign(l, { status: 'devolvido', corretorUid: null, corretorNome: null,
+        motivoDevolucao: c.motivoDevolucao || l.motivoDevolucao || null, devolvidoEm: c.devolvidoEm || null });
+    } else if (c.status) {
+      l.status = c.status;
+    }
+    if (c.notaCorretor !== undefined) l.notaCorretor = c.notaCorretor;
+    if (Array.isArray(c.historico) && c.historico.length > (l.historico || []).length) l.historico = c.historico;
+  }
+}
+
 // ---------- "Meus leads" (corretor) ----------
 
 let _meusLeads = [];
@@ -1346,7 +1463,7 @@ async function loadMeusLeads() {
   tbody.innerHTML = '<tr><td colspan="5" class="empty">Carregando…</td></tr>';
   try {
     // A consulta precisa bater com a regra (corretorUid == eu); ordena no cliente
-    const snap = await tenantPath().collection('leadsImoveis').where('corretorUid', '==', State.user.uid).get();
+    const snap = await tenantPath().collection('leadsCorretor').where('corretorUid', '==', State.user.uid).get();
     _meusLeads = snap.docs.map(d => ({ _id: d.id, ...d.data() }))
       .sort((a, b) => (b.atribuidoEm?.toMillis?.() || 0) - (a.atribuidoEm?.toMillis?.() || 0));
     renderMeusLeads();
@@ -1366,24 +1483,28 @@ function renderMeusLeads() {
   tbody.innerHTML = _meusLeads.map(l => {
     const status = l.status || 'novo';
     const dias = diasDesde(l.atribuidoEm);
-    const msgCliente = `Olá ${l.nome || ''}! Aqui é ${State.userDoc?.nome || 'o corretor'}, da ${State.tenant?.nome || 'imobiliária'}.`
-      + (l.tituloImovel || l.codigoAnuncio ? ` Recebi seu interesse no imóvel ${[l.codigoAnuncio, l.tituloImovel].filter(Boolean).join(' — ')}.` : '')
-      + ' Podemos conversar?';
+    // 🔒 Sem telefone do cliente: o corretor fala com a IMOBILIÁRIA, que faz a ponte
+    const tel = contatoImobiliaria().telefone;
+    const msgImob = `Olá! Sou ${State.userDoc?.nome || 'corretor'}. Sobre o lead ${l.primeiroNome || ''}`
+      + (l.tituloImovel || l.codigoAnuncio ? ` (imóvel ${[l.codigoAnuncio, l.tituloImovel].filter(Boolean).join(' — ')})` : '')
+      + ': ';
+    const linkImob = tel ? `https://wa.me/${telefoneWhatsApp(tel)}?text=${encodeURIComponent(msgImob)}` : '';
     const imovel = (l.codigoAnuncio || l.tituloImovel) ? `🏠 ${escapeHtml([l.codigoAnuncio, l.tituloImovel].filter(Boolean).join(' — '))}<br>` : '';
     const quer = { venda: 'Compra/venda', locacao: 'Locação', ambos: 'Compra ou locação' }[l.finalidade] || '';
     return `
       <tr>
         <td style="font-size:12px;">${dias !== null ? `há ${dias} dia(s)` : '—'}${l.canal ? `<br><span class="muted">${escapeHtml(LEAD_CANAL_LABEL[l.canal] || l.canal)}</span>` : ''}</td>
-        <td><strong>${escapeHtml(l.nome || '—')}</strong><br>
-          ${l.telefone ? `<a href="https://wa.me/${telefoneWhatsApp(l.telefone)}?text=${encodeURIComponent(msgCliente)}" target="_blank" rel="noopener" style="color:#25D366; font-weight:600; text-decoration:none;">💬 ${maskTelefone(l.telefone)}</a>` : ''}
-          ${l.email ? `<br><a href="mailto:${escapeHtml(l.email)}" style="font-size:11px;">${escapeHtml(l.email)}</a>` : ''}</td>
+        <td><strong>${escapeHtml(l.primeiroNome || 'Cliente')}</strong><br>
+          <span class="muted" style="font-size:11px;">🔒 contato com a imobiliária</span>
+          ${l.melhorHorario && l.melhorHorario !== 'qualquer' && typeof LEAD_HORARIO_LABEL !== 'undefined' ? `<br><span style="font-size:11px;">🕐 ${escapeHtml(LEAD_HORARIO_LABEL[l.melhorHorario] || l.melhorHorario)}</span>` : ''}</td>
         <td style="font-size:12px;">${imovel}${quer ? escapeHtml(quer) + '<br>' : ''}
-          ${(l.mensagem || l.descricao) ? `<span class="muted">💬 ${escapeHtml((l.mensagem || l.descricao).slice(0, 160))}</span><br>` : ''}
+          ${l.mensagem ? `<span class="muted">💬 ${escapeHtml(l.mensagem.slice(0, 160))}</span><br>` : ''}
           ${l.notaRepasse ? `<span style="color:#1E40AF;">📝 Da imobiliária: ${escapeHtml(l.notaRepasse)}</span><br>` : ''}
           ${l.notaCorretor ? `<span>🗒 Minha anotação: ${escapeHtml(l.notaCorretor)}</span>` : ''}</td>
         <td><span class="papel-chip">${LEAD_STATUS_LABEL[status] || status}</span></td>
         <td><div class="action-btns" style="flex-wrap:wrap; gap:4px;">
-          ${status === 'novo' ? `<button class="btn btn-sm" onclick="atualizarMeuLead('${l._id}', 'contatado')" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Contatei</button>` : ''}
+          ${linkImob ? `<a class="btn btn-sm" href="${linkImob}" target="_blank" rel="noopener" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;" title="A imobiliária faz a ponte com o cliente e agenda a visita">💬 Falar com a imobiliária</a>` : ''}
+          ${status === 'novo' ? `<button class="btn btn-sm" onclick="atualizarMeuLead('${l._id}', 'contatado')" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Em atendimento</button>` : ''}
           ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm" onclick="atualizarMeuLead('${l._id}', 'convertido')" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;">✅ Converti</button>` : ''}
           ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm btn-secondary" onclick="atualizarMeuLead('${l._id}', 'descartado')">🗑 Sem interesse</button>` : ''}
           <button class="btn btn-sm btn-secondary" onclick="anotarMeuLead('${l._id}')">🗒 Anotar</button>
@@ -1397,7 +1518,7 @@ async function atualizarLeadDoCorretor(leadId, dados, acaoHistorico, extraHistor
   const lead = _meusLeads.find(l => l._id === leadId);
   const historico = Array.isArray(lead?.historico) ? lead.historico.slice(-30) : [];
   historico.push(entradaHistoricoLead(acaoHistorico, extraHistorico));
-  await tenantPath().collection('leadsImoveis').doc(leadId).update({ ...dados, historico });
+  await tenantPath().collection('leadsCorretor').doc(leadId).update({ ...dados, historico });
   logAuditoria(acaoHistorico, 'lead', leadId, extraHistorico);
 }
 
@@ -1434,10 +1555,9 @@ async function devolverMeuLead(leadId) {
     const lead = _meusLeads.find(l => l._id === leadId);
     const historico = Array.isArray(lead?.historico) ? lead.historico.slice(-30) : [];
     historico.push(entradaHistoricoLead('devolvido', { motivo: motivo.trim().slice(0, 500) }));
-    await tenantPath().collection('leadsImoveis').doc(leadId).update({
+    await tenantPath().collection('leadsCorretor').doc(leadId).update({
       status: 'devolvido',
       corretorUid: null,
-      corretorNome: null,
       motivoDevolucao: motivo.trim().slice(0, 500),
       devolvidoEm: firebase.firestore.FieldValue.serverTimestamp(),
       devolvidoPor: State.user.uid,
@@ -1456,7 +1576,7 @@ async function atualizarBadgeMeusLeads(lista) {
   if (!link || !isCorretor()) return;
   try {
     if (!lista) {
-      const snap = await tenantPath().collection('leadsImoveis').where('corretorUid', '==', State.user.uid).get();
+      const snap = await tenantPath().collection('leadsCorretor').where('corretorUid', '==', State.user.uid).get();
       lista = snap.docs.map(d => d.data());
     }
     const novos = lista.filter(l => (l.status || 'novo') === 'novo').length;
@@ -1469,6 +1589,10 @@ async function atualizarBadgeMeusLeads(lista) {
 }
 
 window.openRepassarLead = openRepassarLead;
+window.mesclarAtendimentoDosCorretores = mesclarAtendimentoDosCorretores;
+window.gravarLeadDoCorretor = gravarLeadDoCorretor;
+window.validarTextosDoCorretor = validarTextosDoCorretor;
+window.temContato = temContato;
 window.closeRepassarLead = closeRepassarLead;
 window.confirmarRepassarLead = confirmarRepassarLead;
 window.openLeadManual = openLeadManual;

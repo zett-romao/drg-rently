@@ -10151,6 +10151,7 @@ async function loadLeads() {
   try {
     const snap = await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get();
     _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+    if (typeof mesclarAtendimentoDosCorretores === 'function') await mesclarAtendimentoDosCorretores(_leadsCarregados);
     renderLeadsTable();
   } catch (err) {
     console.error('Erro ao carregar leads:', err);
@@ -10175,6 +10176,10 @@ async function updateLeadStatus(leadId, novoStatus) {
     // Atualiza local
     const idx = _leadsCarregados.findIndex(l => l._id === leadId);
     if (idx !== -1) _leadsCarregados[idx].status = novoStatus;
+    // Cópia do corretor acompanha (se o lead está com corretor)
+    if (idx !== -1 && _leadsCarregados[idx].corretorUid) {
+      tenantPath().collection('leadsCorretor').doc(leadId).update({ status: novoStatus }).catch(() => {});
+    }
     renderLeadsTable();
   } catch (err) {
     console.error('Erro ao atualizar status do lead:', err);
@@ -10199,6 +10204,7 @@ async function deleteLead(leadId, nome) {
       return;
     }
     _leadsCarregados = _leadsCarregados.filter(l => l._id !== leadId);
+    tenantPath().collection('leadsCorretor').doc(leadId).delete().catch(() => {});
     renderLeadsTable();
   } catch (err) {
     console.error('Erro ao deletar lead:', err);
@@ -10981,6 +10987,7 @@ async function openImovelModal(id) {
     } catch (_) {
       $('imovel-foto-watermark').checked = true;
     }
+    travarMarcaDaguaDoCorretor();
   } else {
     await populateLocadorSelect($('imovel-locador'), null);
     // Em modo CRIAÇÃO mantemos a seção de fotos VISÍVEL (cria rascunho on-demand
@@ -10988,6 +10995,7 @@ async function openImovelModal(id) {
     // não fazem sentido antes do save completo.
     $('imovel-docs-section').style.display = 'none';
     $('imovel-fotos-section').style.display = 'block';
+    travarMarcaDaguaDoCorretor();
     $('imovel-publicacao-section').style.display = 'none';
     const grid = $('imovel-fotos-grid');
     if (grid) {
@@ -11123,9 +11131,16 @@ async function saveImovel() {
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
+  // 🔒 Blindagem de contato: corretor não põe telefone/e-mail/link em texto que vai a público
+  const erroContato = typeof validarTextosDoCorretor === 'function' ? validarTextosDoCorretor(data) : null;
+  if (erroContato) {
+    showInlineStatus('imovel-acoes-status', erroContato, 'error');
+    return;
+  }
+
   const btn = $('btn-save-imovel');
   btn.disabled = true;
-  btn.textContent = 'Salvando…';
+  btn.textContent = '⏳ Salvando… aguarde';
 
   try {
     if (!id) {
@@ -11453,20 +11468,28 @@ async function applyWatermark(file, logoImg) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
 
-        // Tamanho da logo: 12% da menor dimensão
-        const logoSize = Math.min(canvas.width, canvas.height) * 0.12;
-        const padding = logoSize * 0.4;
-        const x = canvas.width - logoSize - padding;
-        const y = canvas.height - logoSize - padding;
+        // Tamanho da logo: altura = 12% da menor dimensão, largura pela proporção (até 35% da foto)
+        const proporcao = (logoImg.naturalWidth || logoImg.width || 1) / (logoImg.naturalHeight || logoImg.height || 1);
+        let logoH = Math.min(canvas.width, canvas.height) * 0.12;
+        let logoW = logoH * proporcao;
+        if (logoW > canvas.width * 0.35) { logoW = canvas.width * 0.35; logoH = logoW / proporcao; }
+        const padding = logoH * 0.4;
+        const x = canvas.width - logoW - padding;
+        const y = canvas.height - logoH - padding;
 
         // Fundo branco semi-transparente atrás da logo (pra contraste)
         ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.beginPath();
-        ctx.arc(x + logoSize/2, y + logoSize/2, logoSize/2 + 4, 0, Math.PI*2);
-        ctx.fill();
+        const folga = Math.max(4, logoH * 0.12);
+        if (Math.abs(proporcao - 1) < 0.2) {
+          ctx.beginPath();
+          ctx.arc(x + logoW/2, y + logoH/2, Math.max(logoW, logoH)/2 + 4, 0, Math.PI*2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x - folga, y - folga, logoW + folga * 2, logoH + folga * 2);
+        }
 
         ctx.globalAlpha = 0.85;
-        ctx.drawImage(logoImg, x, y, logoSize, logoSize);
+        ctx.drawImage(logoImg, x, y, logoW, logoH);
         ctx.globalAlpha = 1;
 
         canvas.toBlob(blob => {
@@ -11480,17 +11503,36 @@ async function applyWatermark(file, logoImg) {
   });
 }
 
-// Carrega a logo uma vez e mantém em memória
-let _logoImageCache = null;
-function getLogoImage() {
-  if (_logoImageCache) return Promise.resolve(_logoImageCache);
+// Carrega a logo uma vez e mantém em memória. Usa a logo da IMOBILIÁRIA (Configurações);
+// se ela não puder ir para o canvas (CORS do Storage), cai na logo do sistema.
+let _logoImageCache = null, _logoImageCacheUrl = null;
+function _carregarImagemLimpa(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => { _logoImageCache = img; resolve(img); };
+    img.onload = () => {
+      try { // canvas "sujo" (sem CORS) não exporta a foto — testa antes
+        const c = document.createElement('canvas'); c.width = c.height = 1;
+        c.getContext('2d').drawImage(img, 0, 0, 1, 1); c.toDataURL();
+        resolve(img);
+      } catch (e) { reject(e); }
+    };
     img.onerror = () => reject(new Error('Falha ao carregar logo'));
-    img.src = 'logo.png?v=20260513a';
+    img.src = src;
   });
+}
+async function getLogoImage() {
+  const daImobiliaria = State.tenant?.logoUrl || null;
+  const chave = daImobiliaria || 'sistema';
+  if (_logoImageCache && _logoImageCacheUrl === chave) return _logoImageCache;
+  let img = null;
+  if (daImobiliaria) {
+    try { img = await _carregarImagemLimpa(daImobiliaria); }
+    catch (e) { console.warn('Logo da imobiliária não serve de marca d\'água (CORS?) — usando a do sistema:', e); }
+  }
+  if (!img) img = await _carregarImagemLimpa('logo.png?v=20260513a');
+  _logoImageCache = img; _logoImageCacheUrl = chave;
+  return img;
 }
 
 // Imóvel novo ainda sem id: cria um rascunho para poder guardar fotos.
@@ -11537,6 +11579,16 @@ async function garantirRascunhoImovel(alertId) {
   return imovelId;
 }
 
+// 🔒 Foto que o corretor sobe leva SEMPRE a logo da imobiliária (foto sem marca vira anúncio dele em outro lugar)
+function travarMarcaDaguaDoCorretor() {
+  const chk = $('imovel-foto-watermark');
+  if (!chk) return;
+  const corretor = typeof isCorretor === 'function' && isCorretor();
+  if (corretor) chk.checked = true;
+  chk.disabled = corretor;
+  chk.title = corretor ? 'Obrigatória: as fotos levam a logo da imobiliária' : '';
+}
+
 async function uploadImovelFotos() {
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
   const imovelId = await garantirRascunhoImovel('imovel-alert');
@@ -11555,12 +11607,17 @@ async function uploadImovelFotos() {
     return;
   }
 
-  const useWatermark = $('imovel-foto-watermark').checked;
+  const fotoDoCorretor = isCorretor();
+  const useWatermark = fotoDoCorretor || $('imovel-foto-watermark').checked;
   let logoImg = null;
   if (useWatermark) {
     try { logoImg = await getLogoImage(); }
     catch (e) {
       console.warn('Logo não carregou — upload sem marca d\'água:', e);
+    }
+    if (!logoImg && fotoDoCorretor) {
+      showAlert('imovel-alert', '🔒 Não foi possível aplicar a logo da imobiliária nas fotos. Tente de novo em instantes — sem a logo a foto não sobe.');
+      return;
     }
   }
 
@@ -11589,7 +11646,8 @@ async function uploadImovelFotos() {
 
       await fotosColl.add({
         url,
-        nome: original.name,
+        // nome do arquivo é público (galeria): do corretor, guarda um nome neutro
+        nome: fotoDoCorretor ? `foto-${nextOrdem + 1}.jpg` : original.name,
         path: `imoveis/${imovelId}/fotos/${finalName}`,
         watermark: useWatermark,
         ordem: nextOrdem++,

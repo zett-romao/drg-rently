@@ -370,7 +370,7 @@ function renderImovel(im, tenant, fotos) {
     const telDDI = (tel.length >= 12 && tel.startsWith('55')) ? tel : '55' + tel; // não duplica o 55
     const wpp = `https://wa.me/${telDDI}?text=${encodeURIComponent('Olá! Tenho interesse no imóvel: ' + (im.tituloAnuncio || im.apelido || '') + (im.codigoAnuncio ? ` (cód. ${im.codigoAnuncio})` : ''))}`;
     _whatsAtual = wpp;
-    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener" onclick="registrarEstatistica(imovelId, 'contatos')">💬 Fale com o corretor</a>`);
+    contatos.push(`<a href="${wpp}" target="_blank" rel="noopener" onclick="registrarEstatistica(imovelId, 'contatos')">💬 Fale com a imobiliária</a>`);
     contatos.push(`<a href="tel:+${telDDI}" onclick="registrarEstatistica(imovelId, 'contatos')">📞 Ligar</a>`);
     const btnWhats = $$('btn-acao-whats');
     if (btnWhats) { btnWhats.href = wpp; btnWhats.style.display = ''; }

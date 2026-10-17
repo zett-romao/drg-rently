@@ -152,13 +152,45 @@ service cloud.firestore {
     }
     // Coleções com regra própria: a regra genérica da equipe não grava nelas
     function colecaoComRegraPropria(colecao) {
-      return colecao in ['auditoria', 'site', 'siteVersoes'];
+      return colecao in ['auditoria', 'site', 'siteVersoes', 'leadsCorretor'];
     }
     // Registro de auditoria honesto: em nome de quem grava e com a hora do servidor
     function registroDeAuditoriaValido() {
       return request.resource.data.userId == request.auth.uid
              && request.resource.data.timestamp == request.time;
     }
+    // 🔒 BLINDAGEM DE CONTATO (17/10/2026, ordem do dono): o contato é SEMPRE o da imobiliária.
+    // Texto que o CORRETOR grava e que vai a público (site, portais, ficha da rede) não pode ter
+    // telefone, e-mail, link, @perfil nem menção a WhatsApp/redes. Espelho: RE_CONTATO no rede.js.
+    function semContato(v) {
+      return !(v is string)
+             || !v.lower().matches('(?s).*(https?:|www[.]|wa[.]me|bit[.]ly|linktr|[a-z0-9][.](com|net|org|me|ly|io|app|site|link|br)([^a-z0-9]|$)|@[a-z0-9_]|[0-9]([ .()-]*[0-9]){7,}|whats|wpp|telegram|instagram|facebook|tik ?tok|gmail|hotmail|outlook|arroba|me chama|chama no|ligue|ligar para|meu (cel|tel|n[uú]mero|contato|zap)|((zero|um|uma|dois|duas|tr[eê]s|quatro|cinco|seis|sete|oito|nove)[ ,.-]+){5,}).*');
+    }
+    function listaSemContato(v) {
+      return !(v is list) || v.size() == 0 || semContato(v.join(' '));
+    }
+    // Vídeo e tour: só destes serviços (nada de perfil, site pessoal ou wa.me)
+    function urlMidiaOk(v) {
+      return v == null || (v is string && v.lower().matches('https://(www[.]|m[.]|player[.]|my[.])?(youtube[.]com|youtu[.]be|vimeo[.]com|matterport[.]com|kuula[.]co|momento360[.]com)/.*'));
+    }
+    function enderecoSemContato(e) {
+      return !(e is map)
+             || (semContato(e.get('logradouro', null)) && semContato(e.get('bairro', null))
+                 && semContato(e.get('cidade', null)) && semContato(e.get('complemento', null)));
+    }
+    function textosPublicosLimpos(d) {
+      return semContato(d.get('apelido', null)) && semContato(d.get('tituloAnuncio', null))
+             && semContato(d.get('descricaoLonga', null)) && semContato(d.get('permutaObs', null))
+             && listaSemContato(d.get('tags', null)) && enderecoSemContato(d.get('endereco', null))
+             && urlMidiaOk(d.get('videoUrl', null)) && urlMidiaOk(d.get('tourUrl', null));
+    }
+    // Ficha da rede gravada pelo corretor: sem contato de captador/proprietário e sem texto com contato
+    function fichaSemContato(d) {
+      return d.get('captador', null) == null && d.get('proprietario', null) == null
+             && d.get('captadorNome', null) == null
+             && textosPublicosLimpos(d) && semContato(d.get('obs', null));
+    }
+
     // Excluir contrato apaga a garantia dele junto
     function exclusaoEmCascata(tenantId, colecao) {
       return colecao == 'garantias' && podeNoModulo(tenantId, 'contratos', 'excluir');
@@ -270,14 +302,14 @@ service cloud.firestore {
                     && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'));
         allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
                       && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes']);
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor']);
         allow update: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
         allow delete: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
         allow read: if isDRGTeam();
         allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes']);
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor']);
         allow update, delete: if isDRGTeam() && !colecaoComRegraPropria(collection);
       }
 
@@ -306,7 +338,11 @@ service cloud.firestore {
                       && request.resource.data.modulo == request.resource.data.colecao
                       && request.resource.data.op in ['criar', 'editar', 'excluir']
                       && (request.resource.data.op == 'criar'
-                          || get(/databases/$(database)/documents/tenants/$(tenantId)/$(request.resource.data.colecao)/$(request.resource.data.docId)).data.criadoPor == request.auth.uid);
+                          || get(/databases/$(database)/documents/tenants/$(tenantId)/$(request.resource.data.colecao)/$(request.resource.data.docId)).data.criadoPor == request.auth.uid)
+                      // 🔒 blindagem: o pedido também não leva contato em texto público nem muda o compartilhamento
+                      && (request.resource.data.colecao != 'imoveis' || request.resource.data.get('dados', null) == null
+                          || (textosPublicosLimpos(request.resource.data.dados)
+                              && request.resource.data.dados.get('compartilhadoCom', null) == null));
         allow read: if isCorretorOf(tenantId)
                     && resource.data.solicitadoPor == request.auth.uid;
       }
@@ -336,8 +372,10 @@ service cloud.firestore {
       }
 
       // Diretório de corretores do tenant
+      // 🔒 Blindagem (17/10/2026): corretor lê SÓ o próprio cartão — nome, telefone e e-mail
+      // de colega não circulam; quem liga corretor a corretor é a imobiliária.
       match /corretores/{corretorId} {
-        allow read: if isCorretorOf(tenantId);
+        allow read: if isCorretorOf(tenantId) && request.auth.uid == corretorId;
         // corretor edita o próprio cartão, sem mexer em status/tipo/comissão
         allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
@@ -361,7 +399,8 @@ service cloud.firestore {
         // corretor só atualiza a cópia de imóvel DELE que a imobiliária já publicou
         allow create, update: if isCorretorOf(tenantId)
                               && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
-                              && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('linkPublico', false) == true;
+                              && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('linkPublico', false) == true
+                              && textosPublicosLimpos(request.resource.data);
         allow delete: if isCorretorOf(tenantId)
                       && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
       }
@@ -398,16 +437,21 @@ service cloud.firestore {
                           || request.resource.data.mensagem.size() <= 1000);
       }
 
-      // Leads repassados ao corretor ("Meus leads"): ele lê SÓ os que estão com ele
-      // e só mexe no atendimento (status, anotação, histórico). Não troca o lead de
-      // corretor — só pode DEVOLVER (fica sem corretor e com status 'devolvido').
-      match /leadsImoveis/{leadId} {
+      // Leads repassados ao corretor ("Meus leads").
+      // 🔒 Blindagem (17/10/2026): o corretor NÃO lê mais o lead original (tem telefone e
+      // e-mail do cliente). Lê só a CÓPIA leadsCorretor/{id} — primeiro nome, imóvel e
+      // mensagem sem contato — que a equipe grava ao repassar, e só mexe no atendimento
+      // (status, anotação, histórico). Não troca de corretor — só DEVOLVE.
+      // (antes: allow read/update em leadsImoveis quando corretorUid == ele)
+      match /leadsCorretor/{leadId} {
+        // equipe: repassar é EDITAR o lead — quem edita leads grava/apaga a cópia
+        allow create, update, delete: if (isEquipeTenant(tenantId) && podeNoModulo(tenantId, 'leads', 'editar')) || isDRGTeam();
         allow read: if isCorretorOf(tenantId)
                     && resource.data.get('corretorUid', null) == request.auth.uid;
         allow update: if isCorretorOf(tenantId)
                       && resource.data.get('corretorUid', null) == request.auth.uid
                       && soCampos(['status', 'statusAtualizadoEm', 'statusAtualizadoPor', 'notaCorretor',
-                                   'historico', 'corretorUid', 'corretorNome', 'motivoDevolucao',
+                                   'historico', 'corretorUid', 'motivoDevolucao',
                                    'devolvidoEm', 'devolvidoPor'])
                       && request.resource.data.historico is list
                       && request.resource.data.historico.size() <= 40
@@ -472,13 +516,18 @@ service cloud.firestore {
         allow read, delete: if isCorretorOf(tenantId)
                             && resource.data.criadoPor == request.auth.uid;
         // (publicar no site/portais — linkPublico — é decisão da imobiliária)
+        // 🔒 textos públicos sem contato; com quem a ficha completa é compartilhada é a imobiliária que decide
         allow create: if isCorretorOf(tenantId)
                       && request.resource.data.criadoPor == request.auth.uid
-                      && request.resource.data.get('linkPublico', false) == false;
+                      && request.resource.data.get('linkPublico', false) == false
+                      && request.resource.data.get('compartilhadoCom', []).size() == 0
+                      && textosPublicosLimpos(request.resource.data);
         allow update: if isCorretorOf(tenantId)
                       && resource.data.criadoPor == request.auth.uid
                       && request.resource.data.criadoPor == request.auth.uid
-                      && request.resource.data.get('linkPublico', false) == resource.data.get('linkPublico', false);
+                      && request.resource.data.get('linkPublico', false) == resource.data.get('linkPublico', false)
+                      && request.resource.data.get('compartilhadoCom', []) == resource.data.get('compartilhadoCom', [])
+                      && textosPublicosLimpos(request.resource.data);
 
         // Fotos do imóvel: leitura sempre pública (galeria)
         match /fotos/{fotoId} {
@@ -490,7 +539,9 @@ service cloud.firestore {
                         && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
           allow create, update: if isCorretorOf(tenantId)
                         && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
-                        && request.resource.data.get('url', '').matches('https://firebasestorage[.]googleapis[.]com/.*');
+                        && request.resource.data.get('url', '').matches('https://firebasestorage[.]googleapis[.]com/.*')
+                        && semContato(request.resource.data.get('nome', null))
+                        && semContato(request.resource.data.get('legenda', null));
         }
       }
 
@@ -503,10 +554,14 @@ service cloud.firestore {
                         || request.auth.uid in resource.data.get('compartilhadoCom', []));
         allow create: if isCorretorOf(tenantId)
                       && request.resource.data.captadorUid == request.auth.uid
-                      && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+                      && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
+                      && request.resource.data.get('compartilhadoCom', []) == get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('compartilhadoCom', [])
+                      && fichaSemContato(request.resource.data);
         allow update: if isCorretorOf(tenantId)
                       && resource.data.captadorUid == request.auth.uid
-                      && request.resource.data.captadorUid == request.auth.uid;
+                      && request.resource.data.captadorUid == request.auth.uid
+                      && request.resource.data.get('compartilhadoCom', []) == get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('compartilhadoCom', [])
+                      && fichaSemContato(request.resource.data);
         allow delete: if isCorretorOf(tenantId)
                       && resource.data.captadorUid == request.auth.uid;
 
@@ -517,8 +572,11 @@ service cloud.firestore {
           allow read: if isCorretorOf(tenantId)
                       && (get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.captadorUid == request.auth.uid
                           || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', []));
-          allow write: if isCorretorOf(tenantId)
-                       && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+          allow delete: if isCorretorOf(tenantId)
+                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+          allow create, update: if isCorretorOf(tenantId)
+                       && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
+                       && fichaSemContato(request.resource.data);
         }
       }
     }

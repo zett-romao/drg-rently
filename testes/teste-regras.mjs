@@ -48,6 +48,12 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L2'), { status: 'novo', nome: 'Ana', corretorUid: 'cor1', corretorNome: 'Cor 1', historico: [] });
   await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L3'), { status: 'novo', nome: 'Beto', corretorUid: 'cor2', corretorNome: 'Cor 2', historico: [] });
   await setDoc(doc(db, 'tenants', T, 'leadsImoveis', 'L4'), { status: 'novo', nome: 'Caio', corretorUid: 'cor1', corretorNome: 'Cor 1', historico: [] });
+  for (const [id, cor] of [['L2', 'cor1'], ['L3', 'cor2'], ['L4', 'cor1']]) {
+    await setDoc(doc(db, 'tenants', T, 'leadsCorretor', id), { status: 'novo', primeiroNome: 'Cliente', corretorUid: cor, historico: [] });
+  }
+  await setDoc(doc(db, 'tenants', T, 'corretores', 'cor1'), { nome: 'Cor 1', telefone: '11911112222', status: 'ativo', tipo: 'equipe' });
+  await setDoc(doc(db, 'tenants', T, 'corretores', 'cor2'), { nome: 'Cor 2', telefone: '11933334444', status: 'ativo', tipo: 'equipe' });
+  await setDoc(doc(db, 'tenants', T, 'imoveis', 'imC'), { apelido: 'Casa do cor1', criadoPor: 'cor1', linkPublico: true, compartilhadoCom: ['cor2'] });
   await setDoc(doc(db, 'tenants', T, 'balancetes', 'b1'), { status: 'fechado', total: 10 });
   await setDoc(doc(db, 'tenants', T, 'config', 'site'), { workerGeminiUrl: 'x', zapsignToken: 'segredo' });
   await setDoc(doc(db, 'tenants', T, 'config', 'ia'), { workerGeminiUrl: 'x' });
@@ -101,18 +107,23 @@ await caso('corretor: lê config/site (tokens) BLOQUEIA', false, () => getDoc(R(
 
 // ---------- Leads repassados ao corretor ("Meus leads") ----------
 const hist = [{ acao: 'x', em: '2026-10-13' }];
-await caso('corretor: lê lead repassado a ele', true, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L2')));
-await caso('corretor: lê lead de outro corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L3')));
-await caso('corretor: lê lead sem corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L1')));
-await caso('corretor: lista "Meus leads" (where corretorUid == eu)', true, () => getDocs(query(collection(db('cor1'), 'tenants', T, 'leadsImoveis'), where('corretorUid', '==', 'cor1'))));
-await caso('corretor: lista todos os leads BLOQUEIA', false, () => getDocs(collection(db('cor1'), 'tenants', T, 'leadsImoveis')));
-await caso('corretor: marca contatado + anotação', true, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { status: 'contatado', notaCorretor: 'liguei', historico: hist }));
-await caso('corretor: muda nome/telefone do cliente BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { nome: 'Outro', historico: hist }));
-await caso('corretor: passa o lead pra outro corretor BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L2'), { corretorUid: 'cor2', historico: hist }));
-await caso('corretor: devolve sem motivo BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L4'), { status: 'devolvido', corretorUid: null, corretorNome: null, historico: hist }));
-await caso('corretor: devolve com motivo', true, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L4'), { status: 'devolvido', corretorUid: null, corretorNome: null, motivoDevolucao: 'fora da minha região', historico: hist }));
-await caso('corretor: depois de devolver não lê mais', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L4')));
-await caso('corretor: mexe em lead de outro BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsImoveis', 'L3'), { status: 'contatado', historico: hist }));
+await caso('🔒 corretor: lê o lead ORIGINAL (telefone/e-mail do cliente) BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsImoveis', 'L2')));
+await caso('🔒 corretor: lista "Meus leads" no lead original BLOQUEIA', false, () => getDocs(query(collection(db('cor1'), 'tenants', T, 'leadsImoveis'), where('corretorUid', '==', 'cor1'))));
+await caso('🔒 corretor: cria cópia de lead p/ si BLOQUEIA', false, () => setDoc(R(db('cor1'), 'leadsCorretor', 'L1'), { corretorUid: 'cor1', status: 'novo', historico: [] }));
+await caso('corretor: lê lead repassado a ele', true, () => getDoc(R(db('cor1'), 'leadsCorretor', 'L2')));
+await caso('corretor: lê lead de outro corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsCorretor', 'L3')));
+await caso('corretor: lê lead sem corretor BLOQUEIA', false, () => getDoc(R(db('cor1'), 'leadsCorretor', 'L1')));
+await caso('corretor: lista "Meus leads" (where corretorUid == eu)', true, () => getDocs(query(collection(db('cor1'), 'tenants', T, 'leadsCorretor'), where('corretorUid', '==', 'cor1'))));
+await caso('corretor: lista todas as cópias BLOQUEIA', false, () => getDocs(collection(db('cor1'), 'tenants', T, 'leadsCorretor')));
+await caso('corretor: marca contatado + anotação', true, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L2'), { status: 'contatado', notaCorretor: 'liguei', historico: hist }));
+await caso('corretor: muda nome/telefone do cliente BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L2'), { nome: 'Outro', historico: hist }));
+await caso('corretor: passa o lead pra outro corretor BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L2'), { corretorUid: 'cor2', historico: hist }));
+await caso('corretor: devolve sem motivo BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L4'), { status: 'devolvido', corretorUid: null, historico: hist }));
+await caso('corretor: devolve com motivo', true, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L4'), { status: 'devolvido', corretorUid: null, motivoDevolucao: 'fora da minha região', historico: hist }));
+await caso('corretor: depois de devolver não lê mais', false, () => getDoc(R(db('cor1'), 'leadsCorretor', 'L4')));
+await caso('corretor: mexe em lead de outro BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L3'), { status: 'contatado', historico: hist }));
+await caso('equipe (editar leads ✅): grava a cópia sem contato p/ o corretor', true, () => setDoc(R(db('op1'), 'leadsCorretor', 'L1'), { corretorUid: 'cor1', primeiroNome: 'x', status: 'novo', historico: [] }));
+await caso('equipe sem permissão de leads (op4): grava cópia BLOQUEIA', false, () => setDoc(R(db('op4'), 'leadsCorretor', 'L1'), { corretorUid: 'cor2', status: 'novo', historico: [] }));
 await caso('equipe (editar leads ✅): repassa lead a corretor', true, () => updateDoc(R(db('op1'), 'leadsImoveis', 'L1'), { corretorUid: 'cor1', corretorNome: 'Cor 1', historico: hist }));
 await caso('equipe sem perfil: cadastra lead manual', true, () => addDoc(collection(db('op0'), 'tenants', T, 'leadsImoveis'), { origem: 'manual', canal: 'whatsapp', nome: 'Zé', telefone: '11999999999', status: 'novo' }));
 
@@ -164,6 +175,57 @@ await caso('site: operador com "🚀 Publicar" publica', true, () => setDoc(R(db
 await caso('site: corretor edita BLOQUEIA', false, () => setDoc(R(db('cor1'), 'site', 'rascunho'), siteCfg));
 await caso('site: ninguém apaga o histórico (gestor) BLOQUEIA', false, () => deleteDoc(R(db('admin1'), 'siteVersoes', 'v1')));
 await caso('site: visitante grava BLOQUEIA', false, () => setDoc(R(db(), 'site', 'publicado'), siteCfg));
+
+// ---------- 🔒 Blindagem de contato (17/10/2026): o contato é sempre o da imobiliária ----------
+const imC = (d) => R(d, 'imoveis', 'imC');
+await caso('blindagem: corretor lê o PRÓPRIO cartão', true, () => getDoc(R(db('cor1'), 'corretores', 'cor1')));
+await caso('blindagem: corretor lê cartão (telefone) de COLEGA BLOQUEIA', false, () => getDoc(R(db('cor1'), 'corretores', 'cor2')));
+await caso('blindagem: corretor lista todos os corretores BLOQUEIA', false, () => getDocs(collection(db('cor1'), 'tenants', T, 'corretores')));
+await caso('blindagem: equipe lê os corretores', true, () => getDocs(collection(db('op0'), 'tenants', T, 'corretores')));
+await caso('blindagem: descrição limpa passa', true, () => updateDoc(imC(db('cor1')), { descricaoLonga: 'Casa térrea, 3 quartos, 2 vagas.\nR$ 1.250.000,00 · 180 m² · reformada em 2021.' }));
+for (const [nome, texto] of [
+  ['celular com DDD', 'Linda casa! Ligue (11) 98765-4321'],
+  ['celular só números', 'Interessados 11987654321'],
+  ['celular com pontos', 'fone 11.98765.4321'],
+  ['celular na 2ª linha', 'Ótima casa.\nContato 9 8765 4321'],
+  ['número por extenso', 'chame no nove oito sete seis cinco quatro'],
+  ['e-mail', 'Mais fotos: joao.corretor@gmail.com'],
+  ['@perfil', 'Veja mais no @joaocorretor'],
+  ['link', 'Detalhes em https://meusite.com.br/casa'],
+  ['site sem https', 'Acesse joaoimoveis.com.br para mais'],
+  ['wa.me', 'wa.me/5511987654321'],
+  ['menção a WhatsApp', 'Chama no WhatsApp que te passo'],
+  ['Instagram', 'Me segue no Instagram'],
+]) {
+  await caso(`blindagem: corretor põe ${nome} na descrição BLOQUEIA`, false, () => updateDoc(imC(db('cor1')), { descricaoLonga: texto }));
+}
+await caso('blindagem: telefone no título do anúncio BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { tituloAnuncio: 'Casa 3 dorm - 11 98765-4321' }));
+await caso('blindagem: e-mail nas tags BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { tags: ['piscina', 'joao@gmail.com'] }));
+await caso('blindagem: telefone no bairro BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { endereco: { bairro: 'Centro 11987654321', cidade: 'SP' } }));
+await caso('blindagem: vídeo do YouTube passa', true, () => updateDoc(imC(db('cor1')), { videoUrl: 'https://www.youtube.com/watch?v=abc', tourUrl: 'https://my.matterport.com/show/?m=x' }));
+await caso('blindagem: vídeo/link do site pessoal BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { videoUrl: 'https://joaoimoveis.com.br/video' }));
+await caso('blindagem: tour = wa.me BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { tourUrl: 'https://wa.me/5511987654321' }));
+await caso('blindagem: corretor muda com quem compartilha a ficha BLOQUEIA', false, () => updateDoc(imC(db('cor1')), { compartilhadoCom: ['cor2', 'cor3'] }));
+await caso('blindagem: corretor cria imóvel já compartilhado BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imD'), { apelido: 'x', criadoPor: 'cor1', compartilhadoCom: ['cor2'] }));
+await caso('blindagem: corretor cria imóvel com telefone no apelido BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imD'), { apelido: 'Casa 11 98765-4321', criadoPor: 'cor1' }));
+await caso('blindagem: equipe põe o telefone DA IMOBILIÁRIA na descrição (permitido)', true, () => updateDoc(R(db('op0'), 'imoveis', 'im2'), { descricaoLonga: 'Plantão (11) 5555-0000' }));
+const fichaOk = { captadorUid: 'cor1', visivel: true, apelido: 'Casa', compartilhadoCom: ['cor2'] };
+await caso('blindagem: corretor grava ficha limpa', true, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC'), fichaOk));
+await caso('blindagem: ficha com contato do captador BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC'), { ...fichaOk, captador: { nome: 'Cor 1', telefone: '11911112222' } }));
+await caso('blindagem: ficha com proprietário BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC'), { ...fichaOk, proprietario: { nome: 'Dono', telefone: '11900000000' } }));
+await caso('blindagem: ficha compartilhada diferente do imóvel BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC'), { ...fichaOk, compartilhadoCom: ['cor2', 'cor9'] }));
+await caso('blindagem: ficha completa com obs com telefone BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC', 'completo', 'dados'), { obs: 'dono: 11 99999-0000' }));
+await caso('blindagem: ficha completa limpa', true, () => setDoc(R(db('cor1'), 'imoveisRede', 'imC', 'completo', 'dados'), { apelido: 'Casa', obs: 'chave na portaria' }));
+await caso('blindagem: vitrine com telefone na descrição BLOQUEIA', false, () => setDoc(R(db('cor1'), 'vitrine', 'imC'), { linkPublico: true, descricaoLonga: 'whats 11987654321' }));
+await caso('blindagem: vitrine limpa', true, () => setDoc(R(db('cor1'), 'vitrine', 'imC'), { linkPublico: true, descricaoLonga: 'Casa ampla' }));
+const pedido = (dados) => ({ solicitadoPor: 'cor1', status: 'PENDENTE', colecao: 'imoveis', modulo: 'imoveis', op: 'editar', docId: 'imC', dados });
+await caso('blindagem: pedido na fila (Com aprovação) com texto limpo', true, () => addDoc(collection(db('cor1'), 'tenants', T, 'alteracoesPendentes'), pedido({ descricaoLonga: 'Casa ampla' })));
+await caso('blindagem: pedido na fila com telefone BLOQUEIA', false, () => addDoc(collection(db('cor1'), 'tenants', T, 'alteracoesPendentes'), pedido({ descricaoLonga: 'liga 11 98765-4321' })));
+await caso('blindagem: pedido na fila mudando compartilhamento BLOQUEIA', false, () => addDoc(collection(db('cor1'), 'tenants', T, 'alteracoesPendentes'), pedido({ compartilhadoCom: ['cor2'] })));
+const foto = (extra) =>({ url: 'https://firebasestorage.googleapis.com/v0/b/x/o/f.jpg', ordem: 0, ...extra });
+await caso('blindagem: foto com nome neutro', true, () => setDoc(R(db('cor1'), 'imoveis', 'imC', 'fotos', 'f1'), foto({ nome: 'foto-1.jpg' })));
+await caso('blindagem: foto com telefone no nome BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imC', 'fotos', 'f2'), foto({ nome: 'liga_11987654321.jpg' })));
+await caso('blindagem: foto com @ na legenda BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imC', 'fotos', 'f3'), foto({ legenda: 'siga @joao' })));
 
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
