@@ -190,7 +190,7 @@ function _paineis() {
       ${_campo('Texto', 'seguranca.texto', 'textarea', { linhas: 4, dica: 'Em branco = texto automático com os seus canais oficiais (WhatsApp, e-mail e CNPJ de “📞 Contato”).' })}
       <div class="site-ajuda">Texto automático hoje: <em>${_escS(_textoSegurancaAuto())}</em></div>`),
     _painel('seo', '🔎 Google e WhatsApp', `
-      ${_campo('Título (aba do navegador e Google)', 'seo.titulo', 'texto', { max: 70, dica: 'Até 60–70 letras.' })}
+      ${_campo('Título (aba do navegador e Google)', 'seo.titulo', 'texto', { max: 90, dica: 'O Google mostra ~60–70 letras; o resto aparece na aba.' })}
       ${_campo('Descrição (aparece no Google)', 'seo.descricao', 'textarea', { linhas: 3, dica: 'Até ~160 letras.' })}
       ${_campo('Imagem ao compartilhar o link', 'seo.imagem', 'imagem')}`),
     _painel('dominio', '🌐 Endereço e domínio', _painelDominio()),
