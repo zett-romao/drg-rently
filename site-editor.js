@@ -20,7 +20,12 @@ const TIPOS_BLOCO = {
   destaque: '🖼 Destaque (topo)', busca: '🔎 Busca de imóveis', imoveis: '🏠 Imóveis em destaque', servicos: '🧩 Cards (serviços)',
   anuncie: '📝 Anuncie seu imóvel', corretor: '👔 Chamada para corretores', contato: '📞 Contato',
   texto: '📄 Texto e imagem', chamada: '📣 Chamada', perguntas: '❓ Perguntas frequentes',
+  acessoCorretor: '🚪 Área do corretor (topo com as portas)', vantagens: '✅ Vantagens + divisão da comissão', passos: '🔢 Passo a passo',
 };
+// Página em edição: null = página inicial; senão o id da página extra
+const _idxPagina = () => (_site.pagina ? (_site.cfg.paginas || []).findIndex((p) => p.id === _site.pagina) : -1);
+const _baseBlocos = () => { const i = _idxPagina(); return i >= 0 ? `paginas.${i}.blocos` : 'blocos'; };
+const _blocosAtuais = () => _sGet(_site.cfg, _baseBlocos()) || [];
 const FONTES_TITULO = ['Playfair Display', 'Lora', 'Merriweather', 'Montserrat', 'Poppins', 'Raleway'];
 const FONTES_TEXTO = ['Inter', 'Open Sans', 'Roboto', 'Nunito', 'Lato', 'Montserrat', 'Poppins'];
 const _siteRef = () => tenantPath().collection('site');
@@ -128,8 +133,11 @@ function _campo(rotulo, path, tipo = 'texto', extra = {}) {
       <input type="file" id="${id}-arq" accept="image/*" style="display:none" onchange="enviarImagemSite('${path}', this, '${id}-btn')"></div>${dica}</div>`;
   if (tipo === 'destino') {
     const d = String(v || '');
-    const secoes = (_site.cfg.blocos || []).map((b) => [`secao:${b.id}`, `Seção: ${b.titulo || TIPOS_BLOCO[b.tipo] || b.id}`]);
-    const ops = [['inicio', 'Início'], ['imoveis', 'Imóveis (todos)'], ['imoveis-locacao', 'Imóveis para alugar'], ['imoveis-venda', 'Imóveis à venda'], ['corretor', 'Área do corretor'], ['whatsapp', 'WhatsApp'], ...secoes, ['url:', 'Link externo…']];
+    const secoes = _blocosAtuais().map((b) => [`secao:${b.id}`, `Seção: ${b.titulo || TIPOS_BLOCO[b.tipo] || b.id}`]);
+    const secoesInicio = _site.pagina ? (_site.cfg.blocos || []).map((b) => [`secao:${b.id}`, `Início › ${b.titulo || TIPOS_BLOCO[b.tipo] || b.id}`]) : [];
+    const paginas = (_site.cfg.paginas || []).map((pg) => [`pagina:${pg.id}`, `Página: ${pg.titulo}${pg.visivel === false ? ' (escondida)' : ''}`]);
+    const ops = [['inicio', 'Início'], ['imoveis', 'Imóveis (todos)'], ['imoveis-locacao', 'Imóveis para alugar'], ['imoveis-venda', 'Imóveis à venda'], ['corretor', 'Área do corretor'],
+      ['parceiro', 'Cadastro de corretor parceiro'], ['sistema', 'Entrar no sistema (Rently)'], ['whatsapp', 'WhatsApp'], ...paginas, ...secoes, ...secoesInicio, ['url:', 'Link externo…']];
     const atual = d.startsWith('url:') ? 'url:' : d;
     return `<div class="form-group"><label for="${id}">${rotulo}</label><select id="${id}" onchange="destinoSite('${path}', this)">${ops.map(([val, txt]) => `<option value="${_escS(val)}" ${atual === val ? 'selected' : ''}>${_escS(txt)}</option>`).join('')}</select>
       ${atual === 'url:' ? `<input type="url" placeholder="https://…" value="${_escS(d.slice(4))}" oninput="campoSite('${path}', {value: 'url:' + this.value})" aria-label="Endereço do link">` : ''}</div>`;
@@ -161,12 +169,20 @@ function _paineis() {
         ${_botoesItem('menu.itens', i, c.menu.itens.length)}</div>`).join('')}
       <button type="button" class="btn btn-secondary btn-sm" onclick="addItemSite('menu.itens', {rotulo:'Novo item', destino:'inicio'})">+ Item no menu</button>
       ${_campo('Botão do WhatsApp no menu', 'menu.botaoWhatsapp', 'check')}`),
-    _painel('blocos', '🧱 Página inicial — blocos', `
+    _painel('paginas', '📑 Páginas', _painelPaginas()),
+    _painel('blocos', _site.pagina ? `🧱 Blocos — página “${_escS((c.paginas[_idxPagina()] || {}).titulo || '')}”` : '🧱 Página inicial — blocos', `
+      ${_site.pagina ? `<p style="margin-top:0;"><button type="button" class="btn btn-secondary btn-sm" onclick="selecionarPaginaSite('')">← Voltar à página inicial</button></p>` : ''}
       <p class="muted" style="font-size:12px;margin-top:0;">A página é montada nesta ordem. ✏️ edita, 👁 mostra/esconde, ↑↓ muda a ordem.</p>
-      ${(c.blocos || []).map((b, i) => _blocoEditor(b, i, c.blocos.length)).join('')}
+      ${_blocosAtuais().map((b, i, arr) => _blocoEditor(b, i, arr.length)).join('')}
       <div class="site-novo-bloco"><select id="site-tipo-novo" aria-label="Tipo de bloco novo">${Object.entries(MODELOS_BLOCO_SITE).map(([k]) => `<option value="${k}">${TIPOS_BLOCO[k]}</option>`).join('')}</select>
         <button type="button" class="btn btn-secondary btn-sm" onclick="addBlocoSite()">+ Adicionar bloco</button></div>`),
     _painel('rodape', '⬇️ Rodapé', `${_campo('Frase do rodapé', 'rodape.texto', 'textarea', { linhas: 2 })}${_campo('Mostrar CNPJ, CRECI e responsável', 'rodape.mostrarLegal', 'check')}`),
+    _painel('seguranca', '🔒 Aviso contra golpes', `
+      <p class="muted" style="font-size:12px;margin-top:0;">Faixa no rodapé de todas as páginas do site. Protege o cliente do golpe do falso corretor e do Pix para pessoa física — e protege o nome da imobiliária.</p>
+      ${_campo('Mostrar o aviso', 'seguranca.ativo', 'check')}
+      ${_campo('Título', 'seguranca.titulo', 'texto', { max: 40 })}
+      ${_campo('Texto', 'seguranca.texto', 'textarea', { linhas: 4, dica: 'Em branco = texto automático com os seus canais oficiais (WhatsApp, e-mail e CNPJ de “📞 Contato”).' })}
+      <div class="site-ajuda">Texto automático hoje: <em>${_escS(_textoSegurancaAuto())}</em></div>`),
     _painel('seo', '🔎 Google e WhatsApp', `
       ${_campo('Título (aba do navegador e Google)', 'seo.titulo', 'texto', { max: 70, dica: 'Até 60–70 letras.' })}
       ${_campo('Descrição (aparece no Google)', 'seo.descricao', 'textarea', { linhas: 3, dica: 'Até ~160 letras.' })}
@@ -184,7 +200,8 @@ function _botoesItem(lista, i, n) {
 }
 
 function _blocoEditor(b, i, n) {
-  const p = `blocos.${i}`;
+  const base = _baseBlocos();
+  const p = `${base}.${i}`;
   const aberto = _site.aberto.has('bloco-' + b.id);
   const campos = {
     destaque: () => `${_campo('Linha acima do título (opcional)', p + '.eyebrow')}${_campo('Título', p + '.titulo', 'textarea', { linhas: 2 })}${_campo('Texto', p + '.texto', 'textarea')}
@@ -214,34 +231,198 @@ function _blocoEditor(b, i, n) {
     perguntas: () => `${_campo('Linha acima do título', p + '.eyebrow')}${_campo('Título', p + '.titulo')}
       ${(b.itens || []).map((it, j) => `<div class="site-item">${_campo('Pergunta', `${p}.itens.${j}.pergunta`)}${_campo('Resposta', `${p}.itens.${j}.resposta`, 'textarea', { linhas: 3 })}${_botoesItem(p + '.itens', j, b.itens.length)}</div>`).join('')}
       <button type="button" class="btn btn-secondary btn-sm" onclick="addItemSite('${p}.itens', {pergunta:'Nova pergunta?', resposta:'Resposta.'})">+ Pergunta</button>`,
+    acessoCorretor: () => `${_campo('Linha acima do título', p + '.eyebrow')}${_campo('Título', p + '.titulo', 'textarea', { linhas: 2 })}${_campo('Texto', p + '.texto', 'textarea')}
+      ${_campo('Imagem de fundo (opcional)', p + '.imagem', 'imagem')}
+      <div class="site-item"><strong style="font-size:13px;">Porta 1 — quero ser parceiro</strong>
+        <div class="form-row">${_campo('Linha acima', p + '.parceiroEyebrow')}${_campo('Título', p + '.parceiroTitulo')}</div>
+        ${_campo('Texto', p + '.parceiroTexto', 'textarea', { linhas: 2 })}${_campo('Botão', p + '.parceiroBotao', 'texto', { dica: 'Leva ao cadastro de corretor parceiro.' })}
+        ${_campo('Aviso quando o cadastro está fechado', p + '.fechadoTexto', 'textarea', { linhas: 2, dica: 'Abrir/fechar o cadastro: Corretores → Programa “Seja corretor parceiro”.' })}</div>
+      <div class="site-item"><strong style="font-size:13px;">Porta 2 — já sou corretor</strong>
+        <div class="form-row">${_campo('Linha acima', p + '.entrarEyebrow')}${_campo('Título', p + '.entrarTitulo')}</div>
+        ${_campo('Texto', p + '.entrarTexto', 'textarea', { linhas: 2 })}<div class="form-row">${_campo('Botão', p + '.entrarBotao', 'texto', { dica: 'Abre a entrada do sistema.' })}${_campo('Dica sob o botão', p + '.entrarDica')}</div></div>`,
+    vantagens: () => `${_campo('Linha acima do título', p + '.eyebrow')}${_campo('Título', p + '.titulo')}
+      ${_campo('Usar o texto do programa de parceiros (Corretores → Programa)', p + '.doPrograma', 'check', { dica: 'Desligado, valem as linhas abaixo.' })}
+      ${_campo('Vantagens (uma por linha)', p + '.itens', 'lista', { linhas: 5 })}
+      ${_campo('Mostrar a divisão padrão da comissão', p + '.mostrarDivisao', 'check', { dica: 'Os percentuais vêm do programa de parceiros.' })}`,
+    passos: () => `${_campo('Linha acima do título', p + '.eyebrow')}${_campo('Título', p + '.titulo')}
+      ${(b.itens || []).map((it, j) => `<div class="site-item">${_campo(`Passo ${j + 1} — título`, `${p}.itens.${j}.titulo`)}${_campo('Texto', `${p}.itens.${j}.texto`, 'textarea', { linhas: 2 })}${_botoesItem(p + '.itens', j, b.itens.length)}</div>`).join('')}
+      <button type="button" class="btn btn-secondary btn-sm" onclick="addItemSite('${p}.itens', {titulo:'Novo passo', texto:'Descrição.'})">+ Passo</button>`,
   };
   return `<div class="site-bloco ${b.visivel === false ? 'oculto' : ''}">
     <div class="site-bloco-topo">
       <button type="button" class="site-bloco-nome" onclick="abrirBlocoSite('${b.id}')" aria-expanded="${aberto}"><span>${TIPOS_BLOCO[b.tipo] || b.tipo}</span><strong>${_escS(b.titulo || '')}</strong></button>
       <div class="site-item-botoes">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="campoSite('blocos.${i}.visivel', {value: ${b.visivel === false}}); _redesenharPainel()" title="${b.visivel === false ? 'Mostrar' : 'Esconder'}">${b.visivel === false ? '🚫' : '👁'}</button>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="moverItemSite('blocos', ${i}, -1)" ${i === 0 ? 'disabled' : ''} aria-label="Subir">↑</button>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="moverItemSite('blocos', ${i}, 1)" ${i === n - 1 ? 'disabled' : ''} aria-label="Descer">↓</button>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="removerItemSite('blocos', ${i})" aria-label="Remover bloco">🗑</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="campoSite('${p}.visivel', {value: ${b.visivel === false}}); _redesenharPainel()" title="${b.visivel === false ? 'Mostrar' : 'Esconder'}">${b.visivel === false ? '🚫' : '👁'}</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="moverItemSite('${base}', ${i}, -1)" ${i === 0 ? 'disabled' : ''} aria-label="Subir">↑</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="moverItemSite('${base}', ${i}, 1)" ${i === n - 1 ? 'disabled' : ''} aria-label="Descer">↓</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="removerItemSite('${base}', ${i})" aria-label="Remover bloco">🗑</button>
       </div></div>
     ${aberto ? `<div class="site-bloco-corpo">${(campos[b.tipo] || (() => ''))()}</div>` : ''}</div>`;
+}
+
+function _painelPaginas() {
+  const pags = _site.cfg.paginas || [];
+  return `<p class="muted" style="font-size:12px;margin-top:0;">Além da página inicial, o site pode ter páginas próprias (Quem somos, Área do corretor…). Para pôr no menu, use “🧭 Menu → Leva para → Página”.</p>
+    <div class="site-item" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;${!_site.pagina ? 'border-color:var(--primary);' : ''}">
+      <span><strong>🏠 Página inicial</strong></span>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="selecionarPaginaSite('')" ${!_site.pagina ? 'disabled' : ''}>✏️ Editar blocos</button></div>
+    ${pags.map((pg, i) => `<div class="site-item" ${_site.pagina === pg.id ? 'style="border-color:var(--primary);"' : ''}>
+      <div class="form-row">${_campo('Nome da página', `paginas.${i}.titulo`, 'texto', { max: 40 })}${_campo('Aparece no site', `paginas.${i}.visivel`, 'check')}</div>
+      <small class="muted">Endereço: ${_escS(_urlPagina(pg.id))}</small>
+      <div class="site-item-botoes" style="margin-top:6px;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="selecionarPaginaSite('${pg.id}')" ${_site.pagina === pg.id ? 'disabled' : ''}>✏️ Editar blocos</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="removerPaginaSite(${i})" aria-label="Remover página">🗑 Remover</button></div></div>`).join('')}
+    <div class="site-novo-bloco"><select id="site-modelo-pagina" aria-label="Modelo da página nova">
+        <option value="branco">📄 Página em branco</option><option value="quemSomos">🏢 Quem somos</option><option value="corretor">🚪 Área do corretor</option></select>
+      <input type="text" id="site-nome-pagina" maxlength="40" placeholder="Nome (ex.: Quem somos)" aria-label="Nome da página nova" style="flex:1;min-width:140px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);">
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-site-add-pagina" onclick="addPaginaSite()">+ Página</button></div>`;
+}
+function _urlPagina(id) {
+  const proprio = String(State.tenant?.siteProprio || '').trim().replace(/\/?$/, '/');
+  if (/^https?:\/\//i.test(proprio)) return id === 'corretor' ? proprio + 'corretor.html' : `${proprio}index.html?p=${id}`;
+  return `${location.origin}${location.pathname.replace(/[^/]*$/, '')}site.html?t=${encodeURIComponent(State.tenant?.slug || State.tenant?.id)}&p=${id}`;
+}
+function _textoSegurancaAuto() {
+  const c = _site.cfg, ct = c.contato || {}, nome = [c.identidade.nome, c.identidade.complemento].filter(Boolean).join(' ');
+  const tel = String(ct.whatsapp || '').replace(/\D/g, '');
+  const canais = [tel ? 'WhatsApp ' + tel : '', ct.email || ''].filter(Boolean).join(' · ');
+  return `A ${nome} nunca pede Pix, depósito ou sinal em conta de pessoa física, nem cobra para agendar visita. Pagamentos só em nome da imobiliária${ct.cnpj ? ` (CNPJ ${ct.cnpj})` : ''}.${canais ? ` Canais oficiais: ${canais}.` : ''} Na dúvida, confirme por eles.`;
+}
+function selecionarPaginaSite(id) {
+  _site.pagina = id || null;
+  _site.aberto.add('blocos');
+  _redesenharPainel();
+  _enviarPrevia();
+}
+function _idPaginaNovo(titulo) {
+  let base = String(titulo || 'pagina').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'pagina';
+  const usados = new Set((_site.cfg.paginas || []).map((p) => p.id));
+  let id = base, n = 2;
+  while (usados.has(id)) id = `${base}-${n++}`;
+  return id;
+}
+function addPaginaSite() {
+  const modelo = $('site-modelo-pagina').value;
+  const nomeDigitado = ($('site-nome-pagina').value || '').trim();
+  const c = _site.cfg; c.paginas = Array.isArray(c.paginas) ? c.paginas : [];
+  const nome = c.identidade.nome, nomeCompleto = [c.identidade.nome, c.identidade.complemento].filter(Boolean).join(' ');
+  let pg;
+  if (modelo === 'corretor') {
+    if (c.paginas.some((p) => p.id === 'corretor')) { _alertaSite('O site já tem a Área do corretor — edite a que existe.'); return; }
+    pg = MODELOS_PAGINA_SITE.corretor(nome, nomeCompleto);
+  } else if (modelo === 'quemSomos') {
+    pg = MODELOS_PAGINA_SITE.quemSomos(nome, nomeCompleto); pg.id = _idPaginaNovo(nomeDigitado || 'quem-somos');
+  } else {
+    pg = MODELOS_PAGINA_SITE.branco(nomeDigitado || 'Nova página'); pg.id = _idPaginaNovo(nomeDigitado || 'nova-pagina');
+  }
+  if (nomeDigitado) pg.titulo = nomeDigitado;
+  c.paginas.push(pg);
+  _site.pagina = pg.id; _site.aberto.add('blocos');
+  _marcarAlterado(true);
+  _enviarPrevia();
+  _alertaSite(`✓ Página “${pg.titulo}” criada${pg.visivel === false ? ' (escondida — ligue “Aparece no site” quando estiver pronta)' : ''}.`, 'success');
+}
+async function removerPaginaSite(i) {
+  const pg = (_site.cfg.paginas || [])[i]; if (!pg) return;
+  if (!(await confirmar({ titulo: 'Remover esta página?', mensagem: `“${_escS(pg.titulo)}” sai do site. Itens do menu que levam a ela passam a levar ao início.`, detalhe: 'Se preferir, só desligue “Aparece no site”.', confirmar: '🗑 Remover', perigo: true }))) return;
+  _site.cfg.paginas.splice(i, 1);
+  if (_site.pagina === pg.id) _site.pagina = null;
+  (_site.cfg.menu.itens || []).forEach((it) => { if (it.destino === 'pagina:' + pg.id) it.destino = 'inicio'; });
+  _marcarAlterado(true);
+  _enviarPrevia();
 }
 
 function _painelDominio() {
   const t = State.tenant || {};
   const rently = `${location.origin}${location.pathname.replace(/[^/]*$/, '')}site.html?t=${encodeURIComponent(t.slug || t.id)}`;
-  const proprio = String(t.siteProprio || '').trim();
+  const atual = String(t.dominioSite || String(t.siteProprio || '').replace(/^https?:\/\//, '').replace(/\/.*$/, '')).trim();
   return `
     <div class="form-group"><label>Endereço do seu site no Rently (sempre funciona)</label>
       <div class="site-cor"><input type="text" readonly value="${_escS(rently)}" id="site-url-rently"><button type="button" class="btn btn-secondary btn-sm" onclick="copiarTextoSite('site-url-rently', this)">📋 Copiar</button></div></div>
-    <div class="form-group"><label>Domínio próprio</label>
-      <p class="muted" style="font-size:12px;margin:0 0 6px;">${proprio ? `Configurado: <a href="${_escS(proprio)}" target="_blank" rel="noopener">${_escS(proprio)}</a> (Configurações → Site próprio da imobiliária).` : 'Ainda não configurado.'}</p>
-      <div class="site-cor"><input type="text" id="site-dominio-teste" placeholder="ex.: www.suaimobiliaria.com.br" value="${_escS(proprio.replace(/^https?:\/\//, '').replace(/\/.*$/, ''))}"><button type="button" class="btn btn-secondary btn-sm" id="btn-site-dns" onclick="verificarDominioSite()">🔍 Verificar</button></div>
+    <div class="form-group"><label for="site-dominio-teste">Domínio próprio</label>
+      <p class="muted" style="font-size:12px;margin:0 0 6px;">${atual ? `Hoje: <strong>${_escS(atual)}</strong>` : 'Ainda não ligado.'} Use o endereço com <strong>www</strong> (ex.: www.suaimobiliaria.com.br).</p>
+      <div class="site-cor"><input type="text" id="site-dominio-teste" placeholder="www.suaimobiliaria.com.br" value="${_escS(atual)}">
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-site-dns" onclick="verificarDominioSite()">🔍 Verificar</button></div>
+      <div class="site-imagem-botoes">${_podePublicar() ? `<button type="button" class="btn btn-primary btn-sm" id="btn-site-ligar" onclick="ligarDominioSite()">🔗 Ligar domínio</button>` : '<span class="muted" style="font-size:12px;">Ligar domínio: peça a quem tem a permissão 🚀 Publicar.</span>'}
+        ${atual && _podePublicar() ? `<button type="button" class="btn btn-secondary btn-sm" id="btn-site-desligar" onclick="desligarDominioSite()">✂️ Desligar</button>` : ''}</div>
       <div id="site-dns-resultado" style="margin-top:8px;"></div></div>
-    <div class="site-ajuda"><strong>Como usar um domínio próprio</strong>
+    <div class="site-ajuda"><strong>Como ligar o seu domínio (uma vez só)</strong>
       <ol><li>Registre o domínio (ex.: no <a href="https://registro.br" target="_blank" rel="noopener">Registro.br</a>) — a compra e a senha de lá são suas.</li>
-      <li>Peça à DR Systems a ligação do domínio ao seu site: informamos os registros DNS exatos para colar no Registro.br.</li>
-      <li>Use 🔍 Verificar aqui: quando o domínio apontar certo, aparece ✓ e o certificado de segurança (https) sai em seguida.</li></ol></div>`;
+      <li>Digite o domínio acima e clique <strong>🔍 Verificar</strong>: aparecem os <strong>2 registros</strong> para criar no DNS do domínio (no Registro.br: <em>Configurar zona DNS</em>).</li>
+      <li>Depois de criar, clique <strong>🔗 Ligar domínio</strong>. O certificado de segurança (https) sai sozinho em alguns minutos — o ✓ aparece aqui.</li></ol></div>`;
+}
+
+// ---------- domínio próprio (Worker drg-rently-sites + Cloudflare for SaaS) ----------
+const SITES_API = 'https://drg-rently-sites.zett-romao.workers.dev/api/dominios';
+const _dominioDigitado = () => ($('site-dominio-teste').value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[/?#].*$/, '');
+async function _chamarDominios(metodo, hostname) {
+  const token = await auth.currentUser.getIdToken();
+  const corpo = { tenantId: State.tenant.id, hostname };
+  const r = await fetch(SITES_API + (metodo === 'GET' ? '?' + new URLSearchParams(corpo) : ''), {
+    method: metodo, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: metodo === 'GET' ? undefined : JSON.stringify(corpo),
+  });
+  const j = await r.json().catch(() => ({}));
+  return { status: r.status, ...j };
+}
+function _mostrarSituacaoDominio(d) {
+  const out = $('site-dns-resultado');
+  const curto = (nome) => nome.replace(/\.[^.]+\.(com|net|org|adv|eng|imb|blog|app|dev)?\.?br$|\.[^.]+\.(com|net|org)$/i, '');
+  const st = (okv) => (okv ? '<span style="color:#166534;">✓ ok</span>' : '<span style="color:#92400E;">⏳ falta</span>');
+  const dns = d.dns || {};
+  const linhas = (d.registros || []).map((r) => `<div class="site-item" style="margin:6px 0;background:#fff;">
+      <div style="display:flex;justify-content:space-between;gap:8px;"><strong>${_escS(r.tipo)}</strong>${st(r.tipo === 'CNAME' ? dns.cnameOk : dns.txtOk)}</div>
+      <div>Nome: <code>${_escS(curto(r.nome) || '@')}</code> <small class="muted">(${_escS(r.nome)})</small></div>
+      <div style="overflow-wrap:anywhere;">Valor: <code>${_escS(r.valor)}</code></div></div>`).join('');
+  const cf = d.cloudflare;
+  const https = !cf ? (d.cfPronto === false ? 'aguardando ativação no servidor (DR Systems)' : 'ainda não ligado — clique 🔗 Ligar domínio')
+    : cf.status === 'active' && cf.ssl === 'active' ? '✓ ativo' : `⏳ em andamento (${_escS(cf.status)} / ${_escS(cf.ssl || '—')})`;
+  out.innerHTML = `<div class="site-item" style="font-size:13px;">
+    ${d.ativo ? `<div style="color:#166534;font-weight:600;margin-bottom:6px;">✓ ${_escS(d.hostname)} está no ar com https.</div>` : ''}
+    ${d.erro ? `<div class="alert alert-error" style="display:block;margin-bottom:8px;">${_escS(d.erro)}</div>` : ''}
+    ${linhas ? `<div>Crie no DNS do domínio:</div>${linhas}` : ''}
+    ${d.registros ? `<div style="margin-top:6px;">Certificado https: ${https}</div>` : ''}
+    ${(cf?.erros || []).length ? `<div class="muted" style="margin-top:4px;">${cf.erros.map(_escS).join('<br>')}</div>` : ''}</div>`;
+}
+async function verificarDominioSite() {
+  const dom = _dominioDigitado();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(dom)) { _mostrarSituacaoDominio({ erro: 'Digite só o domínio, ex.: www.suaimobiliaria.com.br' }); return; }
+  const b = $('btn-site-dns'); const txt = b.textContent; b.disabled = true; b.textContent = '⏳ Verificando… aguarde';
+  try { _mostrarSituacaoDominio(await _chamarDominios('GET', dom)); }
+  catch (err) { _mostrarSituacaoDominio({ erro: 'Não consegui consultar agora: ' + err.message }); }
+  finally { b.disabled = false; b.textContent = txt; }
+}
+async function ligarDominioSite() {
+  const dom = _dominioDigitado();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(dom)) { _mostrarSituacaoDominio({ erro: 'Digite só o domínio, ex.: www.suaimobiliaria.com.br' }); return; }
+  const b = $('btn-site-ligar'); const txt = b.textContent; b.disabled = true; b.textContent = '⏳ Ligando… aguarde ~10s';
+  try {
+    const d = await _chamarDominios('POST', dom);
+    _mostrarSituacaoDominio(d);
+    if (d.status === 200) {
+      // Guarda no cadastro do cliente (só o administrador grava; quem só publica vê o aviso)
+      try {
+        await db.collection('tenants').doc(State.tenant.id).update({ dominioSite: dom, ...(d.ativo ? { siteProprio: `https://${dom}/` } : {}) });
+        State.tenant.dominioSite = dom; if (d.ativo) State.tenant.siteProprio = `https://${dom}/`;
+      } catch (_) { /* sem permissão no cadastro: o domínio funciona mesmo assim */ }
+      logAuditoria('dominio_ligado', 'site', dom, { ativo: !!d.ativo });
+      _alertaSite(d.ativo ? `✓ ${dom} está no ar!` : `✓ Pedido feito. O https de ${dom} sai em alguns minutos — clique 🔍 Verificar para acompanhar.`, 'success');
+    }
+  } catch (err) { _mostrarSituacaoDominio({ erro: 'Não consegui ligar: ' + err.message }); }
+  finally { b.disabled = false; b.textContent = txt; }
+}
+async function desligarDominioSite() {
+  const dom = _dominioDigitado();
+  if (!(await confirmar({ titulo: 'Desligar o domínio?', mensagem: `${_escS(dom)} deixa de abrir o seu site.`, detalhe: 'O endereço do Rently continua funcionando.', confirmar: '✂️ Desligar', perigo: true }))) return;
+  const b = $('btn-site-desligar'); const txt = b.textContent; b.disabled = true; b.textContent = '⏳ Desligando… aguarde';
+  try {
+    const d = await _chamarDominios('DELETE', dom);
+    if (d.status !== 200) throw new Error(d.erro || 'erro ' + d.status);
+    try { await db.collection('tenants').doc(State.tenant.id).update({ dominioSite: null }); State.tenant.dominioSite = null; } catch (_) {}
+    logAuditoria('dominio_desligado', 'site', dom, {});
+    _alertaSite(`✓ ${dom} desligado.`, 'success');
+    _redesenharPainel();
+  } catch (err) { _mostrarSituacaoDominio({ erro: 'Não consegui desligar: ' + err.message }); b.disabled = false; b.textContent = txt; }
 }
 
 // ---------- edição ----------
@@ -280,7 +461,7 @@ function moverItemSite(lista, i, d) {
 }
 async function removerItemSite(lista, i) {
   const arr = _sGet(_site.cfg, lista); if (!Array.isArray(arr)) return;
-  if (lista === 'blocos' && !(await confirmar({ titulo: 'Remover este bloco?', mensagem: `“${_escS(arr[i].titulo || TIPOS_BLOCO[arr[i].tipo])}” sai da página. Se preferir só esconder, use 👁.`, confirmar: '🗑 Remover', perigo: true }))) return;
+  if (/(^|\.)blocos$/.test(lista) && !(await confirmar({ titulo: 'Remover este bloco?', mensagem: `“${_escS(arr[i].titulo || TIPOS_BLOCO[arr[i].tipo])}” sai da página. Se preferir só esconder, use 👁.`, confirmar: '🗑 Remover', perigo: true }))) return;
   arr.splice(i, 1);
   _marcarAlterado(true);
 }
@@ -294,7 +475,9 @@ function addBlocoSite() {
   const tipo = $('site-tipo-novo').value;
   const b = MODELOS_BLOCO_SITE[tipo]();
   b.id = tipo + '-' + Math.random().toString(36).slice(2, 7);
-  _site.cfg.blocos.push(b);
+  let arr = _sGet(_site.cfg, _baseBlocos());
+  if (!Array.isArray(arr)) { arr = []; _sSet(_site.cfg, _baseBlocos(), arr); }
+  arr.push(b);
   _site.aberto.add('bloco-' + b.id);
   _marcarAlterado(true);
   setTimeout(() => _enviarPrevia(b.id), 250);
@@ -324,7 +507,7 @@ async function enviarImagemSite(path, input, btnId) {
 // ---------- prévia ----------
 function _enviarPrevia(ancora) {
   const fr = $('site-iframe'); if (!fr || !fr.contentWindow) return;
-  fr.contentWindow.postMessage({ tipo: 'rently-site-previa', config: JSON.parse(JSON.stringify(_site.cfg)), ancora: typeof ancora === 'string' ? ancora : null }, location.origin);
+  fr.contentWindow.postMessage({ tipo: 'rently-site-previa', config: JSON.parse(JSON.stringify(_site.cfg)), pagina: _site.pagina || null, ancora: typeof ancora === 'string' ? ancora : null }, location.origin);
 }
 window.addEventListener('message', (ev) => {
   if (ev.origin === location.origin && ev.data && ev.data.tipo === 'rently-site-pronto' && _site) { _site.previaPronta = true; _enviarPrevia(); }
@@ -407,28 +590,6 @@ function restaurarVersaoSite(i) {
   _alertaSite('✓ Versão carregada no rascunho. Confira a prévia e clique 🚀 Publicar para colocar no ar.', 'success');
 }
 
-// ---------- domínio ----------
-const IPS_GITHUB = ['185.199.108.153', '185.199.109.153', '185.199.110.153', '185.199.111.153'];
-async function verificarDominioSite() {
-  const dom = ($('site-dominio-teste').value || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-  const out = $('site-dns-resultado');
-  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(dom)) { out.innerHTML = '<div class="alert alert-error" style="display:block">Digite só o domínio, ex.: www.suaimobiliaria.com.br</div>'; return; }
-  const b = $('btn-site-dns'); const txt = b.textContent; b.disabled = true; b.textContent = '⏳ Verificando…';
-  try {
-    const consulta = async (tipo) => { const r = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(dom)}&type=${tipo}`, { headers: { accept: 'application/dns-json' } }); const j = await r.json(); return (j.Answer || []).map((a) => String(a.data).replace(/\.$/, '')); };
-    const [a, cname] = await Promise.all([consulta('A'), consulta('CNAME')]);
-    const noGithub = a.length && a.every((ip) => IPS_GITHUB.includes(ip));
-    out.innerHTML = `<div class="site-item" style="font-size:13px;">
-      <div><strong>${_escS(dom)}</strong></div>
-      <div>Endereços (A): ${a.length ? a.map(_escS).join(', ') : '<em>nenhum</em>'}</div>
-      ${cname.length ? `<div>Apelido (CNAME): ${cname.map(_escS).join(', ')}</div>` : ''}
-      <div style="margin-top:6px;">${!a.length && !cname.length ? '⚠️ O domínio ainda não aponta para lugar nenhum (ou não foi registrado).'
-        : noGithub ? '✓ Apontando para o servidor de sites (GitHub Pages).'
-        : 'ℹ️ Aponta para outro servidor. Se o site não abrir, fale com a DR Systems para conferir os registros.'}</div></div>`;
-  } catch (err) {
-    out.innerHTML = `<div class="alert alert-error" style="display:block">Não consegui consultar agora: ${_escS(err.message)}</div>`;
-  } finally { b.disabled = false; b.textContent = txt; }
-}
 async function copiarTextoSite(id, btn) {
   const el = $(id);
   try { await navigator.clipboard.writeText(el.value); btn.textContent = '✓ Copiado'; }
@@ -454,5 +615,10 @@ window.descartarRascunhoSite = descartarRascunhoSite;
 window.carregarHistoricoSite = carregarHistoricoSite;
 window.restaurarVersaoSite = restaurarVersaoSite;
 window.verificarDominioSite = verificarDominioSite;
+window.ligarDominioSite = ligarDominioSite;
+window.desligarDominioSite = desligarDominioSite;
 window.copiarTextoSite = copiarTextoSite;
 window._redesenharPainel = _redesenharPainel;
+window.selecionarPaginaSite = selecionarPaginaSite;
+window.addPaginaSite = addPaginaSite;
+window.removerPaginaSite = removerPaginaSite;

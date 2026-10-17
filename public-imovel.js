@@ -384,6 +384,11 @@ function renderImovel(im, tenant, fotos) {
   const telFmt = telImp.length >= 10 ? `(${telImp.slice(0, 2)}) ${telImp.slice(2, -4)}-${telImp.slice(-4)}` : '';
   const impressao = [telFmt && `📞 ${telFmt}`, tenant.emailContato && `✉️ ${tenant.emailContato}`].filter(Boolean).join('   ·   ');
   if (impressao) contatos.push(`<p class="so-impressao">${impressao.replace(/</g, '&lt;')}</p>`);
+  // 🔒 Aviso contra golpes (falso corretor, Pix para pessoa física) — mesmo texto do site
+  if (tenant.nome) {
+    const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    contatos.push(`<p class="aviso-golpe-imovel">🔒 <strong>Atenção a golpes:</strong> a ${esc(tenant.nome)} nunca pede Pix, depósito ou sinal em conta de pessoa física, nem cobra para agendar visita. Pagamentos só em nome da imobiliária${tenant.cnpj ? ` (CNPJ ${esc(tenant.cnpj)})` : ''}. Fale só pelos canais desta página.</p>`);
+  }
   $$('contato-actions').innerHTML = contatos.join('') ||
     '<p class="muted">Em breve a imobiliária divulgará os canais de contato.</p>';
   if (tenant.nome) {

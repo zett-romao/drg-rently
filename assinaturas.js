@@ -461,6 +461,7 @@ async function fecharTelaSign() {
 }
 
 async function _recarregarOndeEsta(ctx) {
+  if (ctx.tipo === 'avulsa' && ctx.extra?.corretorUid) { if (typeof loadCorretores === 'function') await loadCorretores(); return; }
   if (ctx.tipo === 'avulsa') { if (typeof loadAssinaturasAvulsas === 'function') await loadAssinaturasAvulsas(); }
   else if ($(_ASS[ctx.tipo].idEl).value === ctx.id) await _carregarStatusAssinatura(ctx.tipo, ctx.id);
 }
@@ -491,12 +492,17 @@ async function _registrarEnvioSign(ctx, m) {
   if (ctx.tipo === 'avulsa') {
     await tenantPath().collection('assinaturas').doc(ctx.id).set({
       titulo: m.titulo || 'Documento', imovelId: ctx.extra.imovelId || null, imovelApelido: ctx.extra.imovelApelido || null,
+      corretorUid: ctx.extra.corretorUid || null, corretorNome: ctx.extra.corretorNome || null,   // contrato de parceria (protecao.js)
       arquivoOriginalPath: null, arquivoOriginalNome: null,
       assinatura: { ...reg, ...quando },
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
       criadoPorNome: State.userDoc?.nome || State.user?.email || '',
     }, { merge: true });
     logAuditoria('assinatura_avulsa_envio', 'assinatura', ctx.id, { plataforma: 'drg-sign' });
+    if (ctx.extra.corretorUid && typeof espelharContratoNoCorretor === 'function') {
+      await espelharContratoNoCorretor(ctx.extra.corretorUid, ctx.id, reg.status);
+      if (typeof loadCorretores === 'function' && $('section-corretores')?.style.display !== 'none') loadCorretores();
+    }
     showAlert('assinaturas-alert', `✓ “${m.titulo || 'Documento'}” enviado pelo DRG-Sign.`, 'success');
   } else {
     const T = _ASS[ctx.tipo];
@@ -513,6 +519,7 @@ async function _atualizarRegistroSign(ctx, m) {
     const d = (await ref.get()).data();
     if (!d || String(d.assinatura?.openId) !== String(m.documento_id)) return;
     await ref.update({ 'assinatura.status': reg.status, 'assinatura.signers': reg.signers });
+    if (d.corretorUid && typeof espelharContratoNoCorretor === 'function') await espelharContratoNoCorretor(d.corretorUid, ctx.id, reg.status);
     return;
   }
   const T = _ASS[ctx.tipo];

@@ -622,6 +622,9 @@
             <button class="btn btn-primary" onclick="salvarProgramaParceiros()">💾 Salvar programa</button>
           </div>
 
+          <!-- 🛡 Proteção da rede: contrato de parceria, CRECI, alerta de fichas (protecao.js) -->
+          <div class="card" style="margin-top:16px;" id="card-protecao-rede"></div>
+
           <div class="card" style="margin-top:16px;">
             <h3>💰 Comissões por corretor</h3>
             <p class="muted">Soma das negociações com divisão registrada. <strong>Previsto</strong> = propostas aceitas; <strong>Fechado</strong> = negociações fechadas (escritura).</p>
@@ -1027,6 +1030,8 @@
               </table>
             </div>
           </div>
+          <!-- 🙋 Clientes registrados pelos corretores (protecao.js) -->
+          <div class="card" style="margin-top:16px;" id="card-registros-clientes"></div>
         </section>
 
         <section class="section" id="section-meusleads" style="display:none;">
@@ -1047,6 +1052,8 @@
               </table>
             </div>
           </div>
+          <!-- 🙋 "Tenho um cliente": protocolo do corretor (protecao.js) -->
+          <div class="card" style="margin-top:16px;" id="card-meus-registros"></div>
         </section>
 
         <!-- 📅 Calendário de vencimentos -->
@@ -4858,6 +4865,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <input type="text" id="imovel-iptu" placeholder="Inscrição imobiliária">
           </div>
         </div>
+        <div id="imovel-matricula-conferencia"></div>
 
         <h4 class="form-section-title">Finalidade e valores</h4>
 
@@ -5991,12 +5999,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
     </div>
   </div>
 
-  <script src="site-padrao.js?v=20261017a"></script>
-  <script src="auditoria.js?v=20261017g-auditoria"></script>
-  <script src="app.js?v=20261017i-blindagem"></script>
-  <script src="rede.js?v=20261017i-blindagem"></script>
+  <script src="site-padrao.js?v=20261017j-protecao"></script>
+  <script src="auditoria.js?v=20261017j-protecao"></script>
+  <script src="app.js?v=20261017j-protecao"></script>
+  <script src="rede.js?v=20261017j-protecao"></script>
+  <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
-  <script src="assinaturas.js?v=20261017d-sign-embutido"></script>
-  <script src="site-editor.js?v=20261017a"></script>
+  <script src="assinaturas.js?v=20261017j-protecao"></script>
+  <script src="site-editor.js?v=20261017j-protecao"></script>
 </body>
 </html>

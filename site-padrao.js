@@ -13,8 +13,11 @@
 //   blocos:     [{ id, tipo, visivel, ...campos do tipo }]
 //   rodape:     { texto, mostrarLegal }
 //   seo:        { titulo, descricao, imagem }
+//   paginas:    [{ id, titulo, visivel, seoTitulo, seoDescricao, blocos: [...] }]   (Quem somos, Área do corretor…)
+//   seguranca:  { ativo, titulo, texto }   aviso contra golpes no rodapé (texto vazio = automático)
 // destino: 'inicio' | 'imoveis' | 'imoveis-locacao' | 'imoveis-venda' | 'corretor' | 'whatsapp'
-//          | 'secao:<id do bloco>' | 'url:<endereço>'
+//          | 'parceiro' (cadastro de corretor) | 'sistema' (entrar no Rently)
+//          | 'pagina:<id>' | 'secao:<id do bloco>' | 'url:<endereço>'
 
 (function () {
   const VERSAO = 1;
@@ -98,6 +101,8 @@
           textoWhatsapp: 'Atendimento para locação, venda e administração.' },
       ],
       rodape: { texto: 'Locação, venda, administração e avaliação de imóveis.', mostrarLegal: true },
+      paginas: [MODELOS_PAGINA.corretor(nome, nomeCompleto), MODELOS_PAGINA.quemSomos(nome, nomeCompleto)],
+      seguranca: { ativo: true, titulo: 'Atenção a golpes', texto: '' },
       seo: {
         titulo: extra.SEO_TITULO || `${nomeCompleto} – Locação, venda e administração de imóveis`,
         descricao: extra.SEO_DESCRICAO || `${nomeCompleto}: locação, venda, administração de aluguéis e avaliação de imóveis.${creci ? ' CRECI ' + creci + '.' : ''}`,
@@ -107,12 +112,66 @@
     };
   }
 
+  // Páginas prontas (modelo D.R. Global, com os dados de cada cliente)
+  const MODELOS_PAGINA = {
+    corretor: (nome, nomeCompleto) => ({ id: 'corretor', titulo: 'Área do corretor', visivel: true,
+      seoDescricao: `Corretor de imóveis: faça parte da rede ${nomeCompleto}. Cadastre seus imóveis, venda o acervo da imobiliária e receba sua parte da comissão — tudo registrado no sistema.`,
+      blocos: [
+        { id: 'acesso', tipo: 'acessoCorretor', visivel: true, eyebrow: 'Área do corretor', titulo: `Venda com a ${nomeCompleto}`,
+          texto: 'Corretor de imóveis: cadastre os seus imóveis na nossa rede, venda o acervo da imobiliária e receba a sua parte da comissão — tudo registrado no sistema.',
+          imagem: '',
+          parceiroEyebrow: 'Quero fazer parte', parceiroTitulo: 'Seja corretor parceiro',
+          parceiroTexto: 'Cadastre-se com o seu CRECI. Nossa equipe confere os dados e libera o seu acesso.', parceiroBotao: 'Cadastrar-me',
+          fechadoTexto: 'O cadastro de novos parceiros está fechado no momento. Fale conosco pelo WhatsApp.',
+          entrarEyebrow: 'Já sou corretor', entrarTitulo: 'Entrar no sistema',
+          entrarTexto: 'Acesse seus imóveis, as fichas da rede, os seus leads e as suas comissões.', entrarBotao: 'Entrar',
+          entrarDica: 'Esqueceu a senha? Use “Esqueci minha senha” na tela de entrada.' },
+        { id: 'vantagens', tipo: 'vantagens', visivel: true, eyebrow: 'Vantagens', titulo: 'Por que vender com a gente', doPrograma: true, mostrarDivisao: true,
+          itens: ['Seus imóveis captados ganham vitrine no nosso site e nos principais portais.',
+            'Você continua dono da sua captação: a captação fica registrada no sistema em seu nome.',
+            'Fechou negócio com imóvel da rede? A comissão é dividida — tudo registrado no sistema.',
+            'Sistema gratuito para organizar seus imóveis e seus clientes.'] },
+        { id: 'como-funciona', tipo: 'passos', visivel: true, eyebrow: 'Como funciona', titulo: 'Do cadastro à comissão',
+          itens: [
+            { titulo: 'Cadastre-se', texto: 'Nome, CRECI, telefone e e-mail. Leva dois minutos.' },
+            { titulo: 'Aprovação', texto: 'Nossa equipe confere o seu CRECI e libera o acesso. Você recebe o aviso.' },
+            { titulo: 'Trabalhe no sistema', texto: 'Cadastre os seus imóveis, consulte as fichas do acervo da imobiliária e atenda os leads que chegarem para você.' },
+            { titulo: 'Feche e receba', texto: 'Negócio fechado, a comissão é dividida entre captação, venda e escritório, e você acompanha a sua parte.' },
+          ] },
+        { id: 'regras', tipo: 'texto', visivel: true, eyebrow: 'Regras da parceria', titulo: 'O cliente é atendido pela imobiliária',
+          texto: `Anúncios, portais e site são pagos pela ${nome}; por isso todo contato com clientes e proprietários passa pelos canais da imobiliária. Nos anúncios não vão telefone, e-mail ou redes pessoais. Trouxe um cliente seu? Registre em “Tenho um cliente” no sistema: a data e a hora ficam guardadas e garantem a sua parte. Comissão só é paga pela imobiliária, nunca por fora.`,
+          imagem: '', ladoImagem: 'direita', fundo: 'branco', botao: { rotulo: '', destino: 'whatsapp' } },
+        { id: 'duvidas', tipo: 'chamada', visivel: true, titulo: 'Dúvidas?', texto: 'Fale com a nossa equipe antes de se cadastrar.',
+          botao: { rotulo: 'Conversar no WhatsApp', destino: 'whatsapp' } },
+      ] }),
+    quemSomos: (nome, nomeCompleto) => ({ id: 'quem-somos', titulo: 'Quem somos', visivel: false,
+      blocos: [
+        { id: 'historia', tipo: 'texto', visivel: true, eyebrow: 'Quem somos', titulo: nomeCompleto,
+          texto: 'Conte aqui a história da imobiliária, quem está à frente e o jeito de trabalhar. (Esta página só aparece no site quando você ligar 👁 em 📑 Páginas.)',
+          imagem: '', ladoImagem: 'direita', fundo: 'branco', botao: { rotulo: 'Fale com a gente', destino: 'whatsapp' } },
+        { id: 'valores', tipo: 'servicos', visivel: true, eyebrow: '', titulo: 'Como trabalhamos', texto: '',
+          itens: [
+            { icone: '🤝', titulo: 'Atendimento próximo', texto: 'Uma pessoa da equipe acompanha você do primeiro contato à entrega das chaves.' },
+            { icone: '🔎', titulo: 'Transparência', texto: 'Cada fase da negociação registrada no sistema, com prestação de contas.' },
+            { icone: '🔒', titulo: 'Segurança', texto: 'Contratos assinados eletronicamente e pagamentos só em nome da imobiliária.' },
+          ] },
+        { id: 'contato-qs', tipo: 'contato', visivel: true, eyebrow: 'Fale conosco', titulo: 'Contato', textoWhatsapp: '' },
+      ] }),
+    branco: (titulo) => ({ titulo: titulo || 'Nova página', visivel: false,
+      blocos: [{ id: 'texto-1', tipo: 'texto', visivel: true, eyebrow: '', titulo: titulo || 'Nova página', texto: 'Escreva aqui.', imagem: '', ladoImagem: 'direita', fundo: 'branco', botao: { rotulo: '', destino: 'whatsapp' } }] }),
+  };
+
   // Blocos que dá para acrescentar pelo editor
   const MODELOS_BLOCO = {
     texto: () => ({ tipo: 'texto', visivel: true, eyebrow: '', titulo: 'Novo bloco', texto: 'Escreva aqui.', imagem: '', ladoImagem: 'direita', fundo: 'claro', botao: { rotulo: '', destino: 'secao:contato' } }),
     servicos: () => ({ tipo: 'servicos', visivel: true, eyebrow: '', titulo: 'Novos serviços', texto: '', itens: [{ icone: '⭐', titulo: 'Item', texto: 'Descrição.' }] }),
     chamada: () => ({ tipo: 'chamada', visivel: true, titulo: 'Fale com a gente', texto: 'Tire suas dúvidas pelo WhatsApp.', botao: { rotulo: 'Conversar no WhatsApp', destino: 'whatsapp' } }),
     perguntas: () => ({ tipo: 'perguntas', visivel: true, eyebrow: 'Dúvidas', titulo: 'Perguntas frequentes', itens: [{ pergunta: 'Pergunta?', resposta: 'Resposta.' }] }),
+    passos: () => ({ tipo: 'passos', visivel: true, eyebrow: 'Como funciona', titulo: 'Passo a passo', texto: '', itens: [{ titulo: 'Primeiro passo', texto: 'Descrição.' }, { titulo: 'Segundo passo', texto: 'Descrição.' }] }),
+    vantagens: () => ({ tipo: 'vantagens', visivel: true, eyebrow: 'Vantagens', titulo: 'Por que vender com a gente', doPrograma: true, mostrarDivisao: true, itens: ['Vantagem 1', 'Vantagem 2'] }),
+    acessoCorretor: () => JSON.parse(JSON.stringify(MODELOS_PAGINA.corretor('', '').blocos[0])),
+    destaque: () => ({ tipo: 'destaque', visivel: true, eyebrow: '', titulo: 'Título', texto: '', imagem: '', botao1: { rotulo: 'Fale conosco', destino: 'whatsapp' }, botao2: { rotulo: '', destino: 'inicio' } }),
+    contato: () => ({ tipo: 'contato', visivel: true, eyebrow: 'Fale conosco', titulo: 'Contato', textoWhatsapp: '' }),
   };
 
   // Normaliza uma configuração salva (campos que faltarem vêm do padrão) — versões futuras migram aqui
@@ -128,11 +187,15 @@
       blocos: Array.isArray(cfg.blocos) ? cfg.blocos : p.blocos,
       rodape: { ...p.rodape, ...(cfg.rodape || {}) },
       seo: { ...p.seo, ...(cfg.seo || {}) },
+      // site publicado antes das páginas extras ganha as páginas do modelo
+      paginas: Array.isArray(cfg.paginas) ? cfg.paginas : p.paginas,
+      seguranca: { ...p.seguranca, ...(cfg.seguranca || {}) },
     };
   }
 
   window.siteConfigPadrao = (t, e) => { const c = siteConfigPadrao(t, e); delete c._novoBloco; return c; };
   window.normalizarSiteConfig = normalizarSiteConfig;
   window.MODELOS_BLOCO_SITE = MODELOS_BLOCO;
+  window.MODELOS_PAGINA_SITE = MODELOS_PAGINA;
   window.dividirNomeSite = dividirNome;
 })();

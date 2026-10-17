@@ -227,6 +227,31 @@ await caso('blindagem: foto com nome neutro', true, () => setDoc(R(db('cor1'), '
 await caso('blindagem: foto com telefone no nome BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imC', 'fotos', 'f2'), foto({ nome: 'liga_11987654321.jpg' })));
 await caso('blindagem: foto com @ na legenda BLOQUEIA', false, () => setDoc(R(db('cor1'), 'imoveis', 'imC', 'fotos', 'f3'), foto({ legenda: 'siga @joao' })));
 
+// ---------- 🛡 Proteção (17/10/2026): registro de cliente, CRECI e contrato ----------
+const { writeBatch } = await import('firebase/firestore');
+const regCliente = async (uid, regId, chave, extra = {}) => {
+  const d = db(uid); const b = writeBatch(d);
+  b.set(R(d, 'registrosCliente', regId), { corretorUid: uid, corretorNome: 'x', clienteNome: 'Cliente', telefone: '11987654321', email: null, procura: 'venda', codigoAnuncio: null, obs: null, chave, criadoEm: serverTimestamp(), ...extra });
+  b.set(R(d, 'registrosClienteChave', chave), { corretorUid: uid, registroId: regId, criadoEm: serverTimestamp() });
+  return b.commit();
+};
+await caso('proteção: corretor registra cliente (protocolo + chave)', true, () => regCliente('cor1', 'rg1', 'h1'));
+await caso('proteção: OUTRO corretor registra o mesmo cliente BLOQUEIA', false, () => regCliente('cor2', 'rg2', 'h1'));
+await caso('proteção: registro sem a chave BLOQUEIA', false, () => setDoc(R(db('cor1'), 'registrosCliente', 'rg3'), { corretorUid: 'cor1', corretorNome: 'x', clienteNome: 'C', telefone: '11987654321', procura: 'venda', chave: 'h9', criadoEm: serverTimestamp() }));
+await caso('proteção: registro com data forjada BLOQUEIA', false, () => regCliente('cor1', 'rg4', 'h4', { criadoEm: new Date(2020, 0, 1) }));
+await caso('proteção: corretor altera o registro BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'registrosCliente', 'rg1'), { clienteNome: 'Outro' }));
+await caso('proteção: corretor apaga o registro BLOQUEIA', false, () => deleteDoc(R(db('cor1'), 'registrosCliente', 'rg1')));
+await caso('proteção: corretor lê o próprio registro', true, () => getDoc(R(db('cor1'), 'registrosCliente', 'rg1')));
+await caso('proteção: colega lê o registro BLOQUEIA', false, () => getDoc(R(db('cor2'), 'registrosCliente', 'rg1')));
+await caso('proteção: equipe anota a análise', true, () => updateDoc(R(db('op0'), 'registrosCliente', 'rg1'), { analise: 'valido' }));
+await caso('proteção: equipe muda a data do registro BLOQUEIA', false, () => updateDoc(R(db('op0'), 'registrosCliente', 'rg1'), { criadoEm: new Date(2020, 0, 1) }));
+await caso('proteção: admin apaga registro BLOQUEIA', false, () => deleteDoc(R(db('admin1'), 'registrosCliente', 'rg1')));
+await caso('proteção: corretor marca o próprio CRECI conferido BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { creciConferido: { em: 'x' } }));
+await caso('proteção: corretor marca o próprio contrato assinado BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { 'contratoParceria.status': 'signed' }));
+await caso('proteção: corretor edita o próprio telefone (continua)', true, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { telefone: '11900001111' }));
+await caso('proteção: equipe registra CRECI conferido', true, () => updateDoc(R(db('op0'), 'corretores', 'cor2'), { creciConferido: { em: 'x', por: 'op0' } }));
+await caso('proteção: corretor marca cliente identificado na cópia BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L2'), { clienteIdentificado: true, historico: hist }));
+
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
 process.exit(falhas ? 1 : 0);

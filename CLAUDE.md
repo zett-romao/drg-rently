@@ -721,7 +721,27 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   Motor `site-engine.js` + `site.css` + modelo `site-padrao.js` (o site da D.R. Global vira o padrão de todo cliente, com os dados dele); `site.html?t=<slug>` serve qualquer cliente; domínio próprio usa o mesmo motor (drglobalimoveis sincroniza).
   Editor `site-editor.js` (seção `site`): blocos prontos com campos (NÃO editor livre), prévia ao vivo por postMessage (`?previa=1`), rascunho automático, Publicar (lote: `site/publicado` + `site/rascunho` + `siteVersoes`), histórico, imagens no Storage `tenants/{t}/site/`, verificação de DNS.
   Permissões: módulo `site` (ver/editar) + ação `publicarSite` (admin já tem). Regras: `podeEditarSite`/`podePublicarSite`, `site/publicado` com leitura pública, `siteVersoes` só cresce; `site`/`siteVersoes` fora da regra genérica. Site próprio pode dar dados iniciais em `site-dados.json`.
-  Pendente (fase 3): ligar domínio de qualquer cliente automaticamente (Cloudflare for SaaS) — hoje o painel orienta e verifica DNS.
+  ~~Pendente (fase 3)~~ feita no mesmo dia — ver abaixo.
+- **2026-10-17**: 📑 **Meu site fase 2 — páginas extras** (dono: *"faça a area do corretor, fases 2 e 3"*).
+  `config.paginas[]` ({id, titulo, visivel, seoTitulo, seoDescricao, blocos}); motor abre `?p=<id>` ou `window.RENTLY_PAGINA`
+  (drglobalimoveis `corretor.html` agora é página do motor; `RENTLY_SITE.paginas` mapeia id → arquivo). Modelos: **Área do corretor**
+  (blocos `acessoCorretor` com as 2 portas, `vantagens` com a divisão da comissão do programa de parceiros, `passos`, regras da parceria)
+  e **Quem somos** (nasce escondida). Destinos novos: `pagina:<id>`, `parceiro`, `sistema`. Destino `corretor` = página corretor
+  se visível, senão o cadastro de parceiro. Site publicado antes da fase 2 ganha as páginas do modelo (`normalizarSiteConfig`).
+  🔒 **Aviso contra golpes** (`config.seguranca`) no rodapé de todas as páginas + na página do imóvel; texto automático com canais oficiais e CNPJ.
+- **2026-10-17**: 🌐 **Meu site fase 3 — domínio próprio automático**. Worker `drg-rently-sites` (`cloudflare-worker-sites.js`,
+  deploy pelo workflow `deploy-sites.yml`). Cliente cria 2 registros no DNS do domínio: `CNAME www → sites.rently.dev.br` e
+  `TXT _rently.www → <tenantId>` (o TXT é a prova de posse: ninguém liga domínio alheio ao seu site). Worker serve `rently.dev.br`
+  com `RENTLY_TENANT_FIXO` injetado (`/` = site.html). API `/api/dominios` (GET/POST/DELETE) com o ID token do Firebase verificado
+  (RS256) — pode admin, quem tem 🚀 Publicar, equipe DRG. Tela: 🌐 Meu site → Endereço e domínio (🔍 Verificar / 🔗 Ligar / ✂️ Desligar).
+  ⚠️ **Falta a parte do dono na Cloudflare** (zona rently.dev.br na Cloudflare, SSL for SaaS, fallback `sites.rently.dev.br`, rota
+  `*/*` no worker, variável `CF_ZONE_ID` + secret `CF_API_TOKEN`). Até lá a API responde 503 explicando. Testes: worker com mocks (18 casos).
+- **2026-10-17**: 🛡 **Proteção contra golpes** (`protecao.js`; dono aprovou 1 a 7, *"não convém burocratizar muito"*):
+  1 contrato de parceria (modelo editável em Corretores → 🛡 Proteção da rede; vai pelo DRG-Sign; opção "só usa depois de assinar", nasce desligada);
+  2 "Tenho um cliente" (`registrosCliente` imutável + `registrosClienteChave` SHA-256 do celular: o 2º corretor é recusado);
+  3 aviso contra golpes (site e página do imóvel); 4 cliente identificado (CPF + documento) antes da visita — corretor vê só ✓;
+  5 CRECI conferido na aprovação (quem e quando); 6 alerta de fichas abertas em massa (`ver_ficha` na auditoria, limite configurável);
+  7 matrícula: link ONR + "conferida" opcional. Regras testadas: 148 casos.
 
 ---
 

@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v27-20261017i-blindagem';
+const CACHE_VERSION = 'drg-rently-v28-20261017j-protecao';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

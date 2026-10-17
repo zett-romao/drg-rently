@@ -1148,6 +1148,7 @@ async function renderApp() {
   if (State.tenant && podeVerSecao('corretores')) atualizarBadgeCorretoresPendentes();
   // Corretor: contador de leads novos repassados a ele
   if (State.tenant && isCorretor()) atualizarBadgeMeusLeads();
+  if (State.tenant && isCorretor() && typeof verificarContratoCorretor === 'function') verificarContratoCorretor();
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
@@ -3773,6 +3774,14 @@ async function loadAlertasResumoDashboard() {
       }
     } catch (_) {}
 
+    // 🛡 Proteção contra golpes (protecao.js): fichas abertas em massa, CRECI não conferido
+    if (typeof alertasProtecao === 'function') {
+      for (const a of await alertasProtecao().catch(() => [])) {
+        if (a.nivel === 'critico') qtdCriticos++; else if (a.nivel === 'atencao') qtdAtencao++; else qtdInfo++;
+        topAlertas.push(a);
+      }
+    }
+
     // Ordena: críticos primeiro, depois atenção, depois info
     const ordem = { critico: 0, atencao: 1, info: 2 };
     topAlertas.sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
@@ -3812,7 +3821,7 @@ async function loadAlertasResumoDashboard() {
     const cardsHtml = `
       <div class="alertas-mini-grid">
         ${top.map(a => `
-          <div class="alerta-mini nivel-${a.nivel}" onclick="showSection('${a.secao}')">
+          <div class="alerta-mini nivel-${a.nivel}" onclick="${a.onclick || `showSection('${a.secao}')`}">
             <div class="alerta-mini-icone">${a.icone}</div>
             <div class="alerta-mini-body">
               <div class="alerta-mini-titulo">${escapeHtml(a.titulo)}</div>
@@ -10133,6 +10142,7 @@ function renderLeadsTable() {
         <td>
           <div class="action-btns" style="flex-wrap:wrap; gap:4px;">
             ${!['convertido', 'descartado'].includes(status) ? `<button class="btn btn-sm btn-primary" onclick="openRepassarLead('${l._id}')" title="Vincular este lead a um corretor">👤 ${l.corretorUid ? 'Trocar' : 'Repassar'}</button>` : ''}
+            ${typeof abrirIdentificarLead === 'function' && !['descartado'].includes(status) ? `<button class="btn btn-sm btn-secondary" onclick="abrirIdentificarLead('${l._id}')" title="Conferir CPF e documento antes da visita">${l.identificacao ? '🪪 ✓ Identificado' : '🪪 Identificar'}</button>` : ''}
             ${status === 'novo' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'contatado')" title="Marcar como contatado" style="background:#FEF3C7; border-color:#FCD34D; color:#92400E;">📞 Contatei</button>` : ''}
             ${status !== 'convertido' && status !== 'descartado' ? `<button class="btn btn-sm" onclick="updateLeadStatus('${l._id}', 'convertido')" title="Virou cliente" style="background:#DCFCE7; border-color:#86EFAC; color:#166534;">✅ Converti</button>` : ''}
             ${status !== 'descartado' ? `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'descartado')" title="Descartar">🗑 Descartar</button>` : `<button class="btn btn-sm btn-secondary" onclick="updateLeadStatus('${l._id}', 'novo')" title="Reabrir">↻ Reabrir</button>`}
@@ -10153,6 +10163,7 @@ async function loadLeads() {
     _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     if (typeof mesclarAtendimentoDosCorretores === 'function') await mesclarAtendimentoDosCorretores(_leadsCarregados);
     renderLeadsTable();
+    if (typeof loadRegistrosClientes === 'function') loadRegistrosClientes();
   } catch (err) {
     console.error('Erro ao carregar leads:', err);
     tbody.innerHTML = `<tr><td colspan="7" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
@@ -10933,6 +10944,7 @@ async function openImovelModal(id) {
         $('imovel-multiplas-unidades').checked = !!im.multiplasUnidades;
 
         $('imovel-matricula').value = im.matricula || '';
+        if (typeof prepararMatriculaImovel === 'function') prepararMatriculaImovel(im);
         $('imovel-iptu').value = im.iptu || '';
         $('imovel-finalidade').value = im.finalidade || 'locacao';
         $('imovel-valor-mercado').value = im.valorMercado ?? '';
@@ -10996,6 +11008,7 @@ async function openImovelModal(id) {
     $('imovel-docs-section').style.display = 'none';
     $('imovel-fotos-section').style.display = 'block';
     travarMarcaDaguaDoCorretor();
+    if (typeof prepararMatriculaImovel === 'function') prepararMatriculaImovel(null);
     $('imovel-publicacao-section').style.display = 'none';
     const grid = $('imovel-fotos-grid');
     if (grid) {
@@ -11098,6 +11111,7 @@ async function saveImovel() {
     mobiliado: $('imovel-mobiliado').value,
     multiplasUnidades: $('imovel-multiplas-unidades').checked,
     matricula: $('imovel-matricula').value.trim() || null,
+    ...(typeof lerMatriculaConferida === 'function' ? lerMatriculaConferida() : {}),
     iptu: $('imovel-iptu').value.trim() || null,
     finalidade: $('imovel-finalidade').value,
     valorMercado: parseFloat($('imovel-valor-mercado').value) || null,

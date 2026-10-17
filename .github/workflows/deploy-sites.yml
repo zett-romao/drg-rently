@@ -1,0 +1,26 @@
+name: Deploy Cloudflare Worker (Sites — domínio próprio)
+
+# Roda sempre que o worker dos sites ou o wrangler-sites.toml mudarem no main,
+# ou manualmente pela aba Actions do GitHub.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker-sites.js'
+      - 'wrangler-sites.toml'
+      - '.github/workflows/deploy-sites.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy worker via Wrangler (config separada)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler-sites.toml

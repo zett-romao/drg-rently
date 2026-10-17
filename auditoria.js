@@ -253,6 +253,9 @@ const AUDIT_ACAO_LABEL = {
   zapsign_envio: '✍️ Enviado para assinatura', zapsign_signed: '✅ Assinado', zapsign_desfeito: '↩ Envio de assinatura desfeito',
   assinatura_avulsa_envio: '✍️ Documento enviado para assinatura', assinatura_avulsa_assinada: '✅ Documento assinado',
   assinatura_avulsa_excluida: '🗑 Documento de assinatura excluído',
+  ver_ficha: '👁 Ficha da rede aberta', cliente_registrado: '🙋 Cliente registrado pelo corretor',
+  cliente_registro_analise: '🙋 Registro de cliente analisado', identificar_cliente: '🪪 Cliente identificado',
+  contrato_parceria: '📝 Contrato de parceria', creci_conferido: '🔎 CRECI conferido',
   arquivar: '📦 Arquivado', restaurar: '♻️ Restaurado', excluir_definitivo: '✗ Excluído definitivamente',
 };
 const AUDIT_ENTIDADE_LABEL = {

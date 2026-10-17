@@ -73,6 +73,7 @@ async function resolveTenantId(slugOrId) {
     $$('pp-titulo').textContent = titulo;
     document.title = `${titulo} — ${nome}`;
     $$('og-title').setAttribute('content', titulo);
+    aplicarSeloParceiro(tenantId, tenant).catch(() => {});   // "digital" dourado ao lado do nome
 
     const itens = String(programa.texto || '').split('\n').map(s => s.trim()).filter(Boolean);
     $$('pp-beneficios').innerHTML = itens.map(i => `<li>${esc(i)}</li>`).join('');
@@ -95,6 +96,37 @@ async function resolveTenantId(slugOrId) {
     showError('Erro ao carregar', err.message);
   }
 })();
+
+// Selo da marca ao lado do nome (ex.: "digital" dourado da D.R. Global): o mesmo do site.
+// Fonte: site publicado no 🌐 Meu site; sem ele, o site-dados.json do site próprio.
+async function aplicarSeloParceiro(tenantId, tenant) {
+  let selo = null;
+  try {
+    const p = await firebase.firestore().collection('tenants').doc(tenantId).collection('site').doc('publicado').get();
+    const id = p.exists ? (p.data().config || {}).identidade || {} : null;
+    if (id) selo = { texto: id.seloTexto || '', imagem: id.seloImagem || '', cor: id.corDestaque || '' };
+  } catch (_) {}
+  if (!selo && /^https:\/\//i.test(tenant.siteProprio || '')) {
+    try {
+      const r = await fetch(String(tenant.siteProprio).replace(/\/?$/, '/') + 'site-dados.json', { cache: 'no-store' });
+      if (r.ok) { const d = await r.json(); selo = { texto: d.SELO_TEXTO || '', imagem: '', cor: '' }; }
+    } catch (_) {}
+  }
+  if (!selo || (!selo.texto && !selo.imagem)) return;
+  const html = selo.imagem && /^https:\/\//i.test(selo.imagem) ? `<img src="${esc(selo.imagem)}" alt="${esc(selo.texto)}">`
+    : (/^digital$/i.test(selo.texto.trim()) && window.SELO_DIGITAL) ? window.SELO_DIGITAL
+    : `<span class="selo-texto-pp">${esc(selo.texto)}</span>`;
+  const nome = tenant.nome || '';
+  const novo = () => { const s = document.createElement('span'); s.className = 'selo-marca selo-pp'; s.innerHTML = html; s.insertAdjacentHTML('beforeend', `<span class="sr-only"> ${esc(selo.texto)}</span>`); return s; };
+  for (const el of [$$('pp-titulo'), $$('header-empresa'), $$('footer-empresa')]) {
+    if (!el || el.querySelector('.selo-pp')) continue;
+    const t = el.textContent, i = nome ? t.lastIndexOf(nome) : -1;
+    if (i < 0) continue;
+    el.textContent = '';
+    el.append(t.slice(0, i + nome.length), novo(), t.slice(i + nome.length));
+  }
+  if (selo.texto && nome) document.title = document.title.replace(nome, `${nome} ${selo.texto.charAt(0).toUpperCase()}${selo.texto.slice(1)}`);
+}
 
 async function enviarCadastroParceiro() {
   showFormAlert('');

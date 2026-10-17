@@ -7,6 +7,7 @@
 //   • rently.dev.br/site.html?t=<id ou slug>   — o site de qualquer cliente
 //   • domínio próprio (ex.: drglobalimoveis.com.br) — window.RENTLY_TENANT_FIXO
 // Na PRÉVIA do editor (?previa=1) desenha o que o editor mandar por postMessage.
+// Páginas extras (Quem somos, Área do corretor…): ?p=<id> ou window.RENTLY_PAGINA (site próprio).
 (function () {
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,6 +20,8 @@
   const SUB = { apartamento: 'Apartamento', casa: 'Casa', sobrado: 'Sobrado', kitnet: 'Kitnet', sala: 'Sala comercial', loja: 'Loja', galpao: 'Galpão', terreno: 'Terreno', outro: 'Imóvel' };
 
   let tenantId = null, tenant = {}, slug = '', cfg = null;
+  let paginaAtual = window.RENTLY_PAGINA || params.get('p') || null;
+  const SISTEMA = 'https://rently.dev.br/';   // entrada do sistema (corretores e equipe)
 
   // ---------- endereços ----------
   const q = (extra) => (FIXO ? (extra ? '?' + extra : '') : `?t=${encodeURIComponent(slug || tenantId)}${extra ? '&' + extra : ''}`);
@@ -27,15 +30,26 @@
     imoveis: () => 'imoveis.html' + q(),
     'imoveis-locacao': () => 'imoveis.html' + q('finalidade=locacao'),
     'imoveis-venda': () => 'imoveis.html' + q('finalidade=venda'),
-    corretor: () => SITE_PROPRIO.parceiro ? SITE_PROPRIO.parceiro : 'parceiro.html' + q(),
+    // Área do corretor: a página do site, se estiver ligada; senão o cadastro de parceiro
+    corretor: () => (paginaVisivel('corretor') ? PAGINA.pagina('corretor') : (SITE_PROPRIO.parceiro || PAGINA.parceiro())),
+    parceiro: () => (FIXO ? `${SISTEMA}parceiro.html?t=${encodeURIComponent(FIXO)}` : 'parceiro.html' + q()),
+    sistema: () => SISTEMA,
+    pagina: (id) => (SITE_PROPRIO.paginas && SITE_PROPRIO.paginas[id])
+      || (FIXO ? `index.html?p=${encodeURIComponent(id)}` : 'site.html' + q('p=' + encodeURIComponent(id))),
   };
-  const naHome = () => !!$('#site-blocos');
+  const paginaDe = (id) => ((cfg && cfg.paginas) || []).find((p) => p.id === id) || null;
+  const paginaVisivel = (id) => { const p = paginaDe(id); return !!(p && p.visivel !== false); };
+  const blocosAtuais = () => (!cfg ? [] : paginaAtual ? ((paginaDe(paginaAtual) || {}).blocos || []) : (cfg.blocos || []));
+  const naHome = () => !!$('#site-blocos') && !paginaAtual;
   function link(destino) {
     const d = String(destino || '');
     if (d === 'whatsapp') return { href: wa('Olá! Vim pelo site.'), externo: true };
     if (d.startsWith('url:')) { const u = d.slice(4).trim(); return { href: /^(https?:|mailto:|tel:)/i.test(u) ? u : 'https://' + u, externo: /^https?:/i.test(u) || !/^(mailto|tel):/i.test(u) }; }
-    if (d.startsWith('secao:')) return { href: (naHome() ? '' : PAGINA.inicio()) + '#' + d.slice(6) };
-    return { href: (PAGINA[d] || PAGINA.inicio)() };
+    if (d.startsWith('secao:')) { const alvo = d.slice(6); const aqui = !!$('#site-blocos') && blocosAtuais().some((b) => b.id === alvo); return { href: (aqui ? '' : PAGINA.inicio()) + '#' + alvo }; }
+    if (d.startsWith('pagina:')) return { href: PAGINA.pagina(d.slice(7)) };
+    if (d === 'sistema') return { href: SISTEMA, externo: true };
+    if (d === 'pagina' || !PAGINA[d] || typeof PAGINA[d] !== 'function') return { href: PAGINA.inicio() };
+    return { href: PAGINA[d]() };
   }
   const attrLink = (destino) => { const l = link(destino); return `href="${esc(l.href)}"${l.externo ? ' target="_blank" rel="noopener"' : ''}`; };
   const wa = (msg) => `https://wa.me/${(cfg?.contato?.whatsapp || '').replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`;
@@ -73,17 +87,30 @@
     return `${comLogo && id.logo ? `<img src="${esc(id.logo)}" alt="${esc(id.nome)}">` : ''}<span class="brand-txt"><b>${esc(id.nome)}</b>${id.complemento ? ` ${esc(id.complemento)}` : ''}${selo(c)}${comCreci && id.creci ? `<small class="brand-creci">${esc(id.creci)}</small>` : ''}</span>`;
   }
   function cabecalho(c) {
-    const itens = (c.menu.itens || []).map((i) => `<a ${attrLink(i.destino)}${i.destino === 'inicio' && naHome() ? ' class="on"' : ''}>${esc(i.rotulo)}</a>`).join('');
+    const ativo = (d) => (d === 'inicio' && naHome()) || (paginaAtual && (d === 'pagina:' + paginaAtual || (d === 'corretor' && paginaAtual === 'corretor')));
+    const itens = (c.menu.itens || []).map((i) => `<a ${attrLink(i.destino)}${ativo(i.destino) ? ' class="on"' : ''}>${esc(i.rotulo)}</a>`).join('');
     const btn = c.menu.botaoWhatsapp && c.contato.whatsapp ? `<a class="btn btn-wa sm" target="_blank" rel="noopener" href="${esc(wa('Olá! Vim pelo site.'))}">WhatsApp</a>` : '';
     return `<div class="wrap nav"><a class="brand" ${attrLink('inicio')}>${marca(c, true, true)}</a>
       <button class="menu-btn" type="button" aria-label="Abrir menu" aria-expanded="false" onclick="const a=document.body.classList.toggle('menu-aberto');this.setAttribute('aria-expanded',a)">☰</button>
       <nav aria-label="Menu principal">${itens}${btn}</nav></div>`;
   }
+  // 🔒 Aviso contra golpes (falso corretor, Pix para pessoa física): canais oficiais da imobiliária
+  function textoSeguranca(c) {
+    const id = c.identidade, ct = c.contato, nome = [id.nome, id.complemento].filter(Boolean).join(' ');
+    if (c.seguranca && String(c.seguranca.texto || '').trim()) return esc(c.seguranca.texto.trim());
+    const canais = [ct.whatsapp ? 'WhatsApp ' + esc(formatarTel(ct.whatsapp)) : '', ct.email ? esc(ct.email) : ''].filter(Boolean).join(' · ');
+    return `A ${esc(nome)} nunca pede Pix, depósito ou sinal em conta de pessoa física, nem cobra para agendar visita. `
+      + `Pagamentos só em nome da imobiliária${ct.cnpj ? ` (CNPJ ${esc(ct.cnpj)})` : ''}.${canais ? ` Canais oficiais: ${canais}.` : ''} Na dúvida, confirme por eles.`;
+  }
+  function avisoSeguranca(c) {
+    if (!c.seguranca || c.seguranca.ativo === false) return '';
+    return `<div class="aviso-golpe" role="note"><div class="wrap"><strong>🔒 ${esc(c.seguranca.titulo || 'Atenção a golpes')}</strong> <span>${textoSeguranca(c)}</span></div></div>`;
+  }
   function rodape(c) {
     const id = c.identidade, ct = c.contato, nome = [id.nome, id.complemento].filter(Boolean).join(' ');
     const legal = c.rodape.mostrarLegal ? [ct.cnpj ? `CNPJ ${esc(ct.cnpj)}` : '', id.creci ? esc(id.creci) : ''].filter(Boolean).join(' · ') : '';
     const resp = c.rodape.mostrarLegal && ct.responsavel ? `<br>Corretor responsável: ${esc(ct.responsavel)}${ct.creciResponsavel ? ' – CRECI ' + esc(ct.creciResponsavel) : ''}` : '';
-    return `<div class="wrap foot">
+    return `${avisoSeguranca(c)}<div class="wrap foot">
       <div><div class="brand-txt">${marca(c, false, false).replace(/^<span class="brand-txt">|<\/span>$/g, '')}</div>
         <p>${esc(c.rodape.texto)}</p>${legal || resp ? `<p class="small">${legal}${resp}</p>` : ''}</div>
       <div><h4>Contato</h4><p>${ct.whatsapp ? `<a target="_blank" rel="noopener" href="${esc(wa('Olá! Vim pelo site.'))}">WhatsApp ${esc(formatarTel(ct.whatsapp))}</a><br>` : ''}${ct.email ? `<a href="mailto:${esc(ct.email)}">${esc(ct.email)}</a>` : ''}</p>
@@ -135,6 +162,33 @@
       ${b.imagem ? `<div class="col-img"><img loading="lazy" src="${esc(b.imagem)}" alt="${esc(b.titulo || '')}"></div>` : ''}</div></section>`,
     chamada: (b) => `<section class="navy" id="${esc(b.id)}"><div class="wrap center"><h2>${esc(b.titulo)}</h2>${b.texto ? `<p class="lead">${esc(b.texto)}</p>` : ''}<p>${botao(b.botao, 'btn-gold')}</p></div></section>`,
     perguntas: (b) => `<section class="claro" id="${esc(b.id)}"><div class="wrap">${cab(b)}<div class="faq">${(b.itens || []).map((i) => `<details><summary>${esc(i.pergunta)}</summary><p>${esc(i.resposta)}</p></details>`).join('')}</div></div></section>`,
+    // Área do corretor: topo com as duas portas (quero ser parceiro / já sou corretor)
+    acessoCorretor: (b) => {
+      const aberto = (tenant.programaParceiros || {}).ativo === true;
+      return `<section class="hero hero-corretor" id="${esc(b.id)}" style="--hero-img:${b.imagem ? `url('${esc(b.imagem)}')` : 'none'}"><div class="wrap">
+      ${b.eyebrow ? `<div class="eyebrow">${esc(b.eyebrow)}</div>` : ''}<h1>${esc(b.titulo)}</h1>${b.texto ? `<p>${esc(b.texto)}</p>` : ''}
+      <div class="portas">
+        <div class="porta">${b.parceiroEyebrow ? `<div class="eyebrow">${esc(b.parceiroEyebrow)}</div>` : ''}<h2>${esc(b.parceiroTitulo || 'Seja corretor parceiro')}</h2><p>${esc(b.parceiroTexto || '')}</p>
+          ${aberto ? `<a class="btn btn-gold" ${attrLink('parceiro')}>${esc(b.parceiroBotao || 'Cadastrar-me')}</a>` : `<div class="fechado">${esc(b.fechadoTexto || 'O cadastro de novos parceiros está fechado no momento. Fale conosco pelo WhatsApp.')}</div>`}</div>
+        <div class="porta">${b.entrarEyebrow ? `<div class="eyebrow">${esc(b.entrarEyebrow)}</div>` : ''}<h2>${esc(b.entrarTitulo || 'Entrar no sistema')}</h2><p>${esc(b.entrarTexto || '')}</p>
+          <a class="btn btn-gold" ${attrLink('sistema')}>${esc(b.entrarBotao || 'Entrar')}</a>${b.entrarDica ? `<p class="small">${esc(b.entrarDica)}</p>` : ''}</div>
+      </div></div></section>`;
+    },
+    // Vantagens + divisão padrão da comissão (vem do programa de parceiros configurado no Rently)
+    vantagens: (b) => {
+      const pp = tenant.programaParceiros || {};
+      const doPrograma = b.doPrograma !== false ? String(pp.texto || '').split(/\n/).map((s) => s.trim()).filter(Boolean) : [];
+      const itens = doPrograma.length ? doPrograma : (b.itens || []);
+      const cm = pp.comissao || {};
+      const partes = b.mostrarDivisao === false ? [] : [['Quem captou', cm.captadorPct], ['Quem vendeu', cm.vendedorPct], ['Escritório', cm.escritorioPct]].filter((x) => Number(x[1]) > 0);
+      return `<section id="${esc(b.id)}"><div class="wrap">${cab(b)}<div class="split" style="align-items:start">
+        <ul class="checks checks-claro">${itens.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>
+        ${partes.length ? `<div><h3 style="margin-top:0">${esc(b.tituloDivisao || 'Divisão padrão da comissão')}</h3><p class="lead" style="margin:0">${esc(b.textoDivisao || 'Sobre a comissão de cada negócio fechado. Pode ser ajustada caso a caso.')}</p>
+          <div class="divisao">${partes.map(([r, v]) => `<div><b>${Number(v)}%</b><span>${r}</span></div>`).join('')}</div></div>` : ''}</div></div></section>`;
+    },
+    // Passos numerados (como funciona)
+    passos: (b) => `<section class="claro" id="${esc(b.id)}"><div class="wrap">${cab(b)}
+      <div class="passos">${(b.itens || []).map((i) => `<div><h3>${esc(i.titulo)}</h3><p>${esc(i.texto)}</p></div>`).join('')}</div></div></section>`,
   };
 
   // ---------- vitrine (imóveis em destaque) ----------
@@ -167,7 +221,11 @@
     aplicarTema(c);
     const h = $('#header'), f = $('#footer'), m = $('#site-blocos');
     if (h) h.innerHTML = cabecalho(c);
-    if (m) m.innerHTML = (c.blocos || []).filter((b) => b.visivel !== false && BLOCO[b.tipo]).map((b) => BLOCO[b.tipo](b)).join('');
+    const pg = paginaAtual ? paginaDe(paginaAtual) : null;
+    const blocos = !paginaAtual ? (c.blocos || []) : (pg && (pg.visivel !== false || PREVIA) ? (pg.blocos || []) : null);
+    if (m) m.innerHTML = blocos
+      ? blocos.filter((b) => b.visivel !== false && BLOCO[b.tipo]).map((b) => BLOCO[b.tipo](b)).join('')
+      : `<section><div class="wrap center"><h2>Página não encontrada</h2><p class="lead">Esta página não existe ou saiu do ar.</p><p><a class="btn btn-gold" ${attrLink('inicio')}>Voltar ao início</a></p></div></section>`;
     if (f) f.innerHTML = rodape(c);
     let flut = $('.wa-float');
     if (c.contato.botaoFlutuante && c.contato.whatsapp) {
@@ -176,6 +234,11 @@
       flut.innerHTML = '<svg viewBox="0 0 32 32" width="30" height="30" fill="#fff" aria-hidden="true"><path d="M16 3C9 3 3.3 8.6 3.3 15.6c0 2.5.7 4.9 2 7L3 29l6.6-2.2c2 1.1 4.2 1.7 6.4 1.7 7 0 12.7-5.6 12.7-12.6S23 3 16 3zm0 23.1c-2 0-4-.6-5.7-1.6l-.4-.2-3.9 1.3 1.3-3.8-.3-.4c-1.1-1.7-1.7-3.7-1.7-5.8C5.3 9.8 10.1 5.1 16 5.1s10.7 4.7 10.7 10.5S21.9 26.1 16 26.1zm5.9-7.8c-.3-.2-1.9-.9-2.2-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-.3-.2-1.4-.5-2.6-1.6-1-.9-1.6-1.9-1.8-2.2-.2-.3 0-.5.1-.7l.5-.6c.2-.2.2-.3.3-.5.1-.2 0-.4 0-.6l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.7s1.2 3.2 1.4 3.4c.2.2 2.4 3.6 5.7 5 .8.3 1.4.5 1.9.7.8.3 1.5.2 2.1.1.6-.1 1.9-.8 2.2-1.5.3-.7.3-1.4.2-1.5-.1-.2-.3-.3-.6-.4z"/></svg>';
     } else if (flut) flut.remove();
     // Google e WhatsApp (prévia do link)
+    if (pg) {
+      const nomeSite = [c.identidade.nome, c.identidade.complemento, c.identidade.seloTexto].filter(Boolean).join(' ');
+      document.title = pg.seoTitulo || `${pg.titulo} – ${nomeSite}`;
+      const md = $('meta[name="description"]'); if (md && (pg.seoDescricao || c.seo.descricao)) md.setAttribute('content', pg.seoDescricao || c.seo.descricao);
+    }
     if (naHome()) {
       document.title = c.seo.titulo || [c.identidade.nome, c.identidade.complemento].join(' ');
       const meta = (sel, attr, val) => { let el = $(sel); if (!el) { el = document.createElement('meta'); const [k, v] = attr; el.setAttribute(k, v); document.head.appendChild(el); } el.setAttribute('content', val || ''); };
@@ -250,7 +313,9 @@
       document.body.insertAdjacentHTML('beforeend', '<div class="aviso-previa">Prévia — ainda não publicado</div>');
       window.addEventListener('message', (ev) => {
         if (ev.origin !== location.origin || !ev.data || ev.data.tipo !== 'rently-site-previa') return;
-        const rolagem = window.scrollY;
+        const trocouPagina = (ev.data.pagina || null) !== paginaAtual;
+        paginaAtual = ev.data.pagina || null;
+        const rolagem = trocouPagina ? 0 : window.scrollY;
         montar(normalizarSiteConfig(ev.data.config, tenant, EXTRA));
         window.scrollTo(0, rolagem);
         if (ev.data.ancora) { const el = document.getElementById(ev.data.ancora); if (el) el.scrollIntoView({ block: 'start' }); }
@@ -258,6 +323,6 @@
       window.parent.postMessage({ tipo: 'rently-site-pronto' }, location.origin);
     }
   }
-  window.RentlySite = { montar: (c) => montar(normalizarSiteConfig(c, tenant, EXTRA)), link };
+  window.RentlySite = { montar: (c) => montar(normalizarSiteConfig(c, tenant, EXTRA)), link, textoSeguranca };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 })();

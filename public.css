@@ -1006,3 +1006,11 @@ body.menu-publico-aberto { overflow: hidden; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .selo-marca { display: inline-block; height: 1em; width: auto; margin-left: .45em; position: relative; top: .24em; color: inherit; }
 .selo-marca svg { height: 100%; width: auto; display: block; }
+
+/* 🔒 Aviso contra golpes na página do imóvel (public-imovel.js) */
+.aviso-golpe-imovel{background:#fff8e6;color:#5c4400;border-left:3px solid #b29b52;border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin:10px 0 0;flex-basis:100%}
+
+/* Selo da marca na página "Seja corretor parceiro" (parceiro.js): dourado claro sobre o fundo escuro */
+.selo-pp { color: #d6c38a; }
+.selo-pp img { height: 100%; width: auto; display: block; }
+.selo-texto-pp { font-family: 'Turret Road', system-ui, sans-serif; font-weight: 500; }

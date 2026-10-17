@@ -475,12 +475,15 @@ async function loadCorretores() {
     const ordem = { pendente: 0, ativo: 1, suspenso: 2 };
     const lista = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
       .sort((a, b) => (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9) || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
+    if (typeof sincronizarContratosParceria === 'function') await sincronizarContratosParceria(lista);
+    if (typeof renderCardProtecao === 'function' && $('card-protecao-rede') && !$('card-protecao-rede').innerHTML.trim()) renderCardProtecao();
     tbody.innerHTML = lista.map(c => {
       const acoes = [];
       if (c.status === 'pendente') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">✅ Aprovar</button>`);
       if (c.status === 'ativo') acoes.push(`<button class="btn btn-sm btn-danger" onclick="definirStatusCorretor('${c.uid}','suspenso')">Suspender</button>`);
       if (c.status === 'suspenso') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">Reativar</button>`);
       acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openCorretorModal('${c.uid}')">Editar</button>`);
+      if (typeof botoesProtecaoCorretor === 'function' && c.status !== 'pendente') acoes.push(botoesProtecaoCorretor(c));
       return `
         <tr>
           <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}</span></td>
@@ -488,7 +491,7 @@ async function loadCorretores() {
           <td>${c.telefone ? escapeHtml(maskTelefone(c.telefone)) : '—'}</td>
           <td>${CORRETOR_TIPO_LABEL[c.tipo] || '—'}</td>
           <td>${captados[c.uid] || 0}</td>
-          <td>${CORRETOR_STATUS_LABEL[c.status] || escapeHtml(c.status || '—')}</td>
+          <td>${CORRETOR_STATUS_LABEL[c.status] || escapeHtml(c.status || '—')}${typeof celulaProtecaoCorretor === 'function' && c.status !== 'pendente' ? celulaProtecaoCorretor(c) : ''}</td>
           <td><div class="action-btns">${acoes.join(' ')}</div></td>
         </tr>`;
     }).join('');
@@ -679,17 +682,31 @@ async function definirStatusCorretor(uid, status) {
     ativo:    { titulo: 'Liberar acesso?', msg: 'O corretor poderá entrar, cadastrar imóveis e ver as fichas da rede.', btn: '✅ Liberar' },
     suspenso: { titulo: 'Suspender corretor?', msg: 'O acesso é bloqueado na hora. Os imóveis que ele captou continuam no sistema.', btn: 'Suspender' },
   }[status];
-  if (!(await confirmar({ titulo: textos.titulo, mensagem: textos.msg, confirmar: textos.btn, aviso: status === 'suspenso' }))) return;
+  // 🛡 Liberar = conferir o CRECI (fica registrado quem conferiu e quando) — protecao.js
+  let creciConferido = null;
+  if (status === 'ativo' && typeof confirmarCreciNaAprovacao === 'function') {
+    let jaConferido = false;
+    try { jaConferido = !!(await tenantPath().collection('corretores').doc(uid).get()).data()?.creciConferido; } catch (_) {}
+    if (!jaConferido) {
+      creciConferido = await confirmarCreciNaAprovacao(uid);
+      if (!creciConferido) return;
+    } else if (!(await confirmar({ titulo: textos.titulo, mensagem: textos.msg, confirmar: textos.btn }))) return;
+  } else if (!(await confirmar({ titulo: textos.titulo, mensagem: textos.msg, confirmar: textos.btn, aviso: status === 'suspenso' }))) return;
   try {
     const batch = db.batch();
     batch.update(db.collection('users').doc(uid), { ativo: status === 'ativo', status });
     batch.update(tenantPath().collection('corretores').doc(uid), {
       status, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      ...(creciConferido ? { creciConferido } : {}),
     });
     await batch.commit();
-    logAuditoria('status', 'corretor', uid, { status });
+    logAuditoria('status', 'corretor', uid, { status, creciConferido: !!creciConferido });
     _corretoresAtivosCache = null;
     loadCorretores();
+    if (status === 'ativo' && creciConferido && typeof enviarContratoParceria === 'function'
+        && await confirmar({ titulo: '📝 Contrato de parceria', mensagem: 'Mandar agora o contrato de parceria para o corretor assinar?', detalhe: 'O modelo fica em Corretores → 🛡 Proteção da rede.', confirmar: '📝 Enviar contrato', cancelar: 'Depois' })) {
+      enviarContratoParceria(uid, null);
+    }
   } catch (err) {
     console.error('Erro ao mudar status do corretor:', err);
     showInlineStatus('corretores-status', `❌ ${err.message}`, 'error');
@@ -811,6 +828,7 @@ function renderRede() {
 async function abrirFichaRede(id) {
   const resumo = _redeCarregada.find(f => f._id === id);
   if (!resumo) return;
+  if (typeof registrarFichaAberta === 'function') registrarFichaAberta(id);
   let f = resumo;
   if (resumo._completo) {
     try {
@@ -1468,6 +1486,7 @@ async function loadMeusLeads() {
       .sort((a, b) => (b.atribuidoEm?.toMillis?.() || 0) - (a.atribuidoEm?.toMillis?.() || 0));
     renderMeusLeads();
     atualizarBadgeMeusLeads(_meusLeads);
+    if (typeof loadMeusRegistros === 'function') loadMeusRegistros();
   } catch (err) {
     console.error('Erro ao carregar meus leads:', err);
     tbody.innerHTML = `<tr><td colspan="5" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
@@ -1496,6 +1515,7 @@ function renderMeusLeads() {
         <td style="font-size:12px;">${dias !== null ? `há ${dias} dia(s)` : '—'}${l.canal ? `<br><span class="muted">${escapeHtml(LEAD_CANAL_LABEL[l.canal] || l.canal)}</span>` : ''}</td>
         <td><strong>${escapeHtml(l.primeiroNome || 'Cliente')}</strong><br>
           <span class="muted" style="font-size:11px;">🔒 contato com a imobiliária</span>
+          <br>${l.clienteIdentificado ? '<span style="font-size:11px;color:#166534;">🪪 identificado pela imobiliária</span>' : '<span style="font-size:11px;color:#92400E;" title="Golpe comum: falso interessado. Espere a imobiliária confirmar.">⚠️ visita só depois que a imobiliária identificar</span>'}
           ${l.melhorHorario && l.melhorHorario !== 'qualquer' && typeof LEAD_HORARIO_LABEL !== 'undefined' ? `<br><span style="font-size:11px;">🕐 ${escapeHtml(LEAD_HORARIO_LABEL[l.melhorHorario] || l.melhorHorario)}</span>` : ''}</td>
         <td style="font-size:12px;">${imovel}${quer ? escapeHtml(quer) + '<br>' : ''}
           ${l.mensagem ? `<span class="muted">💬 ${escapeHtml(l.mensagem.slice(0, 160))}</span><br>` : ''}

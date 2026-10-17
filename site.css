@@ -106,3 +106,25 @@ section{padding:72px 0}.center{text-align:center}.lead{color:var(--muted);max-wi
 /* aviso de prévia (editor do Rently) */
 .aviso-previa{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;z-index:70;background:#1d2733;color:#fff;font-size:.8rem;padding:6px 14px;border-radius:999px;opacity:.85;pointer-events:none}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.card,.btn{transition:none}}
+
+/* Área do corretor (página do Meu site): portas, vantagens com divisão da comissão e passos */
+.hero-corretor{padding-bottom:90px}
+.portas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:22px;margin-top:34px}
+.porta{background:#fff;color:var(--ink);border-radius:var(--r);padding:28px;box-shadow:0 12px 40px rgba(0,0,0,.18);display:flex;flex-direction:column;gap:10px;min-width:0}
+.porta h2{font-size:1.5rem;margin:0;color:var(--navy)}.hero .porta p{color:var(--muted);margin:0;font-size:1rem;opacity:1}
+.porta .eyebrow,.hero .porta .eyebrow{font-size:.85rem;color:var(--gold-escuro)}
+.porta .btn{margin-top:auto;text-align:center}.porta .small{font-size:.85rem}
+.fechado{background:#fff8e6;color:#7a5b00;border-radius:10px;padding:12px 14px;margin-top:auto}
+.checks-claro li{color:var(--ink)}
+.divisao{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px;margin-top:20px}
+.divisao div{background:#fff;border-radius:var(--r);padding:20px;text-align:center;box-shadow:0 2px 10px rgba(15,42,71,.06)}
+.divisao b{display:block;font-size:2rem;color:var(--navy);font-family:var(--fonte-titulo)}.divisao span{color:var(--muted)}
+.passos{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:22px;counter-reset:passo}
+.passos>div{border:1px solid var(--line);border-radius:var(--r);padding:24px;min-width:0}
+.passos>div:before{counter-increment:passo;content:counter(passo);width:36px;height:36px;border-radius:50%;background:var(--gold);color:#fff;font-weight:700;display:grid;place-items:center;margin-bottom:10px}
+.passos h3{font-size:1.1rem;margin:0 0 .3em}.passos p{color:var(--muted);margin:0}
+/* 🔒 Aviso contra golpes (rodapé de todas as páginas) */
+.aviso-golpe{background:#fff8e6;color:#5c4400;padding:14px 0;font-size:.92rem;line-height:1.5;border-bottom:3px solid var(--gold)}
+.aviso-golpe strong{color:#7a5b00;margin-right:.3em}
+#footer .aviso-golpe a{color:#5c4400;text-decoration:underline}
+#footer .aviso-golpe{margin:-50px 0 40px}

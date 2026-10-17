@@ -152,7 +152,7 @@ service cloud.firestore {
     }
     // Coleções com regra própria: a regra genérica da equipe não grava nelas
     function colecaoComRegraPropria(colecao) {
-      return colecao in ['auditoria', 'site', 'siteVersoes', 'leadsCorretor'];
+      return colecao in ['auditoria', 'site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave'];
     }
     // Registro de auditoria honesto: em nome de quem grava e com a hora do servidor
     function registroDeAuditoriaValido() {
@@ -302,14 +302,14 @@ service cloud.firestore {
                     && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'));
         allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
                       && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor']);
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
         allow update: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
         allow delete: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
         allow read: if isDRGTeam();
         allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor']);
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
         allow update, delete: if isDRGTeam() && !colecaoComRegraPropria(collection);
       }
 
@@ -379,12 +379,42 @@ service cloud.firestore {
         // corretor edita o próprio cartão, sem mexer em status/tipo/comissão
         allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid']);
+                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria']);
         // autocadastro: cria o próprio cartão pendente (programa ligado)
         allow create: if isSignedIn() && request.auth.uid == corretorId
+                      && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria'])
                       && request.resource.data.status == 'pendente'
                       && request.resource.data.tipo == 'parceiro'
                       && programaParceirosAtivo(tenantId);
+      }
+
+      // 🛡 "Tenho um cliente" (protecao.js, 17/10/2026): protocolo do corretor com data e hora do
+      // servidor. Ninguém altera o que foi registrado nem apaga; a equipe só anota a análise.
+      match /registrosCliente/{regId} {
+        allow read: if isCorretorOf(tenantId) && resource.data.corretorUid == request.auth.uid;
+        allow create: if isCorretorOf(tenantId)
+                      && request.resource.data.corretorUid == request.auth.uid
+                      && request.resource.data.criadoEm == request.time
+                      && request.resource.data.keys().hasOnly(['corretorUid', 'corretorNome', 'clienteNome', 'telefone', 'email',
+                           'procura', 'codigoAnuncio', 'obs', 'chave', 'criadoEm'])
+                      && request.resource.data.clienteNome is string && request.resource.data.clienteNome.size() <= 120
+                      && request.resource.data.telefone is string && request.resource.data.telefone.matches('[0-9]{10,11}')
+                      && request.resource.data.chave is string
+                      && existsAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosClienteChave/$(request.resource.data.chave));
+        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
+        allow update: if (isEquipeTenant(tenantId) || isDRGTeam())
+                      && soCampos(['analise', 'analiseNota', 'analisadoPor', 'analisadoEm']);
+        allow delete: if false;
+      }
+      // Um cliente (celular, em SHA-256) = um registro: o segundo corretor é recusado
+      match /registrosClienteChave/{chave} {
+        allow create: if isCorretorOf(tenantId)
+                      && request.resource.data.corretorUid == request.auth.uid
+                      && request.resource.data.criadoEm == request.time
+                      && request.resource.data.keys().hasOnly(['corretorUid', 'registroId', 'criadoEm'])
+                      && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosCliente/$(request.resource.data.registroId)).data.chave == chave;
+        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
+        allow update, delete: if false;
       }
 
       // Extrato de comissão: corretor lê só os negócios em que participa

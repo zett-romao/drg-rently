@@ -1,0 +1,15 @@
+# =============================================================
+# Config do Cloudflare Worker — DRG-Rently Sites (domínio próprio dos clientes)
+#
+# Deploy automático via .github/workflows/deploy-sites.yml
+# CF_ZONE_ID (variável) e CF_API_TOKEN (secret) ficam no painel do Cloudflare
+# (keep_vars preserva o que estiver lá). Rota "*/*" na zona rently.dev.br entra
+# quando a zona estiver na Cloudflare com SSL for SaaS ligado (ver CLAUDE.md).
+# =============================================================
+name = "drg-rently-sites"
+main = "cloudflare-worker-sites.js"
+compatibility_date = "2024-09-01"
+keep_vars = true
+
+[vars]
+ALVO_CNAME = "sites.rently.dev.br"
