@@ -13,3 +13,4 @@ keep_vars = true
 
 [vars]
 ALVO_CNAME = "sites.rently.dev.br"
+CF_ZONE_ID = "833e6f59ea1abe8fc346294a4a2effa5"   # zona rently.dev.br (não é segredo; o token CF_API_TOKEN é secret no painel)
