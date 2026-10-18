@@ -1014,3 +1014,10 @@ body.menu-publico-aberto { overflow: hidden; }
 .selo-pp { color: #d6c38a; }
 .selo-pp img { height: 100%; width: auto; display: block; }
 .selo-texto-pp { font-family: 'Turret Road', system-ui, sans-serif; font-weight: 500; }
+
+/* "Seja corretor parceiro": marca clicável e "← Voltar ao site" no cabeçalho (parceiro.js) */
+.pp-marca { display: flex; align-items: center; gap: 14px; color: inherit; text-decoration: none; min-width: 0; }
+.pp-voltar { margin-left: auto; flex: none; color: #fff; text-decoration: none; border: 1px solid rgba(255,255,255,.45); border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 600; min-height: 40px; display: inline-flex; align-items: center; }
+.pp-voltar:hover { background: rgba(255,255,255,.12); }
+.pp-voltar:active { transform: scale(.98); filter: brightness(.92); }
+@media (max-width: 560px) { .pp-voltar { padding: 6px 12px; font-size: 13px; } }

@@ -73,7 +73,23 @@ async function resolveTenantId(slugOrId) {
     $$('pp-titulo').textContent = titulo;
     document.title = `${titulo} — ${nome}`;
     $$('og-title').setAttribute('content', titulo);
-    aplicarSeloParceiro(tenantId, tenant).catch(() => {});   // "digital" dourado ao lado do nome
+    aplicarSeloParceiro(tenantId, tenant).catch(() => {});
+    // Volta ao site da imobiliária: de onde a pessoa veio (se for o site dela), senão o site próprio,
+    // senão o site do Rently (site.html). Área do corretor primeiro, quando veio de lá.
+    const proprio = /^https:\/\//i.test(tenant.siteProprio || '') ? String(tenant.siteProprio).replace(/\/?$/, '/') : '';
+    const doRently = `site.html?t=${encodeURIComponent(tenant.slug || tenantId)}`;
+    let volta = proprio || doRently;
+    try {
+      const ref = document.referrer ? new URL(document.referrer) : null;
+      const daCasa = ref && ((proprio && ref.origin === new URL(proprio).origin) || (ref.origin === location.origin && /site\.html/.test(ref.pathname)));
+      if (daCasa) volta = document.referrer;
+    } catch (_) {}
+    $$('pp-voltar').href = volta;
+    // Veio de uma página do site? Volta exatamente para ela (o navegador nem sempre conta o endereço inteiro)
+    $$('pp-voltar').addEventListener('click', (ev) => {
+      if (document.referrer && history.length > 1) { ev.preventDefault(); history.back(); }
+    });
+    $$('pp-marca').href = proprio || doRently;
 
     const itens = String(programa.texto || '').split('\n').map(s => s.trim()).filter(Boolean);
     $$('pp-beneficios').innerHTML = itens.map(i => `<li>${esc(i)}</li>`).join('');
