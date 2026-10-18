@@ -744,6 +744,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   3 aviso contra golpes (site e página do imóvel); 4 cliente identificado (CPF + documento) antes da visita — corretor vê só ✓;
   5 CRECI conferido na aprovação (quem e quando); 6 alerta de fichas abertas em massa (`ver_ficha` na auditoria, limite configurável);
   7 matrícula: link ONR + "conferida" opcional. Regras testadas: 148 casos.
+- **2026-10-17**: ✨ **Cadastro de imóvel com IA** (`ia-imovel.js` + Worker Gemini modo `imovel`; dono: *"subir txt, print de tela, imagem e pdf… a IA gera o anúncio inteiro… deixe a forma convencional"*).
+  Quadro no topo do modal do imóvel: arrastar/Ctrl+V prints, fotos, PDF, .txt ou colar texto → preenche só campos vazios (verde = IA, amarelo = dúvida;
+  "Usar o da IA nesses também" substitui), título/descrição/tags, proprietário (seleciona ou abre cadastro preenchido), fotos do imóvel → galeria
+  (marca d'água de sempre), conflitos entre arquivos. 🔒 Prompt proíbe SUPOR (iluminação, acabamento, adjetivo sem fato) e clichês — testado no Gemini real.
 
 ---
 
