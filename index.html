@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261017h-meusite">
+  <link rel="stylesheet" href="styles.css?v=20261017q-ia-imovel">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -4712,6 +4712,30 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
         <input type="hidden" id="imovel-id">
 
+        <!-- ✨ Cadastro com IA (ia-imovel.js): arquivos/prints/texto → formulário + anúncio. O manual continua abaixo. -->
+        <details class="ia-box" id="imovel-ia-box">
+          <summary><span class="ia-box-titulo">✨ Cadastro com IA</span> <span class="ia-box-sub">— suba prints, fotos, PDFs ou o texto do imóvel e a IA preenche tudo e escreve o anúncio</span></summary>
+          <div class="ia-box-corpo">
+            <div class="ia-zona" id="imovel-ia-zona" tabindex="0" role="button" aria-label="Arraste arquivos aqui ou clique para escolher. Ctrl+V cola um print."
+                 onclick="if(event.target===this||event.target.classList.contains('ia-zona-txt'))document.getElementById('imovel-ia-input').click()"
+                 onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('imovel-ia-input').click()}">
+              <div class="ia-zona-txt">📎 <strong>Arraste aqui</strong> ou <strong>clique para escolher</strong> — prints de tela, fotos, PDF (ficha, matrícula, IPTU, folheto) ou .txt<br><small>Copiou um print? Clique aqui e aperte <kbd>Ctrl</kbd>+<kbd>V</kbd>. Até 20 arquivos.</small></div>
+              <div class="ia-arquivos" id="imovel-ia-arquivos"></div>
+            </div>
+            <input type="file" id="imovel-ia-input" multiple accept="image/*,application/pdf,.pdf,.txt,text/plain,.md,.csv" style="display:none" onchange="adicionarArquivosIA(this.files); this.value='';">
+            <div class="form-group" style="margin-top:10px;">
+              <label for="imovel-ia-texto">Ou cole/escreva o que sabe do imóvel</label>
+              <textarea id="imovel-ia-texto" rows="3" placeholder="Ex.: Casa térrea em Alphaville, 3 quartos (1 suíte), 2 vagas, 180 m² de área útil, terreno 250 m², piscina. Venda R$ 1.250.000, condomínio R$ 900. Proprietário: João Silva (11) 99999-9999."></textarea>
+            </div>
+            <div class="ia-box-acoes">
+              <button type="button" class="btn btn-primary btn-ia" id="btn-imovel-ia" onclick="preencherImovelComIA()">✨ Preencher tudo com IA</button>
+              <span class="muted" style="font-size:12px;">A IA só usa o que está no material e não apaga o que você já digitou. Confira os campos destacados antes de salvar.</span>
+            </div>
+            <div id="imovel-ia-status" style="margin-top:8px;"></div>
+            <div id="imovel-ia-resultado"></div>
+          </div>
+        </details>
+
         <h4 class="form-section-title">Identificação</h4>
 
         <div class="form-row">
@@ -6005,6 +6029,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   <script src="rede.js?v=20261017j-protecao"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261013c-relatorio"></script>
+  <script src="ia-imovel.js?v=20261017q-ia-imovel"></script>
   <script src="assinaturas.js?v=20261017j-protecao"></script>
   <script src="site-editor.js?v=20261017m-titulo"></script>
 </body>

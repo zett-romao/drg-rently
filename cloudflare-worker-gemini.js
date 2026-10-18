@@ -445,6 +445,7 @@ export default {
 
     const { fileBase64, mimeType, prompt, modo, tipoOperacaoHint } = payload;
     if (modo === 'anuncio') return gerarAnuncio(payload, env, origin);
+    if (modo === 'imovel') return cadastrarImovel(payload, env, origin);
     if (!fileBase64 || !mimeType) {
       return new Response(JSON.stringify({ error: 'Faltam campos: fileBase64, mimeType' }), {
         status: 400,
@@ -618,6 +619,108 @@ async function gerarAnuncio(payload, env, origin) {
     } catch (e) {
       const motivo = cand?.finishReason === 'MAX_TOKENS' ? ' (resposta cortada — tente com menos fotos)' : '';
       return respostaJson({ error: 'Resposta da IA não é JSON válido' + motivo, raw: text.slice(0, 2000) }, 500, origin);
+    }
+    return respostaJson({ success: true, data: parsed }, 200, origin);
+  } catch (err) {
+    return respostaJson({ error: 'Falha ao chamar Gemini: ' + err.message }, 500, origin);
+  }
+}
+
+// -------------------------------------------------------------
+// Modo "imovel" — CADASTRO COM IA (17/10/2026, pedido do dono: "subir txt, print de tela,
+// imagem e pdf com a descrição do imóvel e a IA gera o anúncio inteiro")
+// Recebe arquivos (imagens, PDFs, textos) + texto colado e devolve os campos do formulário
+// do imóvel, o proprietário encontrado, o anúncio (título/descrição/tags) e o que é cada arquivo.
+// -------------------------------------------------------------
+const IMOVEL_MAX_ARQUIVOS = 20;
+const IMOVEL_MAX_BYTES = 20 * 1024 * 1024;
+
+const PROMPT_IMOVEL = `Você é corretor de imóveis sênior e redator de anúncios no Brasil. A imobiliária vai cadastrar um imóvel no sistema e mandou o material que tem: prints de anúncios (portais, WhatsApp, Instagram), fotos do imóvel, PDFs (ficha, matrícula, IPTU, folheto, contrato) e textos soltos.
+
+TAREFA 1 — EXTRAIR os dados do imóvel para o formulário.
+- Use SOMENTE o que estiver no material. NUNCA invente. Campo sem informação = null.
+- Se fontes divergirem (ex.: print diz 3 quartos e PDF diz 2), use a mais confiável (documento > anúncio > texto solto) e registre em "conflitos".
+- Valores em reais como número (1250000, 3500.5). "R$ 1,2 mi" = 1200000. Aluguel é mensal.
+- Áreas em m² como número. "andar" é texto ("5", "térreo", "cobertura").
+- "tipo": "residencial" ou "comercial". "subtipo": apartamento | casa | sobrado | kitnet | sala | loja | galpao | terreno | outro.
+- "finalidade": "venda" | "locacao" | "ambos" (venda e aluguel citados = "ambos").
+- "mobiliado": "sim" | "parcial" | "nao". "aceitaFinanciamento", "permiteFGTS", "aceitaPermuta": "sim" | "nao" | null.
+- "matricula": número da matrícula do registro de imóveis; "iptu": número da inscrição/IPTU (não o valor).
+- Endereço: separe logradouro, número, complemento, bairro, cidade, UF (2 letras) e CEP (8 dígitos sem traço).
+- "apelido": identificação interna curta para a equipe achar o imóvel (ex.: "Apto 52 — Ed. Solar, Alphaville").
+- "obs": informações internas úteis que NÃO devem ir ao anúncio (ex.: chave na portaria, horário de visita, nome do zelador). Sem dados pessoais do proprietário aqui.
+
+TAREFA 2 — PROPRIETÁRIO (vendedor/locador), se aparecer no material: nome, telefone (só dígitos, com DDD), e-mail, CPF/CNPJ. Senão null. (Esses dados ficam no cadastro interno; NUNCA no anúncio.)
+
+TAREFA 3 — ANÚNCIO para portais e site, com as mesmas regras de ouro:
+- Só fatos do material; nada de inventar característica, ponto da região ou distância.
+- PROIBIDO no título e na descrição: preço, telefone, e-mail, site, link, @perfil, WhatsApp, nome de corretor ou de outra imobiliária, endereço com número.
+- Sem linguagem discriminatória, sem CAIXA ALTA, sem clichês ("imperdível", "oportunidade única").
+- "titulo": 45 a 70 caracteres, tipo + principal diferencial + bairro (se houver). Sem emoji, sem ponto final.
+- "descricao": 700 a 1.500 caracteres, 3 a 5 parágrafos separados por linha em branco: destaque principal; ambientes e acabamento; condomínio/lazer (se houver); localização (só bairro/cidade do material); condições e convite para visita. Financiamento/FGTS/permuta só se o material disser.
+- "tags": até 10, minúsculas ("varanda gourmet", "piscina"). "destaques": 4 a 8 itens curtos.
+
+TAREFA 4 — CLASSIFICAR cada ARQUIVO recebido (mesmo índice): "foto_imovel" (foto real de um ambiente/fachada, que serve para a galeria), "print_anuncio" (captura de tela de anúncio/conversa), "documento" (matrícula, IPTU, ficha, contrato), "texto", "outro". Para foto_imovel diga o "ambiente" (sala, cozinha, quarto, banheiro, fachada, área de lazer, vista…). Se aparecerem pessoas, placa de carro ou documentos numa foto, marque "privacidade": true.
+
+Responda APENAS com JSON válido, sem markdown:
+{
+  "campos": {
+    "apelido": string|null, "tipo": string|null, "subtipo": string|null, "finalidade": string|null,
+    "endereco": { "cep": string|null, "logradouro": string|null, "numero": string|null, "complemento": string|null, "bairro": string|null, "cidade": string|null, "uf": string|null },
+    "areaUtil": number|null, "areaTotal": number|null, "andar": string|null,
+    "quartos": int|null, "suites": int|null, "banheiros": int|null, "vagas": int|null, "mobiliado": string|null,
+    "valorVenda": number|null, "aluguelSugerido": number|null, "valorCondominio": number|null, "valorIPTU": number|null,
+    "aceitaFinanciamento": string|null, "permiteFGTS": string|null, "aceitaPermuta": string|null, "permutaObs": string|null,
+    "matricula": string|null, "iptu": string|null, "videoUrl": string|null, "tourUrl": string|null, "obs": string|null
+  },
+  "proprietario": { "nome": string|null, "telefone": string|null, "email": string|null, "documento": string|null } | null,
+  "anuncio": { "titulo": string, "descricao": string, "tags": [string], "destaques": [string] },
+  "arquivos": [{ "indice": int, "tipo": string, "ambiente": string|null, "privacidade": bool }],
+  "incertos": [string] (nomes dos campos acima em que você tem dúvida),
+  "conflitos": [string],
+  "resumo": string (1 a 2 frases: o que é o imóvel e de onde vieram os dados)
+}`;
+
+async function cadastrarImovel(payload, env, origin) {
+  const arquivos = Array.isArray(payload.arquivos) ? payload.arquivos : [];
+  const texto = typeof payload.texto === 'string' ? payload.texto.slice(0, 20000) : '';
+  if (!arquivos.length && !texto.trim()) return respostaJson({ error: 'Envie pelo menos um arquivo ou cole um texto.' }, 400, origin);
+  if (arquivos.length > IMOVEL_MAX_ARQUIVOS) return respostaJson({ error: `Máximo de ${IMOVEL_MAX_ARQUIVOS} arquivos por vez.` }, 400, origin);
+
+  let total = 0;
+  const parts = [{ text: PROMPT_IMOVEL }];
+  if (texto.trim()) parts.push({ text: `TEXTO COLADO PELA IMOBILIÁRIA:\n${texto}` });
+  arquivos.forEach((a, i) => {
+    if (!a || typeof a.mimeType !== 'string') return;
+    if (a.mimeType.startsWith('text/')) {
+      parts.push({ text: `ARQUIVO ${i} (texto, "${String(a.nome || '').slice(0, 80)}"):\n${String(a.texto || '').slice(0, 20000)}` });
+      return;
+    }
+    if (!/^image\//.test(a.mimeType) && a.mimeType !== 'application/pdf') return;
+    if (typeof a.data !== 'string') return;
+    total += (a.data.length * 3) / 4;
+    parts.push({ text: `ARQUIVO ${i} (${a.mimeType === 'application/pdf' ? 'PDF' : 'imagem'}, "${String(a.nome || '').slice(0, 80)}"):` });
+    parts.push({ inline_data: { mime_type: a.mimeType, data: a.data } });
+  });
+  if (total > IMOVEL_MAX_BYTES) return respostaJson({ error: 'Os arquivos somam mais de 20 MB — envie menos ou menores.' }, 413, origin);
+  parts.push({ text: `TOTAL DE ARQUIVOS: ${arquivos.length} (classifique todos em "arquivos").` });
+
+  const requestBody = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 12288, thinkingConfig: { thinkingBudget: 2048 } },
+  };
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${env.GEMINI_API_KEY}`;
+    const r = await fetch(geminiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+    const data = await r.json();
+    if (!r.ok) return respostaJson({ error: data?.error?.message || 'Erro no Gemini' }, r.status, origin);
+    const cand = data?.candidates?.[0];
+    const txt = (cand?.content?.parts || []).map((p) => p.text || '').join('');
+    let parsed;
+    try { parsed = JSON.parse(txt); }
+    catch (_) {
+      const motivo = cand?.finishReason === 'MAX_TOKENS' ? ' (resposta cortada — envie menos arquivos)' : '';
+      return respostaJson({ error: 'Resposta da IA não é JSON válido' + motivo }, 500, origin);
     }
     return respostaJson({ success: true, data: parsed }, 200, origin);
   } catch (err) {

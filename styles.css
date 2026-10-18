@@ -4290,3 +4290,36 @@ details.card > summary:hover {
 .site-moldura.celular{max-width:390px;margin:0 auto;border:10px solid #1b1d33;border-radius:30px}
 .site-moldura iframe{width:100%;height:100%;border:0;display:block}
 .site-ajuda{font-size:12.5px;background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px}.site-ajuda ol{margin:6px 0 0;padding-left:18px}
+
+/* ✨ Cadastro de imóvel com IA (ia-imovel.js) */
+.ia-box{border:1px solid #c7d7f5;background:linear-gradient(180deg,#f5f8ff,#fff);border-radius:12px;margin:0 0 18px;padding:0}
+.ia-box>summary{cursor:pointer;padding:14px 16px;list-style-position:inside;line-height:1.4}
+.ia-box-titulo{font-weight:700;color:#1d3b8b}
+.ia-box-sub{color:var(--text-muted,#64748b);font-size:13px}
+.ia-box-corpo{padding:0 16px 16px}
+.ia-zona{border:2px dashed #9db4e6;border-radius:10px;padding:14px;background:#fff;cursor:pointer;outline:none}
+.ia-zona:focus,.ia-zona.arrastando{border-color:#1d4ed8;background:#eef3ff}
+.ia-zona-txt{font-size:13px;line-height:1.5;color:#334155;text-align:center}
+.ia-zona-txt small{color:var(--text-muted,#64748b)}
+.ia-zona kbd{border:1px solid #cbd5e1;border-bottom-width:2px;border-radius:4px;padding:0 4px;font-size:11px;background:#f8fafc}
+.ia-arquivos{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;justify-content:center}
+.ia-arq{position:relative;width:92px;border:1px solid var(--border);border-radius:8px;padding:4px;background:#fff;text-align:center;cursor:default}
+.ia-arq img{width:82px;height:62px;object-fit:cover;border-radius:4px;display:block;margin:0 auto}
+.ia-arq-ico{display:grid;place-items:center;height:62px;font-size:28px}
+.ia-arq-nome{display:block;font-size:10px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.ia-arq-x{position:absolute;top:-8px;right:-8px;width:26px;height:26px;border-radius:50%;border:1px solid #fecaca;background:#fff;color:#b91c1c;font-size:16px;line-height:1;cursor:pointer}
+.ia-box-acoes{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn.btn-ia{background:linear-gradient(90deg,#1d4ed8,#7c3aed);border-color:transparent;color:#fff}
+.btn.btn-ia:active{transform:scale(.98);filter:brightness(.92)}
+#imovel-ia-resultado .ia-ok{background:#e8f6ee;color:#14532d;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:13px}
+#imovel-ia-resultado .ia-linha{margin-top:8px;font-size:13px;line-height:1.5}
+#imovel-ia-resultado .ia-aviso{color:#92400e}
+.ia-marca{background:#dcfce7;border:1px solid #86efac;border-radius:4px;padding:0 4px}
+.ia-marca.duvida{background:#fef9c3;border-color:#fde047}
+.ia-fotos{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.ia-foto{display:flex;flex-direction:column;align-items:center;gap:2px;width:96px;font-size:11px;cursor:pointer}
+.ia-foto img{width:96px;height:68px;object-fit:cover;border-radius:6px;border:2px solid transparent}
+.ia-foto input:checked+img{border-color:#16a34a}
+.campo-ia input,.campo-ia select,.campo-ia textarea{background:#f0fdf4 !important;border-color:#86efac !important}
+.campo-ia-duvida input,.campo-ia-duvida select,.campo-ia-duvida textarea{background:#fefce8 !important;border-color:#fde047 !important}
+@media(max-width:600px){.ia-box-sub{display:block}}
