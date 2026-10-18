@@ -15,7 +15,7 @@
   <meta property="og:image" id="og-image" content="logo.png">
 
   <link rel="stylesheet" href="styles.css?v=20260712a-overflow-clip">
-  <link rel="stylesheet" href="public.css?v=20261017j-protecao">
+  <link rel="stylesheet" href="public.css?v=20261017r-imediacoes">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -83,6 +83,15 @@
         <h3>Descrição do imóvel</h3>
         <div id="descricao-texto" class="descricao-texto is-recolhida"></div>
         <button type="button" id="descricao-ver-mais" class="descricao-ver-mais" onclick="alternarDescricao()">⌄ Ver mais</button>
+      </div>
+    </section>
+
+    <!-- 📍 Nas imediações (imoveis.imediacoesTexto — marcado pela imobiliária no cadastro) -->
+    <section class="public-section" id="imediacoes-section" style="display:none;">
+      <div class="public-container">
+        <h3>📍 Nas imediações</h3>
+        <ul id="imediacoes-lista" class="imediacoes-lista"></ul>
+        <p class="imediacoes-nota">Distâncias aproximadas, em linha reta. Fonte: OpenStreetMap.</p>
       </div>
     </section>
 
@@ -207,6 +216,6 @@
   </a>
 
   <script src="public-shell.js?v=20261017a-selo"></script>
-  <script src="public-imovel.js?v=20261017j-protecao"></script>
+  <script src="public-imovel.js?v=20261017r-imediacoes"></script>
 </body>
 </html>

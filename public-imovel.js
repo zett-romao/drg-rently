@@ -305,6 +305,25 @@ function renderImovel(im, tenant, fotos) {
     });
   }
 
+  // 📍 Nas imediações: uma linha por ponto ("Escola: Nome — ~300 m (≈4 min a pé)")
+  const imed = String(im.imediacoesTexto || '').split(/\n/).map((s) => s.trim()).filter(Boolean).slice(0, 30);
+  if (imed.length && $$('imediacoes-section')) {
+    const ul = $$('imediacoes-lista');
+    ul.innerHTML = '';
+    imed.forEach((linha) => {
+      const li = document.createElement('li');
+      const m = linha.match(/^([^:]+):\s*(.*?)\s+—\s+(.+)$/);
+      if (m) {
+        const cat = document.createElement('span'); cat.className = 'imed-cat-pub'; cat.textContent = m[1];
+        const nome = document.createElement('strong'); nome.textContent = m[2];
+        const dist = document.createElement('span'); dist.className = 'imed-dist-pub'; dist.textContent = m[3];
+        li.append(cat, nome, dist);
+      } else li.textContent = linha;
+      ul.appendChild(li);
+    });
+    $$('imediacoes-section').style.display = 'block';
+  }
+
   // Vídeo (YouTube/Vimeo) e tour 360° (Matterport embute; os demais viram botão)
   const midia = [];
   const video = urlVideoEmbed(im.videoUrl);

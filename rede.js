@@ -68,6 +68,7 @@ function validarTextosDoCorretor(d) {
   const campos = [
     ['Apelido', d.apelido], ['Título do anúncio', d.tituloAnuncio], ['Descrição', d.descricaoLonga],
     ['Observação da permuta', d.permutaObs], ['Tags', Array.isArray(d.tags) ? d.tags.join(' ') : null],
+    ['Imediações', d.imediacoesTexto],
     ['Rua', end.logradouro], ['Bairro', end.bairro], ['Cidade', end.cidade], ['Complemento', end.complemento],
   ];
   const ruim = campos.find(([, v]) => temContato(v));
@@ -291,6 +292,8 @@ function montarDadosVitrine(im, ctx) {
     aceitaPermuta: im.aceitaPermuta === 'sim' ? 'sim' : null,
     permutaObs: im.aceitaPermuta === 'sim' ? (im.permutaObs || null) : null,
     descricaoLonga: im.descricaoLonga || null,
+    // 📍 imediações só quando o bairro é público (as distâncias revelam a região)
+    imediacoesTexto: mostrarBairro ? (im.imediacoesTexto || null) : null,
     videoUrl: im.videoUrl || null,
     tourUrl: im.tourUrl || null,
     tags: im.tags || [],

@@ -1030,3 +1030,11 @@ body.menu-publico-aberto { overflow: hidden; }
 /* listas e caixa de texto do formulário com o mesmo desenho dos campos */
 .pp-card .form-group select, .pp-card .form-group textarea { width: 100%; padding: 10px 14px; border: 1px solid #E2E8F0; border-radius: 8px; font: inherit; font-size: 14px; background: #fff; color: inherit; }
 .pp-card .form-group select:focus, .pp-card .form-group textarea:focus { outline: none; border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.12); }
+
+/* 📍 Nas imediações — página do imóvel */
+.imediacoes-lista { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 8px 18px; }
+.imediacoes-lista li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid #eef1f5; min-width: 0; }
+.imed-cat-pub { flex-basis: 100%; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #64748b; }
+.imediacoes-lista strong { font-weight: 600; overflow-wrap: anywhere; }
+.imed-dist-pub { color: #64748b; font-size: 13px; }
+.imediacoes-nota { font-size: 12px; color: #94a3b8; margin-top: 8px; }

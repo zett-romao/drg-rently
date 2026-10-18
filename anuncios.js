@@ -754,18 +754,20 @@ function textoDistancia(m) {
 // de rua) e, sem CEP no mapa, a rua na cidade. Nunca o número da casa.
 async function coordenadaDoImovel() {
   const v = id => ($(id)?.value || '').trim();
-  const porCep = await coordenadaPorCep(v('imovel-cep'));
-  if (porCep) return porCep;
-  const rua = v('imovel-logradouro'), cidade = v('imovel-cidade');
-  if (!rua || !cidade) return null;
-  try { return await nominatimBusca({ street: rua, city: cidade, state: v('imovel-uf'), country: 'Brasil' }); }
-  catch (_) { return null; }
+  // 1º a RUA (com bairro e cidade): o CEP às vezes só existe no serviço reserva, que devolve o
+  // centro da cidade (Alameda Rio Negro, Alphaville, caía no centro de Barueri, 4 km longe).
+  const rua = v('imovel-logradouro'), cidade = v('imovel-cidade'), bairro = v('imovel-bairro'), uf = v('imovel-uf');
+  if (rua && cidade) {
+    try { const c = await nominatimBusca({ street: rua, city: cidade, state: uf, country: 'Brasil' }); if (c) return c; } catch (_) {}
+    try { const c = await nominatimBusca({ q: [rua, bairro, cidade, uf].filter(Boolean).join(', ') }); if (c) return c; } catch (_) {}
+  }
+  return coordenadaPorCep(v('imovel-cep'));
 }
 
 async function pontosDaRegiao(centro) {
   if (!centro) return { pontos: [], aviso: 'Não achei o imóvel no mapa pelo CEP nem pela rua — a região não será citada.' };
   const R = 1500, { lat, lng } = centro;
-  const q = `[out:json][timeout:20];(
+  const q = `[out:json][timeout:55];(
     nwr(around:${R},${lat},${lng})["amenity"~"^(school|kindergarten|university|college|hospital|clinic|pharmacy|bank|bus_station)$"]["name"];
     nwr(around:${R},${lat},${lng})["shop"~"^(supermarket|mall|bakery)$"]["name"];
     nwr(around:${R},${lat},${lng})["leisure"~"^(park|fitness_centre|sports_centre)$"]["name"];
@@ -779,13 +781,13 @@ async function pontosDaRegiao(centro) {
     'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
   ];
-  const limite = Date.now() + 45000;
+  const limite = Date.now() + 90000;   // Overpass público: 30–60 s em horário de pico
   let elementos = null;
   for (const srv of servidores) {
     const resta = limite - Date.now();
     if (resta < 3000) break;
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), Math.min(25000, resta));
+    const timer = setTimeout(() => ctl.abort(), Math.min(65000, resta));
     try {
       const r = await fetch(srv, { method: 'POST', body: 'data=' + encodeURIComponent(q), signal: ctl.signal,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
@@ -832,7 +834,7 @@ async function gerarAnuncioIA() {
   const btn = $('btn-gerador-gerar');
   const st = 'gerador-status';
   try {
-    const r = await drgSubmit(btn, '⏳ Gerando… aguarde ~40s', async () => {
+    const r = await drgSubmit(btn, '⏳ Gerando… aguarde até 2 min', async () => {
       const dados = dadosDoFormularioImovel();
       dados.caracteristicas = Array.from(document.querySelectorAll('.gerador-carac:checked')).map(c => c.value);
       dados.informacoesExtras = $('gerador-extras').value.trim() || null;

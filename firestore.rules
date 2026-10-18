@@ -181,6 +181,7 @@ service cloud.firestore {
     function textosPublicosLimpos(d) {
       return semContato(d.get('apelido', null)) && semContato(d.get('tituloAnuncio', null))
              && semContato(d.get('descricaoLonga', null)) && semContato(d.get('permutaObs', null))
+             && semContato(d.get('imediacoesTexto', null))
              && listaSemContato(d.get('tags', null)) && enderecoSemContato(d.get('endereco', null))
              && urlMidiaOk(d.get('videoUrl', null)) && urlMidiaOk(d.get('tourUrl', null));
     }

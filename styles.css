@@ -4323,3 +4323,22 @@ details.card > summary:hover {
 .campo-ia input,.campo-ia select,.campo-ia textarea{background:#f0fdf4 !important;border-color:#86efac !important}
 .campo-ia-duvida input,.campo-ia-duvida select,.campo-ia-duvida textarea{background:#fefce8 !important;border-color:#fde047 !important}
 @media(max-width:600px){.ia-box-sub{display:block}}
+
+/* 📍 Imediações do imóvel (imediacoes.js) */
+.imed-box{border:1px solid var(--border);border-radius:10px;margin:6px 0 14px;background:#fbfcfe}
+.imed-box>summary{cursor:pointer;padding:12px 14px;list-style-position:inside}
+.imed-badge{background:#dcfce7;color:#166534;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:4px}
+.imed-corpo{padding:0 14px 14px}
+.imed-linha{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.imed-linha select{padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit}
+.imed-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 10px;margin:6px 0}
+.imed-cat{font-size:13px;display:flex;gap:6px;align-items:center;cursor:pointer;min-height:32px}
+.imed-grupo{margin:8px 0}
+.imed-grupo-tit{font-weight:600;font-size:13px;margin-bottom:2px}
+.imed-item{display:grid;grid-template-columns:auto 1fr auto 40px;gap:8px;align-items:center;font-size:13px;padding:2px 0;cursor:pointer}
+.imed-item span:nth-of-type(1){overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.imed-dist{color:var(--text-muted,#64748b);font-size:12px;white-space:nowrap}
+.imed-item a{text-decoration:none;text-align:center;min-height:32px;display:grid;place-items:center}
+.imed-salvo{margin-top:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:13px}
+.imed-salvo pre{white-space:pre-wrap;font:inherit;margin:6px 0 8px}
+@media(max-width:600px){.imed-item{grid-template-columns:auto 1fr 40px}.imed-dist{grid-column:2}}
