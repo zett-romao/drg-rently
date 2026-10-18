@@ -1021,3 +1021,12 @@ body.menu-publico-aberto { overflow: hidden; }
 .pp-voltar:hover { background: rgba(255,255,255,.12); }
 .pp-voltar:active { transform: scale(.98); filter: brightness(.92); }
 @media (max-width: 560px) { .pp-voltar { padding: 6px 12px; font-size: 13px; } }
+
+/* "Seja corretor parceiro": escolha corretor × proprietário (parceiro.js) */
+.pp-quem { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 4px 0 16px; }
+.pp-quem-btn { min-height: 44px; border: 1px solid #cbd5e1; background: #fff; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; color: #1e293b; }
+.pp-quem-btn.ativo { background: #1e3a5f; border-color: #1e3a5f; color: #fff; }
+.pp-quem-btn:active { transform: scale(.98); filter: brightness(.92); }
+/* listas e caixa de texto do formulário com o mesmo desenho dos campos */
+.pp-card .form-group select, .pp-card .form-group textarea { width: 100%; padding: 10px 14px; border: 1px solid #E2E8F0; border-radius: 8px; font: inherit; font-size: 14px; background: #fff; color: inherit; }
+.pp-card .form-group select:focus, .pp-card .form-group textarea:focus { outline: none; border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.12); }

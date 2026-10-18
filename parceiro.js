@@ -162,7 +162,7 @@ async function enviarCadastroParceiro() {
 
   const btn = $$('btn-enviar');
   btn.disabled = true;
-  btn.textContent = 'Enviando…';
+  btn.textContent = '⏳ Enviando... aguarde';
   let user = null;
   try {
     const cred = await firebase.auth().createUserWithEmailAndPassword(email, senha);
@@ -182,6 +182,7 @@ async function enviarCadastroParceiro() {
     });
     await batch.commit();
     await firebase.auth().signOut();
+    _enviado.corretor = true;
     $$('pp-form').style.display = 'none';
     $$('pp-ok').style.display = 'block';
   } catch (err) {
@@ -200,4 +201,57 @@ async function enviarCadastroParceiro() {
   }
 }
 
+// ---------- Proprietário (vendedor / locador) ----------
+// Quem chega aqui querendo vender ou alugar o próprio imóvel vira um lead "Anuncie seu imóvel"
+// (mesmo caminho do formulário do site: leadsImoveis, origem vitrine_publica).
+let _enviado = { corretor: false, proprietario: false };   // já enviou → mostra a confirmação, não o formulário
+function escolherCadastro(quem) {
+  const dono = quem === 'proprietario';
+  document.querySelectorAll('.pp-quem-btn').forEach((b) => b.classList.toggle('ativo', b.dataset.quem === quem));
+  showFormAlert('');
+  $$('pp-form').style.display = !dono && !_enviado.corretor ? '' : 'none';
+  $$('pp-ok').style.display = !dono && _enviado.corretor ? 'block' : 'none';
+  $$('pp-form-dono').style.display = dono && !_enviado.proprietario ? '' : 'none';
+  $$('pp-ok-dono').style.display = dono && _enviado.proprietario ? 'block' : 'none';
+}
+
+async function enviarCadastroProprietario() {
+  showFormAlert('');
+  const nome = $$('d-nome').value.trim();
+  const telefone = $$('d-telefone').value.replace(/\D/g, '');
+  const email = $$('d-email').value.trim().toLowerCase();
+  const finalidade = $$('d-finalidade').value;
+  if (nome.length < 2) return showFormAlert('Informe o seu nome.');
+  if (telefone.length < 10) return showFormAlert('Telefone inválido (com DDD).');
+  if (!finalidade) return showFormAlert('Diga se quer vender ou alugar.');
+  if (!$$('d-aceite').checked) return showFormAlert('É preciso autorizar o contato da imobiliária.');
+
+  const btn = $$('btn-enviar-dono');
+  btn.disabled = true;
+  btn.textContent = '⏳ Enviando... aguarde';
+  try {
+    await firebase.firestore().collection('tenants').doc(tenantId).collection('leadsImoveis').add({
+      origem: 'vitrine_publica', status: 'novo',
+      nome: nome.slice(0, 200), telefone, email: email || null,
+      finalidade, tipo: $$('d-tipo').value || null,
+      cidadeBairro: $$('d-local').value.trim().slice(0, 200) || null,
+      descricao: ($$('d-descricao').value.trim().slice(0, 2000) || null),
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      userAgent: navigator.userAgent.slice(0, 200), url: location.href,
+    });
+    _enviado.proprietario = true;
+    $$('pp-form-dono').style.display = 'none';
+    $$('pp-ok-dono').style.display = 'block';
+    $$('pp-voltar-ok').href = $$('pp-voltar').href;
+    $$('pp-voltar-ok').onclick = (ev) => { ev.preventDefault(); $$('pp-voltar').click(); };
+  } catch (err) {
+    console.error('Erro no cadastro de proprietário:', err);
+    showFormAlert('Não foi possível enviar: ' + (err.code === 'permission-denied' ? 'confira os dados e tente de novo.' : err.message));
+    btn.disabled = false;
+    btn.textContent = 'Enviar meus dados';
+  }
+}
+
 window.enviarCadastroParceiro = enviarCadastroParceiro;
+window.escolherCadastro = escolherCadastro;
+window.enviarCadastroProprietario = enviarCadastroProprietario;
