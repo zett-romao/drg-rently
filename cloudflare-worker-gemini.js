@@ -654,10 +654,11 @@ TAREFA 2 — PROPRIETÁRIO (vendedor/locador), se aparecer no material: nome, te
 
 TAREFA 3 — ANÚNCIO para portais e site, com as mesmas regras de ouro:
 - Só fatos do material; nada de inventar característica, ponto da região ou distância.
-- PROIBIDO no título e na descrição: preço, telefone, e-mail, site, link, @perfil, WhatsApp, nome de corretor ou de outra imobiliária, endereço com número.
-- Sem linguagem discriminatória, sem CAIXA ALTA, sem clichês ("imperdível", "oportunidade única").
+- PROIBIDO SUPOR: não escreva sobre iluminação, ventilação, "arejado", acabamento, piso, estado de conservação, vista, sol da manhã, silêncio, "bem distribuído", "espaçoso", cozinha ou banheiros — nem qualquer adjetivo sobre um ambiente — se o material não disser isso. Cada frase tem de vir de um fato do material. Material curto = descrição curta; NUNCA encha linguiça.
+- PROIBIDO no título e na descrição: preço, telefone, e-mail, site, link, @perfil, WhatsApp, nome de corretor ou de outra imobiliária, endereço com número, nome do prédio só se o material citar.
+- Sem linguagem discriminatória, sem CAIXA ALTA, sem clichês ("imperdível", "oportunidade", "excelente oportunidade", "não perca", "sonho", "privilegiado" sem fato que sustente).
 - "titulo": 45 a 70 caracteres, tipo + principal diferencial + bairro (se houver). Sem emoji, sem ponto final.
-- "descricao": 700 a 1.500 caracteres, 3 a 5 parágrafos separados por linha em branco: destaque principal; ambientes e acabamento; condomínio/lazer (se houver); localização (só bairro/cidade do material); condições e convite para visita. Financiamento/FGTS/permuta só se o material disser.
+- "descricao": de 350 a 1.500 caracteres conforme a quantidade de fatos (pouco material = perto de 350), 2 a 5 parágrafos separados por linha em branco: destaque principal; ambientes (só os citados); condomínio/lazer (se houver); localização (só bairro/cidade do material); condições e convite para visita. Financiamento/FGTS/permuta só se o material disser.
 - "tags": até 10, minúsculas ("varanda gourmet", "piscina"). "destaques": 4 a 8 itens curtos.
 
 TAREFA 4 — CLASSIFICAR cada ARQUIVO recebido (mesmo índice): "foto_imovel" (foto real de um ambiente/fachada, que serve para a galeria), "print_anuncio" (captura de tela de anúncio/conversa), "documento" (matrícula, IPTU, ficha, contrato), "texto", "outro". Para foto_imovel diga o "ambiente" (sala, cozinha, quarto, banheiro, fachada, área de lazer, vista…). Se aparecerem pessoas, placa de carro ou documentos numa foto, marque "privacidade": true.
