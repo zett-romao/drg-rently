@@ -4342,3 +4342,33 @@ details.card > summary:hover {
 .imed-salvo{margin-top:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:13px}
 .imed-salvo pre{white-space:pre-wrap;font:inherit;margin:6px 0 8px}
 @media(max-width:600px){.imed-item{grid-template-columns:auto 1fr 40px}.imed-dist{grid-column:2}}
+
+/* 📣 Divulgar imóvel (divulgar.js) */
+.btn.btn-divulgar{background:linear-gradient(90deg,#16a34a,#0d9488);border-color:transparent;color:#fff}
+.btn.btn-divulgar:active,.div-chip:active,.div-rede:active{transform:scale(.98);filter:brightness(.92)}
+.div-modal{max-width:1100px}
+.div-sec{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;background:#fff}
+.div-sec h4{margin:0 0 10px;font-size:16px}
+.div-link{display:flex;gap:8px;flex-wrap:wrap}.div-link input{flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;font-size:13px}
+.div-rot{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+.div-sec textarea,.div-controles input[type=text],.div-controles select{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font:inherit;font-size:14px;background:#fff}
+.div-redes{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:10px}
+.div-rede{min-height:40px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.btn.div-wa{background:#25d366;border-color:#25d366;color:#fff}
+.div-dica{font-size:12px;margin:8px 0 0}
+.div-grade{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,340px);gap:18px;align-items:start}
+@media(max-width:820px){.div-grade{grid-template-columns:minmax(0,1fr)}}
+.div-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.div-chip{border:1px solid var(--border);background:#fff;border-radius:999px;padding:7px 12px;font:inherit;font-size:13px;cursor:pointer;min-height:38px}
+.div-chip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.div-linha2{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end}
+.div-linha2 label input{width:auto;margin-right:6px}
+.div-fotos{display:flex;flex-wrap:wrap;gap:6px}
+.div-foto{position:relative;cursor:pointer}
+.div-foto img{width:84px;height:62px;object-fit:cover;border-radius:6px;border:3px solid transparent;display:block}
+.div-foto.capa img{border-color:var(--primary)}
+.div-foto.capa::after{content:'CAPA';position:absolute;bottom:4px;left:4px;background:var(--primary);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px}
+.div-foto input{position:absolute;top:4px;right:4px;width:18px;height:18px}
+.div-previa{position:sticky;top:0}
+.div-previa canvas{width:100%;height:auto;max-height:62vh;object-fit:contain;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);background:#e2e8f0;display:block}
+.div-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}

@@ -748,6 +748,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   Quadro no topo do modal do imóvel: arrastar/Ctrl+V prints, fotos, PDF, .txt ou colar texto → preenche só campos vazios (verde = IA, amarelo = dúvida;
   "Usar o da IA nesses também" substitui), título/descrição/tags, proprietário (seleciona ou abre cadastro preenchido), fotos do imóvel → galeria
   (marca d'água de sempre), conflitos entre arquivos. 🔒 Prompt proíbe SUPOR (iluminação, acabamento, adjetivo sem fato) e clichês — testado no Gemini real.
+- **2026-10-19**: 📣 **Divulgar imóvel** (`divulgar.js`; dono: *"compartilhar imóvel… whats, e-mail, link… gerador de anúncios para status de WhatsApp, reels, story"*).
+  Botão na lista e no cadastro. Compartilhar: link do Worker do feed (prévia com foto), WhatsApp, e-mail, Facebook, X, Telegram, LinkedIn, copiar, navigator.share.
+  Peças em canvas: Story/Status 9:16, Feed 1:1 e 4:5 (modelos Foto inteira e Mosaico) e vídeo 9:16 (MediaRecorder, MP4 no Chrome, WebM de reserva),
+  cores do site publicado + logo do tenant; legenda pronta com hashtags. 🔒 Contato impresso é sempre o da imobiliária; corretor passa por temContato().
 
 ---
 
