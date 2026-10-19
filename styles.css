@@ -4372,3 +4372,5 @@ details.card > summary:hover {
 .div-previa{position:sticky;top:0}
 .div-previa canvas{width:100%;height:auto;max-height:62vh;object-fit:contain;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);background:#e2e8f0;display:block}
 .div-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}
+
+.btn.div-tiktok{background:#111;border-color:#111;color:#fff}

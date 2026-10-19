@@ -17,7 +17,7 @@ const DIV_FORMATOS = {
   story: { w: 1080, h: 1920, rotulo: '📱 Story / Status (9:16)' },
   quadrado: { w: 1080, h: 1080, rotulo: '⬛ Feed quadrado (1:1)' },
   retrato: { w: 1080, h: 1350, rotulo: '▯ Feed retrato (4:5)' },
-  video: { w: 1080, h: 1920, rotulo: '🎬 Vídeo Reels / Status (9:16)' },
+  video: { w: 1080, h: 1920, rotulo: '🎬 Vídeo TikTok / Reels / Status (9:16)' },
 };
 const DIV_SELOS = { auto: 'Automático', venda: 'À VENDA', locacao: 'PARA ALUGAR', ambos: 'VENDA OU LOCAÇÃO', lancamento: 'LANÇAMENTO', reduzido: 'PREÇO REDUZIDO', permuta: 'ACEITA PERMUTA', novidade: 'NOVIDADE', nenhum: '— sem selo —' };
 
@@ -120,7 +120,7 @@ function _legendaPadrao(im) {
   const tags = (Array.isArray(im.tags) ? im.tags : []).slice(0, 5);
   const hash = (s) => '#' + String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
   const e = im.endereco || {};
-  const hashtags = ['#imoveis', '#imovel', im.finalidade === 'venda' ? '#imovelavenda' : im.finalidade === 'ambos' ? '#imovelavenda #aluguel' : '#aluguel',
+  const hashtags = ['#imoveis', '#imovel', '#imobiliaria', im.finalidade === 'venda' ? '#imovelavenda' : im.finalidade === 'ambos' ? '#imovelavenda #aluguel' : '#aluguel',
     im.subtipo ? hash(im.subtipo) : '', (im.publicacao || {}).mostrarBairro !== false && e.bairro ? hash(e.bairro) : '', e.cidade ? hash(e.cidade) : ''].filter(Boolean).join(' ');
   return [
     `🏡 ${im.tituloAnuncio || im.apelido || 'Imóvel'}`, '',
@@ -155,6 +155,7 @@ function _renderDivulgar() {
           ${btnLink('✈️ Telegram', `https://t.me/share/url?url=${enc(link)}&text=${enc(im.tituloAnuncio || im.apelido || '')}`)}
           ${btnLink('💼 LinkedIn', `https://www.linkedin.com/sharing/share-offsite/?url=${enc(link)}`)}
           ${navigator.share ? `<button type="button" class="btn btn-secondary btn-sm div-rede" onclick="compartilharNativoDiv(this)">📱 Mais opções</button>` : ''}
+          <button type="button" class="btn btn-sm div-rede div-tiktok" onclick="postarTikTokDiv(this)" title="Grava o vídeo, copia a legenda e abre o TikTok">🎵 TikTok</button>
         </div>
         <p class="muted div-dica">No WhatsApp o link mostra a foto, o título e o valor do imóvel. Instagram não aceita link em post: use as peças abaixo (e o link na bio ou nos Stories).</p>`
       : `<div class="alert alert-info" style="display:block">🔒 O imóvel ainda <strong>não está publicado</strong> no site, então ainda não tem link para compartilhar. ${corretor ? 'Peça à imobiliária para publicar.' : 'Publique em “🌐 Página pública” no cadastro do imóvel.'} As peças abaixo já podem ser feitas.</div>`}
@@ -187,6 +188,7 @@ function _renderDivulgar() {
           <canvas id="div-canvas" width="1080" height="1920" aria-label="Prévia da peça"></canvas>
           <div class="div-acoes">
             <button type="button" class="btn btn-primary btn-sm" id="btn-div-baixar" onclick="baixarPecaDiv(this)">⬇ Baixar</button>
+            <button type="button" class="btn btn-sm div-tiktok" onclick="postarTikTokDiv(this)" title="Grava o vídeo, copia a legenda e abre o TikTok">🎵 Postar no TikTok</button>
             ${navigator.canShare ? '<button type="button" class="btn btn-secondary btn-sm" id="btn-div-enviar" onclick="enviarPecaDiv(this)">📱 Enviar (WhatsApp, Instagram…)</button>' : ''}
           </div>
           <div id="div-status"></div>
@@ -272,13 +274,14 @@ function _desenharMarca(ctx, x, y, alt, claro) {
     ctx.fillText(c.nome, x, y + alt / 2); ctx.textBaseline = 'alphabetic';
   }
 }
-function _desenharRodape(ctx, W, H, y, cor) {
+function _desenharRodape(ctx, W, H, y, cor, seguro = false) {
   const c = _contatoRodape(); const d = _div;
   const linha = [c.tel ? `💬 ${c.tel}` : '', c.site].filter(Boolean).join('   ·   ') || c.nome;
   const alt = W * 0.085;
-  ctx.fillStyle = cor || d.cores.principal; _ret(ctx, W * 0.06, y, W * 0.88, alt, alt / 2); ctx.fill();
+  const x0 = W * 0.06, larg = seguro ? W * 0.74 : W * 0.88;   // seguro: termina antes dos botões do TikTok/Reels
+  ctx.fillStyle = cor || d.cores.principal; _ret(ctx, x0, y, larg, alt, alt / 2); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.font = FONTE(700, W * 0.034); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(linha, W / 2, y + alt / 2, W * 0.82); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(linha, x0 + larg / 2, y + alt / 2, larg - W * 0.06); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 }
 function _desenharSelo(ctx, W, x, y, texto) {
   if (!texto) return;
@@ -289,7 +292,9 @@ function _desenharSelo(ctx, W, x, y, texto) {
 }
 
 // Modelo 1 — foto inteira com faixa escura embaixo
-function _pecaClassica(ctx, W, H, t, img, zoom = 1) {
+// seguro = vídeo vertical para TikTok/Reels: os botões do app ficam na direita e a legenda cobre
+// a parte de baixo — o texto sobe ~12% e fica longe da borda direita.
+function _pecaClassica(ctx, W, H, t, img, zoom = 1, seguro = false) {
   _cobrir(ctx, img, 0, 0, W, H, zoom);
   const g = ctx.createLinearGradient(0, H * 0.35, 0, H);
   g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.45, 'rgba(0,0,0,.55)'); g.addColorStop(1, 'rgba(0,0,0,.88)');
@@ -297,9 +302,10 @@ function _pecaClassica(ctx, W, H, t, img, zoom = 1) {
   const gt = ctx.createLinearGradient(0, 0, 0, H * 0.18); gt.addColorStop(0, 'rgba(0,0,0,.45)'); gt.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = gt; ctx.fillRect(0, 0, W, H * 0.18);
   _desenharMarca(ctx, W * 0.06, W * 0.06, W * 0.1, true);
-  _desenharSelo(ctx, W, W * 0.94, W * 0.065, t.selo);
-  const m = W * 0.07, larg = W - 2 * m;
-  let y = H - W * 0.06 - W * 0.085 - W * 0.05;   // acima do rodapé
+  _desenharSelo(ctx, W, W * 0.94, W * 0.065 + (seguro ? H * 0.05 : 0), t.selo);
+  const m = W * 0.07, larg = W - 2 * m - (seguro ? W * 0.14 : 0);
+  const base = seguro ? H * 0.13 : 0;
+  let y = H - W * 0.06 - W * 0.085 - W * 0.05 - base;   // acima do rodapé
   const blocos = [];
   ctx.font = FONTE(800, W * 0.066); const tl = _quebrar(ctx, t.titulo, larg, 3);
   if (t.preco) blocos.push({ f: FONTE(800, W * 0.07), cor: _div.cores.destaque, linhas: _quebrar((ctx.font = FONTE(800, W * 0.07), ctx), t.preco, larg, 2), lh: W * 0.085 });
@@ -312,7 +318,7 @@ function _pecaClassica(ctx, W, H, t, img, zoom = 1) {
     for (let i = b.linhas.length - 1; i >= 0; i--) { ctx.fillText(b.linhas[i], m, y, larg); y -= b.lh; }
     y -= W * 0.012;
   }
-  _desenharRodape(ctx, W, H, H - W * 0.06 - W * 0.085);
+  _desenharRodape(ctx, W, H, H - W * 0.06 - W * 0.085 - base, null, seguro);
 }
 
 // Modelo 2 — mosaico de fotos + cartão de informações na cor da marca
@@ -373,7 +379,8 @@ function desenharPecaDiv(quadro) {
   const ctx = cv.getContext('2d'); const t = _textosDiv(); const imgs = _imgsSelecionadas();
   ctx.clearRect(0, 0, f.w, f.h);
   if (quadro) { quadro(ctx, f.w, f.h, t, imgs); return; }
-  if (_div.modelo === 'mosaico') _pecaMosaico(ctx, f.w, f.h, t, imgs);
+  if (_div.formato === 'video') _pecaClassica(ctx, f.w, f.h, t, imgs[0] || null, 1, true);
+  else if (_div.modelo === 'mosaico') _pecaMosaico(ctx, f.w, f.h, t, imgs);
   else _pecaClassica(ctx, f.w, f.h, t, imgs[0] || null);
 }
 
@@ -414,8 +421,8 @@ async function _gravarVideoDiv(onProgresso) {
       desenharPecaDiv((ctx, W, H, t) => {
         if (s < imgs.length * POR_FOTO) {
           const local = s - i * POR_FOTO;
-          _pecaClassica(ctx, W, H, t, imgs[i], 1 + 0.08 * (local / POR_FOTO));
-          if (local < FADE && i > 0) { ctx.globalAlpha = 1 - local / FADE; _pecaClassica(ctx, W, H, t, imgs[i - 1], 1.08); ctx.globalAlpha = 1; }
+          _pecaClassica(ctx, W, H, t, imgs[i], 1 + 0.08 * (local / POR_FOTO), true);
+          if (local < FADE && i > 0) { ctx.globalAlpha = 1 - local / FADE; _pecaClassica(ctx, W, H, t, imgs[i - 1], 1.08, true); ctx.globalAlpha = 1; }
         } else {
           // cartão final: marca + contato
           ctx.fillStyle = _div.cores.principal; ctx.fillRect(0, 0, W, H);
@@ -485,6 +492,33 @@ async function enviarPecaDiv(btn) {
   }
 }
 
+// 🎵 TikTok não aceita link de fora: o post é o VÍDEO. Grava, copia a legenda e abre o TikTok
+// (no celular, manda o vídeo direto para o app pelo "compartilhar").
+async function postarTikTokDiv(btn) {
+  formatoDiv('video');
+  const celular = navigator.canShare && /Android|iPhone|iPad/i.test(navigator.userAgent);
+  const aba = celular ? null : window.open('about:blank', '_blank');   // abre no clique (senão vira pop-up bloqueado)
+  try {
+    const r = await drgSubmit(btn, '⏳ Gravando o vídeo… aguarde', async () => {
+      const f = await _arquivoDaPeca(btn); if (!f) return null;
+      try { await navigator.clipboard.writeText($('div-legenda')?.value || ''); } catch (_) {}
+      if (celular && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], text: ($('div-legenda')?.value || '').slice(0, 2000) }); return f; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      if (aba) aba.location.href = 'https://www.tiktok.com/tiktokstudio/upload';
+      return f;
+    }, { destravar: true });
+    if (!r || r === DRG_IGNORADO) { if (aba) aba.close(); return; }
+    showInlineStatus('div-status', celular ? '✓ Vídeo enviado — escolha o TikTok na lista.'
+      : `✓ Vídeo ${escapeHtml(r.name)} baixado e legenda copiada. Na aba do TikTok: “Selecionar vídeo” → escolha o arquivo → cole a legenda (Ctrl+V).`, 'success', 15000);
+    registrarDivulgacao('tiktok');
+  } catch (err) {
+    if (aba) aba.close();
+    if (err.name === 'AbortError') return;
+    showInlineStatus('div-status', `❌ ${escapeHtml(err.message)}`, 'error');
+  }
+}
+
 async function compartilharNativoDiv(btn) {
   try {
     await navigator.share({ title: _div.im.tituloAnuncio || _div.im.apelido || 'Imóvel', text: $('div-msg')?.value || '', url: _div.link });
@@ -512,5 +546,6 @@ window.desenharPecaDiv = desenharPecaDiv;
 window.baixarPecaDiv = baixarPecaDiv;
 window.enviarPecaDiv = enviarPecaDiv;
 window.compartilharNativoDiv = compartilharNativoDiv;
+window.postarTikTokDiv = postarTikTokDiv;
 window.copiarDiv = copiarDiv;
 window.registrarDivulgacao = registrarDivulgacao;
