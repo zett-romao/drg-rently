@@ -11613,21 +11613,47 @@ function travarMarcaDaguaDoCorretor() {
   chk.title = corretor ? 'Obrigatória: as fotos levam a logo da imobiliária' : '';
 }
 
-async function uploadImovelFotos() {
+// Fotos sobem ao escolher (onchange), ao arrastar ou pelo Cadastro com IA. Uma remessa por vez
+// (clique repetido = foto duplicada); progresso e resultado ao lado do botão — regra nº 1.
+let _enviandoFotos = false;
+async function uploadImovelFotos(opts = {}) {
+  if (_enviandoFotos) { showInlineStatus('imovel-fotos-status', '⏳ Já estou enviando fotos — aguarde terminar.', 'loading'); return false; }
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return false; // Perfis 3.0
-  const imovelId = await garantirRascunhoImovel('imovel-alert');
-  if (!imovelId) return false;
-
   const input = $('imovel-foto-input');
-  const files = Array.from(input.files || []);
-  if (files.length === 0) {
-    showAlert('imovel-alert', 'Selecione ao menos uma foto.');
+  const btn = $('btn-imovel-fotos-upload');
+  _enviandoFotos = true;
+  input.disabled = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparando… aguarde'; }
+  try { return await _uploadImovelFotos(input, btn, opts); }
+  finally {
+    _enviandoFotos = false;
+    input.disabled = false;
+    if (btn) { btn.disabled = false; btn.textContent = '📷 Adicionar fotos'; }
+  }
+}
+
+async function _uploadImovelFotos(input, btn, opts) {
+  // progresso (e tudo, quando vem do Cadastro com IA) só escreve — não arrasta a tela a cada foto
+  const st = (msg, tipo, ms) => {
+    if (tipo !== 'loading' && !opts.semRolar) return showInlineStatus('imovel-fotos-status', msg, tipo, ms);
+    const el = $('imovel-fotos-status');
+    if (el) { el.className = 'status-inline is-' + tipo; el.innerHTML = msg; el.style.display = 'block'; }
+  };
+  const imovelId = await garantirRascunhoImovel('imovel-alert');
+  if (!imovelId) { st('⚠️ Preencha o "Apelido" do imóvel (lá no topo) e escolha as fotos de novo.', 'error'); input.value = ''; return false; }
+
+  const todas = Array.from(input.files || []);
+  if (todas.length === 0) {
+    st('⚠️ Escolha ao menos uma foto.', 'error', 5000);
     return false;
   }
 
-  const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
-  if (tooBig) {
-    showAlert('imovel-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
+  // Acima de 10 MB fica de fora (avisa) — as demais seguem
+  const grandes = todas.filter(f => f.size > 10 * 1024 * 1024);
+  const files = todas.filter(f => f.size <= 10 * 1024 * 1024);
+  if (!files.length) {
+    st(`❌ Nenhuma foto subiu: todas passam de 10 MB (${escapeHtml(grandes.map(f => f.name).join(', '))}).`, 'error');
+    input.value = '';
     return false;
   }
 
@@ -11640,7 +11666,7 @@ async function uploadImovelFotos() {
       console.warn('Logo não carregou — upload sem marca d\'água:', e);
     }
     if (!logoImg && fotoDoCorretor) {
-      showAlert('imovel-alert', '🔒 Não foi possível aplicar a logo da imobiliária nas fotos. Tente de novo em instantes — sem a logo a foto não sobe.');
+      st('🔒 Não foi possível aplicar a logo da imobiliária nas fotos. Tente de novo em instantes — sem a logo a foto não sobe.', 'error');
       return false;
     }
   }
@@ -11652,8 +11678,14 @@ async function uploadImovelFotos() {
   const existSnap = await fotosColl.orderBy('ordem', 'desc').limit(1).get();
   let nextOrdem = existSnap.empty ? 0 : (existSnap.docs[0].data().ordem || 0) + 1;
 
+  const falhas = [];
+  let enviadas = 0;
   try {
     for (const original of files) {
+     try {
+      const n = enviadas + falhas.length + 1;
+      if (btn) btn.textContent = `⏳ Enviando ${n}/${files.length}…`;
+      st(`⏳ Enviando foto ${n} de ${files.length}${useWatermark ? ' (com marca d’água)' : ''}… não feche o cadastro.`, 'loading');
       const fileToUpload = (useWatermark && logoImg)
         ? await applyWatermark(original, logoImg)
         : original;
@@ -11677,14 +11709,21 @@ async function uploadImovelFotos() {
         ordem: nextOrdem++,
         criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
+      enviadas++;
+     } catch (e) {
+      console.error('Foto não subiu:', original.name, e);
+      falhas.push(original.name);
+     }
     }
     input.value = '';
-    showAlert('imovel-alert', `${files.length} foto(s) enviada(s).`, 'success');
     loadImovelFotos(imovelId);
+    const fora = [...grandes.map(f => `${f.name} (passa de 10 MB)`), ...falhas.map(n => `${n} (erro no envio)`)];
+    if (!enviadas) { st(`❌ Nenhuma foto subiu: ${escapeHtml(fora.join(', '))}. Tente de novo.`, 'error'); return false; }
+    st(`✓ ${enviadas} foto(s) na galeria.${fora.length ? ` ⚠️ Ficaram de fora: ${escapeHtml(fora.join(', '))}.` : ''}`, fora.length ? 'error' : 'success', fora.length ? 0 : 8000);
     return true;
   } catch (err) {
     console.error('Erro no upload de fotos:', err);
-    showAlert('imovel-alert', 'Erro: ' + err.message);
+    st('❌ Erro: ' + escapeHtml(err.message), 'error');
     return false;
   }
 }

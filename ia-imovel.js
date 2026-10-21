@@ -415,7 +415,7 @@ async function usarFotosIA(auto) {
   input.files = dt.files;
   const btn = $('btn-ia-fotos');
   let ok = false;
-  await drgSubmit(btn, `⏳ Enviando ${fotos.length} foto(s)… aguarde`, async () => { ok = await uploadImovelFotos(); }, { destravar: true });
+  await drgSubmit(btn, `⏳ Enviando ${fotos.length} foto(s)… aguarde`, async () => { ok = await uploadImovelFotos({ semRolar: true }); }, { destravar: true });
   if (ok) {
     fotos.forEach((f) => { f.enviado = true; });
     document.querySelectorAll('.ia-foto-chk').forEach((c) => { if (fotos.some((f) => f.id === c.value)) { c.checked = true; c.disabled = true; } });
