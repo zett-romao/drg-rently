@@ -12569,7 +12569,7 @@ async function loadPortaisStatus() {
       card.style.borderColor = '#fcd34d';
       card.querySelector('h4').innerHTML = '⚠ Nenhum imóvel no feed';
       card.querySelector('h4').style.color = '#92400e';
-      card.querySelector('p').innerHTML = `Nenhum imóvel marcado como "publicar no feed". Marque em <strong>Imóveis → editar → Publicação pública → 📤 Incluir no XML feed</strong>.`;
+      card.querySelector('p').innerHTML = `Nenhum imóvel marcado como "publicar no feed". Marque em <strong>Imóveis → editar → Publicação → 📤 Incluir no XML feed</strong>.`;
     } else {
       card.style.background = 'linear-gradient(135deg, #d1fae5, #a7f3d0)';
       card.style.borderColor = '#86efac';

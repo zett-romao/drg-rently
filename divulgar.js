@@ -173,7 +173,7 @@ function _renderDivulgar() {
           <button type="button" class="btn btn-sm div-rede div-tiktok" onclick="postarTikTokDiv(this)" title="Grava o vídeo, copia a legenda e abre o TikTok">🎵 TikTok</button>
         </div>
         <p class="muted div-dica">No WhatsApp o link mostra a foto, o título e o valor do imóvel. Instagram não aceita link em post: use as peças abaixo (e o link na bio ou nos Stories).</p>`
-      : `<div class="alert alert-info" style="display:block">🔒 O imóvel ainda <strong>não está publicado</strong> no site, então ainda não tem link para compartilhar. ${corretor ? 'Peça à imobiliária para publicar.' : 'Publique em “Publicação pública” → “🌐 Publicar este imóvel”, no cadastro do imóvel.'} As peças abaixo já podem ser feitas.
+      : `<div class="alert alert-info" style="display:block">🔒 O imóvel ainda <strong>não está publicado</strong> no site, então ainda não tem link para compartilhar. ${corretor ? 'Peça à imobiliária para publicar.' : 'Publique em “Publicação” → “🌐 Publicar este imóvel”, no cadastro do imóvel.'} As peças abaixo já podem ser feitas.
           ${corretor ? '' : `<div style="margin-top:10px;"><button type="button" class="btn btn-primary btn-sm" onclick="irParaPublicar(this)">🌐 Ir para Publicar</button></div>`}</div>`}
     </section>
 
