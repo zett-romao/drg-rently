@@ -439,13 +439,25 @@ async function prepararRedeNoModalImovel(id) {
   let corretores = [];
   try { _corretoresAtivosCache = null; corretores = await listarCorretoresAtivos(); } catch (_) {}
   corretores = corretores.filter(c => c.uid !== captadorUid);
-  lista.innerHTML = corretores.length
+  // Dono/administrador que também está em Corretores já vê tudo (é equipe da imobiliária):
+  // não é "liberável" — aparece fixo, sem caixinha.
+  const papeis = await Promise.all(corretores.map(async c => {
+    if (c.uid === State.user.uid) return State.userDoc?.role || 'admin';
+    try { return (await db.collection('users').doc(c.uid).get()).data()?.role || null; } catch (_) { return null; }
+  }));
+  const acessoTotal = corretores.filter((c, i) => ['admin', 'super_admin'].includes(papeis[i]));
+  corretores = corretores.filter((c, i) => !['admin', 'super_admin'].includes(papeis[i]));
+  const linhasTotal = acessoTotal.map(c => `
+        <div class="toggle-row" style="cursor:default;">
+          <span>👑 ${escapeHtml(c.nome || c.email || c.uid)} <span class="muted" style="font-size:11px;">acesso total (administrador) — não precisa liberar</span></span>
+        </div>`).join('');
+  lista.innerHTML = linhasTotal + (corretores.length
     ? corretores.map(c => `
         <label class="toggle-row" style="cursor:pointer;">
           <input type="checkbox" class="imovel-rede-share-chk" value="${c.uid}" ${marcados.includes(c.uid) ? 'checked' : ''}>
           <span>${escapeHtml(c.nome || c.email || c.uid)} <span class="muted" style="font-size:11px;">${CORRETOR_TIPO_LABEL[c.tipo] || ''}${c.creci ? ' · CRECI ' + escapeHtml(c.creci) : ''}</span></span>
         </label>`).join('')
-    : '<p class="muted" style="font-size:12px;">Nenhum outro corretor ativo cadastrado.</p>';
+    : '<p class="muted" style="font-size:12px;">Nenhum outro corretor ativo cadastrado.</p>');
 }
 
 function lerRedeDoModalImovel() {

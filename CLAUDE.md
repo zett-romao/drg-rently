@@ -768,6 +768,9 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 👑 **Dono/admin fora do "Liberar ficha COMPLETA"** (dono: *"sou dono da imob e devo ter acesso amplo,
+  irrestrito"*). Quem está em Corretores mas é `users.role` admin/super_admin (ou o próprio logado) aparece fixo
+  "acesso total — não precisa liberar", sem caixinha: equipe já lê `completo/` pela regra. Nenhuma regra mudou.
 - **2026-10-21**: 📎 **Anexar mais depois** (dono: *"quero um espaço para anexar mais docs e fotos depois"*).
   "Documentos legais" do imóvel visível já no cadastro novo (1º envio cria o rascunho via `garantirRascunhoImovel`,
   como as fotos); `uploadImovelDocs` trava o botão e devolve true/false. Quadro da IA: atalhos 📷 Fotos ↓ / 📎 Documentos ↓
