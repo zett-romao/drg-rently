@@ -129,6 +129,19 @@ const SUBTIPO_LABEL = {
   sala: 'Sala comercial', loja: 'Loja', galpao: 'Galpão', terreno: 'Terreno', outro: 'Imóvel'
 };
 
+// 👁 Prévia do anúncio: faixa fixa + noindex; não conta visita nem aceita lead
+const _previa = params.get('previa') === '1';
+if (_previa) registrarEstatistica = function () {};   // prévia não conta visita, contato nem compartilhamento
+function mostrarFaixaPrevia(publicado) {
+  const m = document.createElement('meta'); m.name = 'robots'; m.content = 'noindex,nofollow'; document.head.appendChild(m);
+  document.title = '👁 PRÉVIA — ' + document.title;
+  const f = document.createElement('div');
+  f.className = 'faixa-previa';
+  f.innerHTML = `<strong>👁 PRÉVIA DO ANÚNCIO</strong> — é assim que ele aparece no site. ${publicado ? 'Já está publicado; esta prévia mostra a versão salva agora.' : '<u>Ainda não está publicado</u>: só quem tem o link desta prévia vê.'} <button type="button" onclick="window.close()">✕ Fechar prévia</button>`;
+  document.body.prepend(f);
+  document.body.classList.add('com-faixa-previa');
+}
+
 (async function init() {
   if (!imovelId || !tenantIdOrSlug) {
     showError('Link incompleto. Confira a URL.');
@@ -148,6 +161,22 @@ const SUBTIPO_LABEL = {
       db.collection('tenants').doc(tenantId).get(),
       db.collection('tenants').doc(tenantId).collection('imoveis').doc(imovelId).collection('fotos').orderBy('ordem').get(),
     ]);
+    // 👁 Prévia (Rently → "Prévia"): os dados vêm do localStorage, exatamente como iriam à vitrine
+    if (_previa) {
+      let p = null;
+      try { p = JSON.parse(localStorage.getItem(`rently-previa:${imovelId}`) || 'null'); } catch (_) {}
+      if (!p || !p.dados || Date.now() - (p.em || 0) > 60 * 60 * 1000) {
+        showError('Prévia expirada. Volte ao Rently e clique em 👁 Prévia de novo.'); return;
+      }
+      const tenant = tSnap.exists ? tSnap.data() : {};
+      _imovelAtual = p.dados; _tenantIdAtual = tenantId;
+      mostrarFaixaPrevia(p.publicado);
+      renderImovel(p.dados, tenant, fotosSnap.docs.map(d => d.data()));
+      $$('loading').style.display = 'none';
+      $$('content').style.display = 'block';
+      carregarSemelhantes(db, tenantId, p.dados).catch(e => console.warn('Semelhantes:', e));
+      return;
+    }
     if (!imSnap.exists) {
       // Fallback do modelo antigo (só enquanto a vitrine não foi gerada)
       try {
@@ -541,6 +570,12 @@ document.addEventListener('keydown', (e) => {
 
 async function enviarInteresse(ev) {
   ev.preventDefault();
+  if (_previa) {   // prévia não gera lead de mentira
+    const st = $$('interesse-status');
+    st.textContent = '👁 Prévia: o formulário funciona no anúncio publicado, aqui ele não envia.';
+    st.className = 'interesse-status is-erro'; st.style.display = 'block';
+    return;
+  }
   const btn = $$('btn-interesse');
   if (btn.disabled) return;
   const st = $$('interesse-status');

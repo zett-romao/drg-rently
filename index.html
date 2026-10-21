@@ -668,6 +668,7 @@
                 <button class="btn btn-primary" data-perm="imoveis:criar" onclick="openImovelModal()">+ Novo Imóvel</button>
               </div>
             </div>
+            <div id="imoveis-status" class="status-inline" style="display:none; margin-bottom:10px;"></div>
 
             <!-- Busca: código do anúncio, apelido, título, endereço, tags (anuncios.js) -->
             <div class="imoveis-busca-wrap">
@@ -5010,6 +5011,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
                 <div class="anuncio-codigo" id="imovel-codigo-anuncio">—</div>
               </div>
               <button type="button" class="btn btn-primary btn-ia" id="btn-abrir-gerador" onclick="abrirGeradorAnuncio()">✨ Gerar anúncio com IA</button>
+              <button type="button" class="btn btn-secondary" id="btn-previa-anuncio" onclick="previaDoModalImovel(this)" title="Mostra o que está SALVO — salve antes se mudou algo">👁 Ver prévia do anúncio</button>
               <button type="button" class="btn btn-divulgar" id="btn-abrir-divulgar" onclick="abrirDivulgar(document.getElementById('imovel-id').value)" title="Compartilhar e criar peças para WhatsApp, Instagram, Facebook">📣 Divulgar</button>
             </div>
             <p class="muted" style="font-size:11px; margin:6px 0 12px;">
@@ -6033,8 +6035,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261021b-anexos"></script>
-  <script src="rede.js?v=20261021c-dono-total"></script>
+  <script src="app.js?v=20261021d-previa"></script>
+  <script src="rede.js?v=20261021d-previa"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
   <script src="ia-imovel.js?v=20261021b-anexos"></script>

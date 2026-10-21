@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v38-20261021c-dono-total';
+const CACHE_VERSION = 'drg-rently-v39-20261021d-previa';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

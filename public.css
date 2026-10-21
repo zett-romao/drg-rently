@@ -1038,3 +1038,8 @@ body.menu-publico-aberto { overflow: hidden; }
 .imediacoes-lista strong { font-weight: 600; overflow-wrap: anywhere; }
 .imed-dist-pub { color: #64748b; font-size: 13px; }
 .imediacoes-nota { font-size: 12px; color: #94a3b8; margin-top: 8px; }
+
+/* 👁 Prévia do anúncio (imovel.html?previa=1) */
+.faixa-previa{position:sticky;top:0;z-index:2000;background:#7c2d12;color:#fff;padding:10px 16px;font-size:14px;line-height:1.4;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;text-align:center}
+.faixa-previa button{background:#fff;color:#7c2d12;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;min-height:40px}
+.faixa-previa button:active{transform:scale(.98);filter:brightness(.92)}

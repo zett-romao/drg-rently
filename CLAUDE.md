@@ -768,6 +768,11 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 👁 **Prévia do anúncio** (dono: *"sempre precisamos ver a prévia do anúncio, tanto quem cadastra como
+  o gestor ou o dono"*). Botão **👁 Prévia** na lista de imóveis e **👁 Ver prévia do anúncio** no modal (mostra o SALVO).
+  `previaAnuncio()` (rede.js) monta `montarDadosVitrine()` — exatamente o que iria ao site — e passa por localStorage
+  (`rently-previa:{id}`, vale 1 h) para `imovel.html?previa=1`: faixa "PRÉVIA", noindex, não conta estatística,
+  formulário de interesse não envia. Vale para corretor, gestor e dono; não publica nada.
 - **2026-10-21**: 👑 **Dono/admin fora do "Liberar ficha COMPLETA"** (dono: *"sou dono da imob e devo ter acesso amplo,
   irrestrito"*). Quem está em Corretores mas é `users.role` admin/super_admin (ou o próprio logado) aparece fixo
   "acesso total — não precisa liberar", sem caixinha: equipe já lê `completo/` pela regra. Nenhuma regra mudou.

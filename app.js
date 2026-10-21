@@ -10778,6 +10778,7 @@ function renderImoveisTable() {
         <td>
           <div class="action-btns">
             <button class="btn btn-sm btn-secondary" onclick="openImovelModal('${im._id}')">Editar</button>
+            <button class="btn btn-sm btn-secondary" onclick="previaAnuncio('${im._id}', this)" title="Ver o anúncio como vai aparecer no site, sem publicar">👁 Prévia</button>
             ${im.rascunho ? '' : `<button class="btn btn-sm btn-divulgar" onclick="abrirDivulgar('${im._id}')" title="Compartilhar e criar peças para WhatsApp, Instagram, Facebook">📣 Divulgar</button>`}
           </div>
         </td>

@@ -369,6 +369,48 @@ async function sincronizarVitrine(imovelId, im, ctx) {
   }
 }
 
+// 👁 Prévia do anúncio (21/10/2026): abre a página pública com EXATAMENTE o que iria para a vitrine
+// (montarDadosVitrine), sem publicar. Os dados vão pelo localStorage do mesmo site (vale 1 h);
+// imovel.html?previa=1 lê dali, mostra a faixa "PRÉVIA", não conta visita e não aceita lead.
+async function previaAnuncio(imovelId, btn) {
+  if (!imovelId) return;
+  const janela = window.open('', '_blank');   // abre já no clique (bloqueador de pop-up)
+  const txt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Montando prévia…'; }
+  try {
+    const snap = await tenantPath().collection('imoveis').doc(imovelId).get();
+    if (!snap.exists) throw new Error('imóvel não encontrado');
+    const im = snap.data();
+    const fotosSnap = await tenantPath().collection('imoveis').doc(imovelId).collection('fotos').orderBy('ordem').get().catch(() => null);
+    const ctx = { fotos: fotosSnap ? fotosSnap.docs.map(d => d.data().url).filter(Boolean) : [] };
+    const dados = { ...montarDadosVitrine(im, ctx), atualizadoEm: null };
+    if ((im.publicacao || {}).mostrarBairro !== false) {
+      try { dados.geo = await coordenadaPorCep(im.endereco?.cep); } catch (_) {}
+    }
+    localStorage.setItem(`rently-previa:${imovelId}`, JSON.stringify({ em: Date.now(), publicado: im.linkPublico === true && !im.rascunho, dados }));
+    const url = `imovel.html?id=${encodeURIComponent(imovelId)}&t=${encodeURIComponent(State.tenant.id)}&previa=1`;
+    if (janela) janela.location.href = url; else window.open(url, '_blank');
+    if (btn) btn.textContent = '✓ Prévia aberta';
+  } catch (err) {
+    if (janela) janela.close();
+    console.error('Prévia do anúncio:', err);
+    if (btn) btn.textContent = '❌ Erro';
+    alertaPrevia(`❌ Não consegui montar a prévia: ${err.message}`);
+  } finally {
+    if (btn) setTimeout(() => { btn.disabled = false; btn.textContent = txt; }, 1500);
+  }
+}
+// Do modal: a prévia mostra o que está salvo
+function previaDoModalImovel(btn) {
+  const id = $('imovel-id').value;
+  if (!id) { showAlert('imovel-alert', '💾 Salve o imóvel primeiro — a prévia mostra o anúncio salvo.'); $('imovel-alert').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); return; }
+  previaAnuncio(id, btn);
+}
+function alertaPrevia(msg) {
+  if ($('modal-imovel')?.style.display === 'flex') showAlert('imovel-alert', escapeHtml(msg));
+  else showInlineStatus('imoveis-status', escapeHtml(msg), 'error');
+}
+
 async function removerFichaRede(imovelId) {
   const fichaRef = tenantPath().collection('imoveisRede').doc(imovelId);
   try { await fichaRef.collection('completo').doc('dados').delete(); } catch (_) {}
@@ -959,6 +1001,8 @@ window.setFiltroRedeFinalidade = setFiltroRedeFinalidade;
 window.abrirFichaRede = abrirFichaRede;
 window.closeFichaRede = closeFichaRede;
 window.openCorretorModal = openCorretorModal;
+window.previaAnuncio = previaAnuncio;
+window.previaDoModalImovel = previaDoModalImovel;
 window.criarAcessoCorretorPre = criarAcessoCorretorPre;
 window.descartarCorretorPre = descartarCorretorPre;
 window.closeCorretorModal = closeCorretorModal;
