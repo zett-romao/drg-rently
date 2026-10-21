@@ -10984,6 +10984,7 @@ async function openImovelModal(id) {
     $('imovel-docs-section').style.display = 'block';
     $('imovel-fotos-section').style.display = 'block';
     $('imovel-publicacao-section').style.display = 'block';
+    $('imovel-publicar-final').style.display = $('imovel-publicacao-section').style.display;   // chave Publicar no fim do cadastro
     loadImovelDocs(id);
     loadImovelFotos(id);
     habilitarDropUploadFotos();
@@ -11019,6 +11020,7 @@ async function openImovelModal(id) {
     if (typeof prepararMatriculaImovel === 'function') prepararMatriculaImovel(null);
     // Imóvel novo: a seção aparece (para ninguém procurar), mas a chave só libera depois do Salvar
     $('imovel-publicacao-section').style.display = isCorretor() ? 'none' : 'block';
+    $('imovel-publicar-final').style.display = $('imovel-publicacao-section').style.display;   // chave Publicar no fim do cadastro
     $('imovel-link-publico').checked = false;
     updateLinkPublicoUI(false, null);
     estadoPublicarImovel(false);
@@ -11597,6 +11599,7 @@ async function garantirRascunhoImovel(alertId) {
       $('imovel-docs-section').style.display = 'block';
       // Corretor não publica no site/portais — quem publica é a imobiliária
       $('imovel-publicacao-section').style.display = isCorretor() ? 'none' : 'block';
+      $('imovel-publicar-final').style.display = $('imovel-publicacao-section').style.display;   // chave Publicar no fim do cadastro
       estadoPublicarImovel(false);   // rascunho: publica depois do Salvar
       // Avisa o operador
       showAlert(

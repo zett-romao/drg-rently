@@ -76,7 +76,7 @@ async function irParaPublicar(btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Abrindo o cadastro…'; }
   fecharDivulgar();
   await openImovelModal(id);
-  const sec = $('imovel-publicacao-section');
+  const sec = $('imovel-publicar-final');
   if (!sec) return;
   sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const box = sec.querySelector('.publicacao-box') || sec;

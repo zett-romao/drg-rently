@@ -451,7 +451,7 @@ async function listarCorretoresAtivos() {
 
 async function prepararRedeNoModalImovel(id) {
   // Corretor não publica no site/portais (a regra também barra linkPublico)
-  if (isCorretor()) $('imovel-publicacao-section').style.display = 'none';
+  if (isCorretor()) { $('imovel-publicacao-section').style.display = 'none'; $('imovel-publicar-final').style.display = 'none'; }
 
   const box = $('imovel-rede-section');
   if (!box) return;

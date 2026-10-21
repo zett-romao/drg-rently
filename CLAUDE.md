@@ -768,6 +768,9 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 🌐 **Chave Publicar no FIM do cadastro** (dono: *"tem de estar no final, depois de revisar inclusive as fotos"*).
+  Nova seção `#imovel-publicar-final` (depois de Documentos): prévia + chave + link. A antiga `#imovel-publicacao-section`
+  virou "Privacidade e portais" (o que mostrar + descrição longa/vídeo/XML). Toda linha que mostra/esconde uma espelha na outra.
 - **2026-10-21**: 🌐 **Publicar sempre visível + 🐛 rascunho eterno.** "Publicação pública" aparece também no imóvel novo,
   com a chave travada e o aviso "💾 Primeiro clique em Salvar" (`estadoPublicarImovel`). 🐛 `saveImovel` não limpava
   `rascunho: true` (criado no 1º envio de foto/doc por `garantirRascunhoImovel`): o imóvel ficava sem Divulgar e fora da

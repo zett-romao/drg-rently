@@ -5041,29 +5041,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
         </div>
 
-        <!-- Publicação pública -->
+        <!-- Privacidade do link público + conteúdo para portais (a chave Publicar fica no FIM do cadastro) -->
         <div id="imovel-publicacao-section" style="display:none;">
-          <h4 class="form-section-title">Publicação</h4>
+          <h4 class="form-section-title">Privacidade e portais</h4>
           <div class="publicacao-box">
-            <div id="imovel-publicar-salve" class="alert alert-info" style="display:none; margin-bottom:10px;">💾 Primeiro clique em <strong>Salvar</strong> (no rodapé). Depois disso a chave abaixo libera e o imóvel pode ser publicado.</div>
-            <label class="toggle-row">
-              <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()">
-              <span>🌐 Publicar este imóvel (gera link compartilhável)</span>
-            </label>
-            <p class="muted" style="font-size:12px; margin-top:6px;">
-              Quando ativo, qualquer pessoa com o link consegue visualizar as fotos
-              e a descrição. Dados sensíveis (locador, valores internos, endereço
-              exato) ficam ocultos.
-            </p>
-            <div id="imovel-link-actions" style="display:none; margin-top:10px;">
-              <div class="link-display">
-                <input type="text" id="imovel-link-url" readonly>
-                <button class="btn btn-secondary btn-sm" onclick="copyImovelLink()">📋 Copiar</button>
-                <button class="btn btn-secondary btn-sm" onclick="openImovelLink()">↗ Abrir</button>
-              </div>
-            </div>
-
-            <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+            <div>
               <strong style="font-size:13px;">🔒 Privacidade (o que mostrar no link público)</strong>
               <p class="muted" style="font-size:11px; margin: 4px 0 10px;">
                 Dados pessoais (LGPD) sempre ficam ocultos: nome do proprietário, CPF/CNPJ,
@@ -5164,6 +5146,32 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <input type="file" id="imovel-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
             <button class="btn btn-secondary btn-sm" id="btn-imovel-docs-upload" onclick="uploadImovelDocs()">⬆ Enviar arquivos</button>
             <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
+          </div>
+        </div>
+
+        <!-- 🌐 Publicação — por último, depois de revisar fotos e documentos (dono, 21/10/2026) -->
+        <div id="imovel-publicar-final" style="display:none;">
+          <h4 class="form-section-title">🌐 Publicação</h4>
+          <div class="publicacao-box">
+            <p class="muted" style="font-size:12px; margin:0 0 10px;">Revisou dados, fotos e documentos? Confira a prévia e publique.
+              <button type="button" class="btn btn-secondary btn-sm" style="margin-left:6px;" onclick="previaDoModalImovel(this)">👁 Ver prévia do anúncio</button></p>
+            <div id="imovel-publicar-salve" class="alert alert-info" style="display:none; margin-bottom:10px;">💾 Primeiro clique em <strong>Salvar</strong> (no rodapé). Depois disso a chave abaixo libera e o imóvel pode ser publicado.</div>
+            <label class="toggle-row">
+              <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()">
+              <span>🌐 Publicar este imóvel (gera link compartilhável)</span>
+            </label>
+            <p class="muted" style="font-size:12px; margin-top:6px;">
+              Quando ativo, qualquer pessoa com o link consegue visualizar as fotos
+              e a descrição. Dados sensíveis (locador, valores internos, endereço
+              exato) ficam ocultos.
+            </p>
+            <div id="imovel-link-actions" style="display:none; margin-top:10px;">
+              <div class="link-display">
+                <input type="text" id="imovel-link-url" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="copyImovelLink()">📋 Copiar</button>
+                <button class="btn btn-secondary btn-sm" onclick="openImovelLink()">↗ Abrir</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -6037,13 +6045,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261021j-publicacao"></script>
-  <script src="rede.js?v=20261021d-previa"></script>
+  <script src="app.js?v=20261021k-publicar-fim"></script>
+  <script src="rede.js?v=20261021k-publicar-fim"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
   <script src="ia-imovel.js?v=20261021h-fotos"></script>
   <script src="imediacoes.js?v=20261021f-mapas"></script>
-  <script src="divulgar.js?v=20261021j-publicacao"></script>
+  <script src="divulgar.js?v=20261021k-publicar-fim"></script>
   <script src="assinaturas.js?v=20261017j-protecao"></script>
   <script src="site-editor.js?v=20261017m-titulo"></script>
 </body>
