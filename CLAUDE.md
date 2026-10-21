@@ -503,6 +503,18 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
      mudou depois da solicitação. Espelho de `destinoRepasse()` no `app.js` — mudou um, muda o outro.
   6. Solicitação, Aprovações, auditoria e Livro Caixa mostram o favorecido e o instrumento.
 
+### Proprietário/vendedor — CPF/CNPJ no cadastro
+
+- **Original (comportamento travado em 07/08/2026):** CPF/CNPJ **obrigatório** para salvar o
+  proprietário/vendedor (`saveLocador`: "CPF / CNPJ é obrigatório.").
+- 🔓 **ALTERADA 21/10/2026** (o dono: *"cadastrar sem cpf, mas deixe o campo cpf para ser preenchido
+  posteriormente"* — print de anúncio quase nunca traz documento):
+  1. Salva **sem** CPF/CNPJ; fica `documento: null` + `documentoPendente: true` e a lista de
+     Proprietários mostra **⚠️ CPF pendente**. O campo continua no cadastro para completar depois.
+  2. **Contrato não sai sem ele:** `gerarContratoLocacao`, `gerarContratoVenda` e o "Elaborar contrato"
+     (`elabValidarEGerar`, locador/vendedor) barram com aviso apontando o cadastro.
+  3. CPF/CNPJ preenchido continua validado como antes.
+
 ### Permissões — quem pode fazer o quê (Perfis 3.0)
 
 - **Original (comportamento travado em 07/08/2026):** o tipo de usuário decidia quase tudo.
@@ -748,6 +760,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   Quadro no topo do modal do imóvel: arrastar/Ctrl+V prints, fotos, PDF, .txt ou colar texto → preenche só campos vazios (verde = IA, amarelo = dúvida;
   "Usar o da IA nesses também" substitui), título/descrição/tags, proprietário (seleciona ou abre cadastro preenchido), fotos do imóvel → galeria
   (marca d'água de sempre), conflitos entre arquivos. 🔒 Prompt proíbe SUPOR (iluminação, acabamento, adjetivo sem fato) e clichês — testado no Gemini real.
+- **2026-10-21**: 🤖 **Cadastro com IA cadastra vendedor e corretores** (dono: *"as informações dos vendedores e
+  corretores já sejam cadastradas automaticamente por aqui se estes dados estiverem nos arquivos"*).
+  Proprietário que não está cadastrado é **gravado sozinho** pelo `gravar()` (perfil decide: grava/fila/recusa),
+  papel pela finalidade (venda→vendedor, locação→locador), selecionado no imóvel; sem CPF → "CPF pendente"
+  (ver regra 🔓 acima). Corretores do material (prompt `corretores[]`, separado do proprietário) → **pré-cadastro
+  PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
+  só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
+  "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
 - **2026-10-19**: 📣 **Divulgar imóvel** (`divulgar.js`; dono: *"compartilhar imóvel… whats, e-mail, link… gerador de anúncios para status de WhatsApp, reels, story"*).
   Botão na lista e no cadastro. Compartilhar: link do Worker do feed (prévia com foto), WhatsApp, e-mail, Facebook, X, Telegram, LinkedIn, copiar, navigator.share.
   Peças em canvas: Story/Status 9:16, Feed 1:1 e 4:5 (modelos Foto inteira e Mosaico) e vídeo 9:16 (MediaRecorder, MP4 no Chrome, WebM de reserva),

@@ -650,7 +650,10 @@ TAREFA 1 — EXTRAIR os dados do imóvel para o formulário.
 - "apelido": identificação interna curta para a equipe achar o imóvel (ex.: "Apto 52 — Ed. Solar, Alphaville").
 - "obs": informações internas úteis que NÃO devem ir ao anúncio (ex.: chave na portaria, horário de visita, nome do zelador). Sem dados pessoais do proprietário aqui.
 
-TAREFA 2 — PROPRIETÁRIO (vendedor/locador), se aparecer no material: nome, telefone (só dígitos, com DDD), e-mail, CPF/CNPJ. Senão null. (Esses dados ficam no cadastro interno; NUNCA no anúncio.)
+TAREFA 2 — PROPRIETÁRIO (vendedor/locador), se aparecer no material: nome, telefone (só dígitos, com DDD), e-mail, CPF/CNPJ (só dígitos), "tipo" ("PF" pessoa física ou "PJ" empresa). Senão null. (Esses dados ficam no cadastro interno; NUNCA no anúncio.)
+- NÃO confunda proprietário com corretor: quem aparece com CRECI, como "corretor", "consultor", "agente" ou em nome de imobiliária é CORRETOR (TAREFA 2B), não proprietário. Na dúvida, não ponha como proprietário.
+
+TAREFA 2B — CORRETORES que aparecem no material (anunciante de portal, assinatura de ficha, cartão, conversa): para cada pessoa diferente, nome, CRECI (como escrito, ex.: "123456-F"), telefone (só dígitos, com DDD), e-mail e a imobiliária dele. Não repita a mesma pessoa. Sem corretor = []. (Cadastro interno; NUNCA no anúncio.)
 
 TAREFA 3 — ANÚNCIO para portais e site, com as mesmas regras de ouro:
 - Só fatos do material; nada de inventar característica, ponto da região ou distância.
@@ -674,7 +677,8 @@ Responda APENAS com JSON válido, sem markdown:
     "aceitaFinanciamento": string|null, "permiteFGTS": string|null, "aceitaPermuta": string|null, "permutaObs": string|null,
     "matricula": string|null, "iptu": string|null, "videoUrl": string|null, "tourUrl": string|null, "obs": string|null
   },
-  "proprietario": { "nome": string|null, "telefone": string|null, "email": string|null, "documento": string|null } | null,
+  "proprietario": { "nome": string|null, "telefone": string|null, "email": string|null, "documento": string|null, "tipo": "PF"|"PJ"|null } | null,
+  "corretores": [{ "nome": string, "creci": string|null, "telefone": string|null, "email": string|null, "imobiliaria": string|null }],
   "anuncio": { "titulo": string, "descricao": string, "tags": [string], "destaques": [string] },
   "arquivos": [{ "indice": int, "tipo": string, "ambiente": string|null, "privacidade": bool }],
   "incertos": [string] (nomes dos campos acima em que você tem dúvida),

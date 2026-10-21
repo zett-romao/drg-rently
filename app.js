@@ -3949,7 +3949,7 @@ function renderLocadoresTable() {
   }
 
   const rows = filtrados.map((l, i) => {
-    const docFmt = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '—';
+    const docFmt = l.documento ? (l.tipo === 'PJ' ? maskCNPJ(l.documento) : maskCPF(l.documento)) : '<span style="color:#92400E;font-weight:600;">⚠️ CPF pendente</span>';
     const telFmt = l.telefone ? maskTelefone(l.telefone) : '—';
     const p = getPapeis(l);
     let chip = '';
@@ -4682,10 +4682,8 @@ async function saveLocador() {
     showAlert('locador-alert', 'Nome / Razão social é obrigatório.');
     return;
   }
-  if (!documento) {
-    showAlert('locador-alert', 'CPF / CNPJ é obrigatório.');
-    return;
-  }
+  // 🔓 ALTERADA 21/10/2026: CPF/CNPJ pode ficar para depois (cadastro vindo de print de anúncio).
+  // Fica marcado "CPF pendente" e o contrato não sai sem ele.
   const papelLocador = $('locador-papel-locador').checked;
   const papelVendedor = $('locador-papel-vendedor').checked;
   if (!papelLocador && !papelVendedor) {
@@ -4704,7 +4702,8 @@ async function saveLocador() {
     tipo: $('locador-tipo').value,
     nome,
     papeis: { locador: papelLocador, vendedor: papelVendedor },
-    documento: documento.replace(/\D/g, ''),
+    documento: documento.replace(/\D/g, '') || null,
+    documentoPendente: !documento.replace(/\D/g, ''),
     rg: $('locador-rg').value.trim() || null,
     nascimento: $('locador-nascimento').value || null,
     estadoCivil: $('locador-estado-civil').value || null,
@@ -10576,6 +10575,10 @@ async function gerarContratoVenda() {
     ]);
 
     const vendedor = (vendedorSnap && vendedorSnap.exists) ? vendedorSnap.data() : {};
+    if (vendedor.nome && !vendedor.documento) {
+      showAlert('negociacao-alert', `⚠️ O vendedor ${escapeHtml(vendedor.nome)} está sem CPF/CNPJ. Complete o cadastro dele (Proprietários → Editar) antes de gerar o contrato.`);
+      return;
+    }
     const comprador = (compradorSnap && compradorSnap.exists) ? compradorSnap.data() : {};
     const imovel = (imovelSnap && imovelSnap.exists) ? imovelSnap.data() : {};
     const cfg = configSnap.exists ? configSnap.data() : {};
@@ -13374,6 +13377,10 @@ async function gerarContratoLocacao() {
     ]);
 
     const locador = (locadorSnap && locadorSnap.exists) ? locadorSnap.data() : {};
+    if (locador.nome && !locador.documento) {
+      showAlert('contrato-alert', `⚠️ O proprietário ${escapeHtml(locador.nome)} está sem CPF/CNPJ. Complete o cadastro dele (Proprietários → Editar) antes de gerar o contrato.`);
+      return;
+    }
     const locatario = (locatarioSnap && locatarioSnap.exists) ? locatarioSnap.data() : {};
     const imovel = (imovelSnap && imovelSnap.exists) ? imovelSnap.data() : {};
     const garantia = (garantiaSnap && garantiaSnap.exists) ? garantiaSnap.data() : {};
@@ -18771,6 +18778,12 @@ async function elabValidarEGerar() {
 
   try {
     const dados = await elabResolverDados();
+    // Proprietário cadastrado sem CPF/CNPJ (vindo de print, 21/10/2026): contrato não sai sem ele
+    const semDoc = ['locador', 'vendedor'].map(k => dados[k]).filter(p => p && p.nome && !p.documento);
+    if (semDoc.length) {
+      showAlert('elab-alert', `⚠️ ${semDoc.map(p => escapeHtml(p.nome)).join(', ')} está sem CPF/CNPJ. Complete o cadastro (Proprietários → Editar) antes de gerar o contrato.`);
+      return;
+    }
     const templateAtivo = await obterTemplate(_elabContrato.modalidade);
     const html = elabRenderizarTemplate(templateAtivo, dados);
     _elabContrato.htmlGerado = html;

@@ -247,9 +247,120 @@ async function aplicarResultadoIA(r, substituir) {
   const antes = (_imovelTags || []).length;
   (a.tags || []).slice(0, 10).forEach((t) => adicionarTagImovel(t));
   if ((_imovelTags || []).length > antes) rel.preenchidos.push(`Tags (+${_imovelTags.length - antes})`);
-  // proprietário
+  // proprietário: já cadastrado → seleciona; senão cadastra sozinho (só na 1ª leitura, não no "Usar o da IA")
   rel.proprietario = await _acharProprietarioIA(r?.proprietario);
+  if (!substituir && rel.proprietario && !rel.proprietario.achado) {
+    try { rel.proprietario.criado = await _cadastrarProprietarioAutoIA(r.proprietario); }
+    catch (err) { console.error('IA: cadastro automático do proprietário', err); rel.proprietario.erroAuto = err.message; }
+  }
+  // corretores achados no material → pré-cadastro pendente (sem login) em Corretores
+  if (substituir) rel.corretores = _iaImovel.ultimoRel?.corretores || [];
+  else {
+    try { rel.corretores = await _cadastrarCorretoresIA(r?.corretores); }
+    catch (err) { console.error('IA: pré-cadastro de corretores', err); rel.corretores = [{ nome: 'Corretores', status: 'erro', erro: err.message }]; }
+  }
   return rel;
+}
+
+// ---------- cadastro automático (21/10/2026): proprietário e corretores que estão no material ----------
+const _digIA = (s) => String(s || '').replace(/\D/g, '');
+
+// Proprietário/vendedor que não está cadastrado: grava pelo gravar() (perfil decide: grava, fila ou recusa).
+// 🔓 Sem CPF/CNPJ pode (fica "CPF pendente"); o contrato é que não sai sem ele.
+async function _cadastrarProprietarioAutoIA(p) {
+  const nome = String(p?.nome || '').trim();
+  if (!nome) return null;
+  const doc = _digIA(p.documento);
+  const docOk = doc.length === 14 ? isCNPJValid(doc) : doc.length === 11 ? isCPFValid(doc) : false;
+  const tipo = (docOk && doc.length === 14) || String(p.tipo || '').toUpperCase() === 'PJ' ? 'PJ' : 'PF';
+  const fin = $('imovel-finalidade')?.value;
+  const papeis = fin === 'venda' ? { locador: false, vendedor: true } : fin === 'locacao' ? { locador: true, vendedor: false } : { locador: true, vendedor: true };
+  const agora = firebase.firestore.FieldValue.serverTimestamp();
+  const dados = {
+    tipo, nome, papeis,
+    documento: docOk ? doc : null, documentoPendente: !docOk,
+    rg: null, nascimento: null, estadoCivil: null, profissao: null, nacionalidade: tipo === 'PF' ? 'Brasileira' : null,
+    email: p.email ? String(p.email).trim().toLowerCase() : null,
+    telefone: _digIA(p.telefone) || null,
+    endereco: { cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null },
+    pix: null, banco: null, dadosBancarios: null,
+    obs: `Cadastrado pela IA a partir do material do imóvel${doc && !docOk ? ` — o documento lido ("${String(p.documento).slice(0, 30)}") não confere, conferir` : ''}.`,
+    administradoTerceiros: false, representante: null,
+    origem: 'ia-cadastro-imovel', criadoEm: agora, criadoPor: State.user.uid, atualizadoEm: agora,
+  };
+  const r = await gravar({ modulo: 'locadores', colecao: 'locadores', op: 'criar', dados, titulo: `Proprietário ${nome}` });
+  invalidateLocadoresCache();
+  if (r.pendente) return { pendente: true, nome };
+  if (typeof logAuditoria === 'function') logAuditoria('create', 'locador', r.id, { nome, origem: 'ia-cadastro-imovel', semDocumento: !docOk });
+  const sel = $('imovel-locador');
+  if (sel) {
+    const atual = sel.value;
+    await populateLocadorSelect(sel, atual || r.id);
+    if (!atual) {
+      sel.value = r.id; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      (sel.closest('.form-group') || sel.parentElement)?.classList.add('campo-ia');
+    }
+  }
+  return { id: r.id, nome, semDoc: !docOk, docInvalido: !!doc && !docOk };
+}
+
+// Corretores do material: quem já está em Corretores só é apontado; o novo entra como pré-cadastro
+// PENDENTE, sem login e sem e-mail (o acesso só nasce em Corretores → 🔑 Criar acesso).
+// Corretores é tela só da imobiliária (blindagem): corretor logado não grava nem lê colegas.
+async function _cadastrarCorretoresIA(lista) {
+  lista = (Array.isArray(lista) ? lista : []).filter((c) => c && String(c.nome || '').trim()).slice(0, 10);
+  if (!lista.length) return [];
+  const pode = typeof podeVerSecao === 'function' && podeVerSecao('corretores') && nivelPermissao('corretores', 'criar') === 'sim';
+  if (!pode) return lista.map((c) => ({ nome: String(c.nome).trim(), status: 'sem_permissao' }));
+  const existentes = (await tenantPath().collection('corretores').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const out = [];
+  for (const c of lista) {
+    const nome = String(c.nome).trim();
+    const creci = _digIA(c.creci), tel = _digIA(c.telefone), email = String(c.email || '').trim().toLowerCase();
+    const achado = existentes.find((e) => (creci && _digIA(e.creci) === creci)
+      || (email && String(e.email || '').toLowerCase() === email)
+      || (tel.length >= 10 && _digIA(e.telefone).length >= 10 && _digIA(e.telefone).slice(-9) === tel.slice(-9))
+      || _normNome(e.nome) === _normNome(nome));
+    if (achado) { out.push({ nome: achado.nome || nome, status: 'existe', situacao: achado.status, semConta: !!achado.semConta }); continue; }
+    const dados = {
+      nome, email: email || null, telefone: tel || null, creci: c.creci ? String(c.creci).trim() : null,
+      imobiliaria: c.imobiliaria ? String(c.imobiliaria).trim() : null,
+      tipo: 'parceiro', status: 'pendente', semConta: true, origem: 'ia-cadastro-imovel',
+      imovelOrigem: $('imovel-apelido')?.value.trim() || null,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
+    };
+    const ref = await tenantPath().collection('corretores').add(dados);
+    existentes.push({ id: ref.id, ...dados });
+    if (typeof logAuditoria === 'function') logAuditoria('create', 'corretor', ref.id, { nome, origem: 'ia-cadastro-imovel', semConta: true });
+    out.push({ nome, status: 'criado' });
+  }
+  if (out.some((o) => o.status === 'criado') && typeof atualizarBadgeCorretoresPendentes === 'function') atualizarBadgeCorretoresPendentes();
+  return out;
+}
+
+// Abre o cadastro do proprietário por cima do modal do imóvel; ao fechar, atualiza a lista do imóvel
+function completarProprietarioIA(id) {
+  _locadorPorCimaIA(() => openLocadorModal(id));
+}
+async function _locadorPorCimaIA(abrir, aoFechar) {
+  await abrir();
+  const m = $('modal-locador'); if (m) m.style.zIndex = '1200';   // por cima do modal do imóvel
+  const vigia = setInterval(async () => {
+    if (m && m.style.display !== 'none') return;
+    clearInterval(vigia);
+    if (m) m.style.zIndex = '';
+    if (typeof invalidateLocadoresCache === 'function') invalidateLocadoresCache();
+    const sel = $('imovel-locador');
+    await populateLocadorSelect(sel, sel.value || null);
+    if (aoFechar) await aoFechar();
+  }, 700);
+}
+
+// "Ver em Corretores": a seção fica atrás do modal do imóvel — avisa antes de sair do cadastro
+async function abrirCorretoresIA() {
+  if (!(await confirmar({ titulo: 'Ir para Corretores?', mensagem: 'O cadastro do imóvel que está aberto será fechado. Salve antes se ainda não salvou.', confirmar: '👥 Ir para Corretores', cancelar: 'Ficar aqui' }))) return;
+  closeImovelModal();
+  showSection('corretores');
 }
 
 const _normNome = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -271,25 +382,20 @@ async function _acharProprietarioIA(p) {
 }
 
 // Proprietário que não está cadastrado: abre o cadastro de locador já preenchido
+// (reserva do automático: perfil sem permissão ou erro ao gravar)
 async function cadastrarProprietarioIA() {
   const p = _iaImovel.resultado?.proprietario;
   if (!p) return;
-  await openLocadorModal();
-  const m = $('modal-locador'); if (m) m.style.zIndex = '1200';   // por cima do modal do imóvel
   const pre = (id, v) => { const el = $(id); if (el && v && !el.value) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
-  pre('locador-nome', p.nome); pre('locador-documento', p.documento); pre('locador-email', p.email);
-  pre('locador-telefone', p.telefone && typeof maskTelefone === 'function' ? maskTelefone(p.telefone) : p.telefone);
   // quando o cadastro fechar, atualiza a lista do imóvel e seleciona o novo proprietário
-  const vigia = setInterval(async () => {
-    if (m && m.style.display !== 'none') return;
-    clearInterval(vigia);
-    if (m) m.style.zIndex = '';
-    if (typeof invalidateLocadoresCache === 'function') invalidateLocadoresCache();
-    const sel = $('imovel-locador');
-    await populateLocadorSelect(sel, sel.value || null);
+  await _locadorPorCimaIA(async () => {
+    await openLocadorModal();
+    pre('locador-nome', p.nome); pre('locador-documento', p.documento); pre('locador-email', p.email);
+    pre('locador-telefone', p.telefone && typeof maskTelefone === 'function' ? maskTelefone(p.telefone) : p.telefone);
+  }, async () => {
     const rel = await _acharProprietarioIA(p);
     renderResultadoIA(_iaImovel.resultado, { ...(_iaImovel.ultimoRel || {}), proprietario: rel });
-  }, 700);
+  });
 }
 
 // ---------- fotos do imóvel para a galeria ----------
@@ -317,12 +423,28 @@ function renderResultadoIA(r, rel) {
   const p = rel.proprietario;
   const linhaDono = !p ? '' : p.achado
     ? `<div class="ia-linha">👤 Proprietário: <strong>${escapeHtml(p.achado.nome || '')}</strong> — já cadastrado, selecionado no campo Locador.</div>`
-    : `<div class="ia-linha">👤 Proprietário encontrado: <strong>${escapeHtml(p.dados.nome || 'sem nome')}</strong>${p.dados.telefone ? ' · ' + escapeHtml(p.dados.telefone) : ''} — ainda não cadastrado.
+    : p.criado?.pendente
+    ? `<div class="ia-linha">🕓 Proprietário <strong>${escapeHtml(p.criado.nome)}</strong> — cadastro enviado para aprovação (seu perfil cria "com aprovação"). Depois de aprovado, selecione-o no campo Locador.</div>`
+    : p.criado?.id
+    ? `<div class="ia-linha">✓ Proprietário <strong>${escapeHtml(p.criado.nome)}</strong> cadastrado automaticamente e selecionado no campo Locador${p.criado.semDoc ? ` — <strong style="color:#92400E;">⚠️ sem CPF/CNPJ${p.criado.docInvalido ? ' válido' : ''}: complete antes do contrato</strong>` : ''}.
+        <button type="button" class="btn btn-secondary btn-sm" onclick="completarProprietarioIA('${p.criado.id}')">✏️ ${p.criado.semDoc ? 'Completar cadastro' : 'Ver cadastro'}</button></div>`
+    : `<div class="ia-linha">👤 Proprietário encontrado: <strong>${escapeHtml(p.dados.nome || 'sem nome')}</strong>${p.dados.telefone ? ' · ' + escapeHtml(p.dados.telefone) : ''} — ainda não cadastrado${p.erroAuto ? ` (não consegui cadastrar sozinho: ${escapeHtml(p.erroAuto)})` : ''}.
         <button type="button" class="btn btn-secondary btn-sm" onclick="cadastrarProprietarioIA()">➕ Cadastrar proprietário</button></div>`;
+  const cs = rel.corretores || [];
+  const criados = cs.filter((c) => c.status === 'criado'), jaTem = cs.filter((c) => c.status === 'existe'),
+        semPerm = cs.filter((c) => c.status === 'sem_permissao'), erroCor = cs.find((c) => c.status === 'erro');
+  const nomes = (l) => l.map((c) => `<strong>${escapeHtml(c.nome)}</strong>`).join(', ');
+  const linhaCorretores = !cs.length ? '' : `
+    ${criados.length ? `<div class="ia-linha">✓ Corretor(es) pré-cadastrado(s) em Corretores: ${nomes(criados)} — <em>pendente, sem acesso</em>. O login só nasce quando a imobiliária clicar em 🔑 Criar acesso.
+        <button type="button" class="btn btn-secondary btn-sm" onclick="abrirCorretoresIA()">👥 Ver em Corretores</button></div>` : ''}
+    ${jaTem.length ? `<div class="ia-linha">👥 Já está(ão) em Corretores: ${jaTem.map((c) => `<strong>${escapeHtml(c.nome)}</strong> (${c.semConta ? 'pré-cadastro, sem acesso' : escapeHtml(c.situacao || '—')})`).join(', ')}.</div>` : ''}
+    ${semPerm.length ? `<div class="ia-linha">👥 Corretor(es) no material: ${nomes(semPerm)} — o cadastro de corretores é feito pela imobiliária.</div>` : ''}
+    ${erroCor ? `<div class="ia-linha ia-aviso">❌ Não consegui pré-cadastrar os corretores: ${escapeHtml(erroCor.erro || '')}</div>` : ''}`;
   out.innerHTML = `
     <div class="ia-ok">✓ ${rel.preenchidos.length ? `A IA preencheu <strong>${rel.preenchidos.length}</strong> campo(s)` : 'A IA não achou campos novos para preencher'}. Os campos dela estão destacados em <span class="ia-marca">verde</span>${(r.incertos || []).length ? ' e os de dúvida em <span class="ia-marca duvida">amarelo</span>' : ''} — confira e clique em Salvar.</div>
     ${r.resumo ? `<div class="ia-linha">📝 ${escapeHtml(r.resumo)}</div>` : ''}
     ${linhaDono}
+    ${linhaCorretores}
     ${rel.mantidos.length ? `<div class="ia-linha">✋ Mantive o que já estava preenchido em: ${escapeHtml(rel.mantidos.join(', '))}. <button type="button" class="btn btn-secondary btn-sm" onclick="substituirComIA()">Usar o da IA nesses também</button></div>` : ''}
     ${(r.conflitos || []).length ? `<div class="ia-linha ia-aviso">⚠️ Informações que não batem entre os arquivos: ${escapeHtml(r.conflitos.join(' · '))}</div>` : ''}
     ${fotos.length ? `<div class="ia-linha">📷 ${fotos.length} foto(s) do imóvel no material — marque as que vão para a galeria:
@@ -367,6 +489,8 @@ window.adicionarArquivosIA = adicionarArquivosIA;
 window.removerArquivoIA = removerArquivoIA;
 window.preencherImovelComIA = preencherImovelComIA;
 window.cadastrarProprietarioIA = cadastrarProprietarioIA;
+window.completarProprietarioIA = completarProprietarioIA;
+window.abrirCorretoresIA = abrirCorretoresIA;
 window.usarFotosIA = usarFotosIA;
 window.substituirComIA = substituirComIA;
 window.resetCadastroIA = resetCadastroIA;

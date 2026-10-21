@@ -482,6 +482,22 @@ async function loadCorretores() {
     if (typeof renderCardProtecao === 'function' && $('card-protecao-rede') && !$('card-protecao-rede').innerHTML.trim()) renderCardProtecao();
     tbody.innerHTML = lista.map(c => {
       const acoes = [];
+      // Pré-cadastro da IA (ia-imovel.js): ficha sem login — Aprovar/Editar mexeriam em users/{uid}, que não existe
+      if (c.semConta) {
+        return `
+        <tr>
+          <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}${c.imobiliaria ? `${c.email ? ' · ' : ''}${escapeHtml(c.imobiliaria)}` : ''}</span></td>
+          <td>${escapeHtml(c.creci || '—')}</td>
+          <td>${c.telefone ? escapeHtml(maskTelefone(c.telefone)) : '—'}</td>
+          <td>${CORRETOR_TIPO_LABEL[c.tipo] || '—'}</td>
+          <td>—</td>
+          <td>🤖 Pré-cadastro da IA<br><span class="muted" style="font-size:11px;">sem acesso${c.imovelOrigem ? ` · veio do imóvel ${escapeHtml(c.imovelOrigem)}` : ''}</span></td>
+          <td><div class="action-btns">
+            <button class="btn btn-sm btn-primary" onclick="criarAcessoCorretorPre('${c.uid}')">🔑 Criar acesso</button>
+            <button class="btn btn-sm btn-secondary" onclick="descartarCorretorPre('${c.uid}', this)">🗑 Descartar</button>
+          </div></td>
+        </tr>`;
+      }
       if (c.status === 'pendente') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">✅ Aprovar</button>`);
       if (c.status === 'ativo') acoes.push(`<button class="btn btn-sm btn-danger" onclick="definirStatusCorretor('${c.uid}','suspenso')">Suspender</button>`);
       if (c.status === 'suspenso') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">Reativar</button>`);
@@ -504,8 +520,11 @@ async function loadCorretores() {
   }
 }
 
+let _corretorPreId = null;   // pré-cadastro da IA que vira conta ao salvar (criarAcessoCorretorPre)
+
 async function openCorretorModal(uid) {
   clearAlert('corretor-alert');
+  _corretorPreId = null;
   const editando = !!uid;
   $('corretor-uid').value = uid || '';
   $('modal-corretor-title').textContent = editando ? 'Editar corretor' : 'Novo corretor';
@@ -531,6 +550,37 @@ async function openCorretorModal(uid) {
 
 function closeCorretorModal() {
   $('modal-corretor').style.display = 'none';
+}
+
+// Pré-cadastro da IA → conta de verdade: abre o "Novo corretor" já preenchido; ao salvar, a ficha
+// pré-cadastrada é trocada pela do login (uid). Sem e-mail no material, o modal pede.
+async function criarAcessoCorretorPre(preId) {
+  let c = {};
+  try { c = (await tenantPath().collection('corretores').doc(preId).get()).data() || {}; } catch (_) {}
+  await openCorretorModal();
+  _corretorPreId = preId;
+  $('corretor-nome').value = c.nome || '';
+  $('corretor-email').value = c.email || '';
+  $('corretor-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
+  $('corretor-creci').value = c.creci || '';
+  $('corretor-tipo').value = c.tipo || 'parceiro';
+  if (!c.email) showAlert('corretor-alert', 'O material não trazia e-mail: digite o e-mail do corretor para criar o acesso.', 'info');
+}
+
+async function descartarCorretorPre(preId, btn) {
+  if (!exigirPode('corretores', 'excluir')) return;
+  if (!(await confirmar({ titulo: 'Descartar pré-cadastro?', mensagem: 'A ficha que a IA criou será apagada. Nenhuma conta de acesso existe para ela.', confirmar: '🗑 Descartar', perigo: true }))) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Descartando…'; }
+  try {
+    await tenantPath().collection('corretores').doc(preId).delete();
+    logAuditoria('delete', 'corretor', preId, { origem: 'ia-cadastro-imovel', semConta: true });
+    showInlineStatus('corretores-status', '✓ Pré-cadastro descartado.', 'success');
+    if (typeof atualizarBadgeCorretoresPendentes === 'function') atualizarBadgeCorretoresPendentes();
+    loadCorretores();
+  } catch (err) {
+    showInlineStatus('corretores-status', `❌ ${escapeHtml(err.message)}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 Descartar'; }
+  }
 }
 
 function gerarSenhaCorretor() {
@@ -586,6 +636,13 @@ async function saveCorretor() {
       // Banco recusou: apaga o login recém-criado pra não sobrar conta órfã
       if (conta.nova) await apagarContaAuth(conta.idToken);
       throw e;
+    }
+
+    // veio de um pré-cadastro da IA: a ficha sem login dá lugar à do uid
+    if (_corretorPreId) {
+      await tenantPath().collection('corretores').doc(_corretorPreId).delete().catch(() => {});
+      _corretorPreId = null;
+      if (typeof atualizarBadgeCorretoresPendentes === 'function') atualizarBadgeCorretoresPendentes();
     }
 
     if ($('corretor-enviar-email').checked) await enviarEmailAcessoCorretor(nome, email, senha);
@@ -890,6 +947,8 @@ window.setFiltroRedeFinalidade = setFiltroRedeFinalidade;
 window.abrirFichaRede = abrirFichaRede;
 window.closeFichaRede = closeFichaRede;
 window.openCorretorModal = openCorretorModal;
+window.criarAcessoCorretorPre = criarAcessoCorretorPre;
+window.descartarCorretorPre = descartarCorretorPre;
 window.closeCorretorModal = closeCorretorModal;
 window.gerarSenhaCorretor = gerarSenhaCorretor;
 window.saveCorretor = saveCorretor;
