@@ -11742,6 +11742,10 @@ async function onTogglePublicoImovel() {
     // Cópia pública (vitrine/{id}) — é ela que o site e o feed dos portais leem
     sincronizarFichaRede(imovelId).catch(e => console.warn('Vitrine não sincronizada:', e));
     updateLinkPublicoUI(ativo, imovelId);
+    // Regra nº 1: a chave responde
+    showAlert('imovel-alert', ativo
+      ? '✓ Imóvel publicado: já aparece no site e o link de compartilhar está pronto (Divulgar).'
+      : '✓ Imóvel despublicado: saiu do site e o link deixou de abrir.', 'success');
   } catch (err) {
     console.error('Erro ao atualizar publicação:', err);
     $('imovel-link-publico').checked = !ativo;

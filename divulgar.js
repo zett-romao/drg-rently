@@ -69,6 +69,21 @@ function _modalDiv(corpo) {
     <div class="modal-body" id="div-corpo">${corpo}</div></div>`;
   m.style.display = 'flex';
 }
+// "🌐 Ir para Publicar": fecha o Divulgar e abre o cadastro já na seção de publicação
+async function irParaPublicar(btn) {
+  const id = _div?.id;
+  if (!id) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Abrindo o cadastro…'; }
+  fecharDivulgar();
+  await openImovelModal(id);
+  const sec = $('imovel-publicacao-section');
+  if (!sec) return;
+  sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const box = sec.querySelector('.publicacao-box') || sec;
+  box.classList.add('destaque-piscar');
+  setTimeout(() => box.classList.remove('destaque-piscar'), 2600);
+}
+
 function fecharDivulgar() {
   const m = document.getElementById('modal-divulgar');
   if (m) m.style.display = 'none';
@@ -158,7 +173,8 @@ function _renderDivulgar() {
           <button type="button" class="btn btn-sm div-rede div-tiktok" onclick="postarTikTokDiv(this)" title="Grava o vídeo, copia a legenda e abre o TikTok">🎵 TikTok</button>
         </div>
         <p class="muted div-dica">No WhatsApp o link mostra a foto, o título e o valor do imóvel. Instagram não aceita link em post: use as peças abaixo (e o link na bio ou nos Stories).</p>`
-      : `<div class="alert alert-info" style="display:block">🔒 O imóvel ainda <strong>não está publicado</strong> no site, então ainda não tem link para compartilhar. ${corretor ? 'Peça à imobiliária para publicar.' : 'Publique em “🌐 Página pública” no cadastro do imóvel.'} As peças abaixo já podem ser feitas.</div>`}
+      : `<div class="alert alert-info" style="display:block">🔒 O imóvel ainda <strong>não está publicado</strong> no site, então ainda não tem link para compartilhar. ${corretor ? 'Peça à imobiliária para publicar.' : 'Publique em “Publicação pública” → “🌐 Publicar este imóvel”, no cadastro do imóvel.'} As peças abaixo já podem ser feitas.
+          ${corretor ? '' : `<div style="margin-top:10px;"><button type="button" class="btn btn-primary btn-sm" onclick="irParaPublicar(this)">🌐 Ir para Publicar</button></div>`}</div>`}
     </section>
 
     <section class="div-sec">
@@ -538,6 +554,7 @@ function registrarDivulgacao(canal) {
 
 window.abrirDivulgar = abrirDivulgar;
 window.fecharDivulgar = fecharDivulgar;
+window.irParaPublicar = irParaPublicar;
 window.formatoDiv = formatoDiv;
 window.modeloDiv = modeloDiv;
 window.capaDiv = capaDiv;
