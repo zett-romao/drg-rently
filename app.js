@@ -11795,14 +11795,14 @@ async function onTogglePublicoImovel() {
     // Cópia pública (vitrine/{id}) — é ela que o site e o feed dos portais leem
     sincronizarFichaRede(imovelId).catch(e => console.warn('Vitrine não sincronizada:', e));
     updateLinkPublicoUI(ativo, imovelId);
-    // Regra nº 1: a chave responde
-    showAlert('imovel-alert', ativo
-      ? '✓ Imóvel publicado: já aparece no site e o link de compartilhar está pronto (Divulgar).'
-      : '✓ Imóvel despublicado: saiu do site e o link deixou de abrir.', 'success');
+    // Regra nº 1: responde ao lado do botão
+    showInlineStatus('imovel-publicar-status', ativo
+      ? '✓ Anúncio publicado: já aparece no site e o link abaixo está pronto para compartilhar (ou use 📣 Divulgar).'
+      : '✓ Anúncio tirado do site: o link deixou de abrir.', 'success', 10000);
   } catch (err) {
     console.error('Erro ao atualizar publicação:', err);
     $('imovel-link-publico').checked = !ativo;
-    showAlert('imovel-alert', 'Erro: ' + err.message);
+    showInlineStatus('imovel-publicar-status', '❌ Não consegui: ' + escapeHtml(err.message), 'error');
   }
 }
 
@@ -11812,9 +11812,35 @@ function estadoPublicarImovel(liberado) {
   if (chk) chk.disabled = !liberado;
   const av = $('imovel-publicar-salve');
   if (av) av.style.display = liberado ? 'none' : 'block';
+  renderBotaoPublicar();
+}
+
+// Botão "🌐 Publicar anúncio" / "✅ Publicado · Tirar do site" — espelha a caixinha #imovel-link-publico
+function renderBotaoPublicar() {
+  const chk = $('imovel-link-publico'), pub = $('btn-publicar-imovel');
+  if (!chk || !pub) return;
+  const ativo = chk.checked;
+  pub.style.display = ativo ? 'none' : '';
+  pub.disabled = chk.disabled;
+  pub.title = chk.disabled ? 'Salve o imóvel primeiro' : '';
+  $('imovel-publicado-selo').style.display = ativo ? '' : 'none';
+  $('btn-despublicar-imovel').style.display = ativo ? '' : 'none';
+}
+
+async function publicarImovelBtn(ativar, btn) {
+  const chk = $('imovel-link-publico');
+  if (!chk || chk.disabled) return;
+  if (!ativar && !(await confirmar({ titulo: 'Tirar do site?', mensagem: 'O anúncio sai do site e o link deixa de abrir. Dá para publicar de novo quando quiser.', confirmar: 'Tirar do site' }))) return;
+  const txt = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = ativar ? '⏳ Publicando… aguarde' : '⏳ Tirando do site…';
+  chk.checked = ativar;
+  try { await onTogglePublicoImovel(); }
+  finally { btn.disabled = false; btn.textContent = txt; renderBotaoPublicar(); }
 }
 
 function updateLinkPublicoUI(ativo, imovelId) {
+  renderBotaoPublicar();
   const actions = $('imovel-link-actions');
   if (ativo) {
     actions.style.display = 'block';

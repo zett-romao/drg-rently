@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261021e-publicar">
+  <link rel="stylesheet" href="styles.css?v=20261021l-btn-publicar">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -5155,13 +5155,17 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="publicacao-box">
             <p class="muted" style="font-size:12px; margin:0 0 10px;">Revisou dados, fotos e documentos? Confira a prévia e publique.
               <button type="button" class="btn btn-secondary btn-sm" style="margin-left:6px;" onclick="previaDoModalImovel(this)">👁 Ver prévia do anúncio</button></p>
-            <div id="imovel-publicar-salve" class="alert alert-info" style="display:none; margin-bottom:10px;">💾 Primeiro clique em <strong>Salvar</strong> (no rodapé). Depois disso a chave abaixo libera e o imóvel pode ser publicado.</div>
-            <label class="toggle-row">
-              <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()">
-              <span>🌐 Publicar este imóvel (gera link compartilhável)</span>
-            </label>
+            <div id="imovel-publicar-salve" class="alert alert-info" style="display:none; margin-bottom:10px;">💾 Primeiro clique em <strong>Salvar</strong> (no rodapé). Depois disso o botão <strong>🌐 Publicar anúncio</strong> libera.</div>
+            <!-- a caixinha continua sendo o estado (o código lê .checked), mas quem usa é o botão -->
+            <input type="checkbox" id="imovel-link-publico" onchange="onTogglePublicoImovel()" hidden>
+            <div class="publicar-acoes">
+              <button type="button" class="btn btn-primary btn-publicar" id="btn-publicar-imovel" onclick="publicarImovelBtn(true, this)">🌐 Publicar anúncio</button>
+              <span class="publicado-selo" id="imovel-publicado-selo" style="display:none;">✅ Publicado — já está no site</span>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-despublicar-imovel" style="display:none;" onclick="publicarImovelBtn(false, this)">Tirar do site</button>
+            </div>
+            <div id="imovel-publicar-status" class="status-inline" style="display:none; margin-top:8px;"></div>
             <p class="muted" style="font-size:12px; margin-top:6px;">
-              Quando ativo, qualquer pessoa com o link consegue visualizar as fotos
+              Publicado, qualquer pessoa com o link consegue visualizar as fotos
               e a descrição. Dados sensíveis (locador, valores internos, endereço
               exato) ficam ocultos.
             </p>
@@ -6045,7 +6049,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261021k-publicar-fim"></script>
+  <script src="app.js?v=20261021l-btn-publicar"></script>
   <script src="rede.js?v=20261021k-publicar-fim"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
