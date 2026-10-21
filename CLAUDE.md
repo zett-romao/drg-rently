@@ -768,6 +768,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 📷 **Fotos e documentos da IA vão sozinhos** (dono: *"se eu já anexei as imagens lá atrás, pq precisa
+  aqui novamente?"*). Após a leitura, `anexarAutomaticoIA()`: fotos `foto_imovel` sem `privacidade` → galeria (marca d'água
+  de sempre; cria o rascunho se preciso) e `documento` → Documentos. Pessoas/placas e prints ficam para o usuário marcar.
+  Item enviado ganha `enviado` (não repete ao rodar a IA de novo). `uploadImovelFotos`/`uploadImovelDocs` devolvem true/false.
 - **2026-10-21**: 👁 **Prévia do anúncio** (dono: *"sempre precisamos ver a prévia do anúncio, tanto quem cadastra como
   o gestor ou o dono"*). Botão **👁 Prévia** na lista de imóveis e **👁 Ver prévia do anúncio** no modal (mostra o SALVO).
   `previaAnuncio()` (rede.js) monta `montarDadosVitrine()` — exatamente o que iria ao site — e passa por localStorage

@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v41-20261021f-mapas';
+const CACHE_VERSION = 'drg-rently-v42-20261021g-auto-anexos';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

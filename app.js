@@ -11614,21 +11614,21 @@ function travarMarcaDaguaDoCorretor() {
 }
 
 async function uploadImovelFotos() {
-  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
+  if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return false; // Perfis 3.0
   const imovelId = await garantirRascunhoImovel('imovel-alert');
-  if (!imovelId) return;
+  if (!imovelId) return false;
 
   const input = $('imovel-foto-input');
   const files = Array.from(input.files || []);
   if (files.length === 0) {
     showAlert('imovel-alert', 'Selecione ao menos uma foto.');
-    return;
+    return false;
   }
 
   const tooBig = files.find(f => f.size > 10 * 1024 * 1024);
   if (tooBig) {
     showAlert('imovel-alert', `Arquivo "${tooBig.name}" excede 10MB.`);
-    return;
+    return false;
   }
 
   const fotoDoCorretor = isCorretor();
@@ -11641,7 +11641,7 @@ async function uploadImovelFotos() {
     }
     if (!logoImg && fotoDoCorretor) {
       showAlert('imovel-alert', '🔒 Não foi possível aplicar a logo da imobiliária nas fotos. Tente de novo em instantes — sem a logo a foto não sobe.');
-      return;
+      return false;
     }
   }
 
@@ -11681,9 +11681,11 @@ async function uploadImovelFotos() {
     input.value = '';
     showAlert('imovel-alert', `${files.length} foto(s) enviada(s).`, 'success');
     loadImovelFotos(imovelId);
+    return true;
   } catch (err) {
     console.error('Erro no upload de fotos:', err);
     showAlert('imovel-alert', 'Erro: ' + err.message);
+    return false;
   }
 }
 

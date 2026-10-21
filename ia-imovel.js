@@ -157,6 +157,7 @@ async function preencherImovelComIA() {
     const rel = await aplicarResultadoIA(r, false);
     clearInlineStatus('imovel-ia-status');
     renderResultadoIA(r, rel);
+    await anexarAutomaticoIA();
     if (typeof logAuditoria === 'function') logAuditoria('ia_cadastro_imovel', 'imovel', $('imovel-id').value || null, { arquivos: _iaImovel.itens.length, campos: rel.preenchidos.length });
   } catch (err) {
     console.error('Cadastro com IA:', err);
@@ -399,27 +400,41 @@ async function cadastrarProprietarioIA() {
 }
 
 // ---------- fotos do imóvel para a galeria ----------
-async function usarFotosIA() {
-  const marcados = Array.from(document.querySelectorAll('.ia-foto-chk:checked')).map((c) => c.value);
-  const fotos = _iaImovel.itens.filter((i) => marcados.includes(i.id));
-  if (!fotos.length) { showInlineStatus('imovel-ia-status', '⚠️ Marque as fotos que vão para a galeria.', 'error', 5000); return; }
+async function usarFotosIA(auto) {
+  const marcados = auto ? null : Array.from(document.querySelectorAll('.ia-foto-chk:checked')).map((c) => c.value);
+  // automático: as fotos do imóvel sem pessoas/placas (as outras ficam para o usuário decidir)
+  const fotos = auto
+    ? (_iaImovel.resultado?.arquivos || []).filter((x) => x.tipo === 'foto_imovel' && !x.privacidade)
+        .map((x) => _iaImovel.itens[x.indice]).filter((it) => it && it.thumb && !it.enviado)
+    : _iaImovel.itens.filter((i) => marcados.includes(i.id) && !i.enviado);
+  if (!fotos.length) { if (!auto) showInlineStatus('imovel-ia-status', '⚠️ Marque as fotos que vão para a galeria (as já enviadas não repetem).', 'error', 5000); return null; }
   const input = $('imovel-foto-input');
-  if (!input || typeof uploadImovelFotos !== 'function') return;
+  if (!input || typeof uploadImovelFotos !== 'function') return null;
   const dt = new DataTransfer();
   fotos.forEach((f) => dt.items.add(f.file));
   input.files = dt.files;
   const btn = $('btn-ia-fotos');
-  await drgSubmit(btn, `⏳ Enviando ${fotos.length} foto(s)… aguarde`, async () => { await uploadImovelFotos(); }, { destravar: true });
-  if (btn) { btn.textContent = `✓ ${fotos.length} foto(s) na galeria`; btn.disabled = true; }
+  let ok = false;
+  await drgSubmit(btn, `⏳ Enviando ${fotos.length} foto(s)… aguarde`, async () => { ok = await uploadImovelFotos(); }, { destravar: true });
+  if (ok) {
+    fotos.forEach((f) => { f.enviado = true; });
+    document.querySelectorAll('.ia-foto-chk').forEach((c) => { if (fotos.some((f) => f.id === c.value)) { c.checked = true; c.disabled = true; } });
+    if (btn) { btn.textContent = `✓ ${fotos.length} foto(s) na galeria`; btn.disabled = true; }
+  }
+  return ok ? fotos.length : false;
 }
 
 // ---------- documentos do material → "Documentos legais" do imóvel (não vão ao site) ----------
-async function usarDocumentosIA() {
-  const marcados = Array.from(document.querySelectorAll('.ia-doc-chk:checked')).map((c) => c.value);
-  const docs = _iaImovel.itens.filter((i) => marcados.includes(i.id));
-  if (!docs.length) { showInlineStatus('imovel-ia-status', '⚠️ Marque os documentos que vão ficar guardados no imóvel.', 'error', 5000); return; }
+async function usarDocumentosIA(auto) {
+  const marcados = auto ? null : Array.from(document.querySelectorAll('.ia-doc-chk:checked')).map((c) => c.value);
+  // automático: só o que a IA classificou como documento (matrícula, IPTU, ficha…); print fica a critério
+  const docs = auto
+    ? (_iaImovel.resultado?.arquivos || []).filter((x) => x.tipo === 'documento')
+        .map((x) => _iaImovel.itens[x.indice]).filter((it) => it && it.mimeType !== 'text/plain' && !it.enviado)
+    : _iaImovel.itens.filter((i) => marcados.includes(i.id) && !i.enviado);
+  if (!docs.length) { if (!auto) showInlineStatus('imovel-ia-status', '⚠️ Marque os documentos que vão ficar guardados no imóvel (os já guardados não repetem).', 'error', 5000); return null; }
   const input = $('imovel-doc-input');
-  if (!input || typeof uploadImovelDocs !== 'function') return;
+  if (!input || typeof uploadImovelDocs !== 'function') return null;
   // print colado chega como "image.png": nomes repetidos se sobrescreveriam no Storage
   const usados = new Set();
   const dt = new DataTransfer();
@@ -433,7 +448,25 @@ async function usarDocumentosIA() {
   const btn = $('btn-ia-docs');
   let ok = false;
   await drgSubmit(btn, `⏳ Guardando ${docs.length} documento(s)… aguarde`, async () => { ok = await uploadImovelDocs(); }, { destravar: true });
-  if (ok && btn) { btn.textContent = `✓ ${docs.length} documento(s) guardado(s)`; btn.disabled = true; }
+  if (ok) {
+    docs.forEach((d) => { d.enviado = true; });
+    document.querySelectorAll('.ia-doc-chk').forEach((c) => { if (docs.some((d) => d.id === c.value)) { c.checked = true; c.disabled = true; } });
+    if (btn) { btn.textContent = `✓ ${docs.length} documento(s) guardado(s)`; btn.disabled = true; }
+  }
+  return ok ? docs.length : false;
+}
+
+// Depois da leitura: fotos do imóvel → galeria e documentos → Documentos, sem clicar de novo
+// (dono, 21/10/2026: "se eu já anexei as imagens lá atrás, pq precisa aqui novamente?")
+async function anexarAutomaticoIA() {
+  const msgs = [];
+  const f = await usarFotosIA(true);
+  if (f) msgs.push(`📷 ${f} foto(s) já na galeria do imóvel`);
+  else if (f === false) msgs.push('⚠️ as fotos não subiram (veja o aviso no topo) — use “📷 Adicionar à galeria” abaixo');
+  const d = await usarDocumentosIA(true);
+  if (d) msgs.push(`📎 ${d} documento(s) guardado(s) no imóvel`);
+  else if (d === false) msgs.push('⚠️ os documentos não subiram — use “📎 Guardar no imóvel” abaixo');
+  if (msgs.length) showInlineStatus('imovel-ia-status', msgs.join(' · '), msgs.some((m) => m.startsWith('⚠️')) ? 'error' : 'success', 12000);
 }
 
 // Atalho do quadro da IA para as seções de anexos no fim do cadastro
@@ -482,11 +515,11 @@ function renderResultadoIA(r, rel) {
     ${linhaCorretores}
     ${rel.mantidos.length ? `<div class="ia-linha">✋ Mantive o que já estava preenchido em: ${escapeHtml(rel.mantidos.join(', '))}. <button type="button" class="btn btn-secondary btn-sm" onclick="substituirComIA()">Usar o da IA nesses também</button></div>` : ''}
     ${(r.conflitos || []).length ? `<div class="ia-linha ia-aviso">⚠️ Informações que não batem entre os arquivos: ${escapeHtml(r.conflitos.join(' · '))}</div>` : ''}
-    ${fotos.length ? `<div class="ia-linha">📷 ${fotos.length} foto(s) do imóvel no material — marque as que vão para a galeria:
-        <div class="ia-fotos">${fotos.map((f) => `<label class="ia-foto"><input type="checkbox" class="ia-foto-chk" value="${f.item.id}" ${f.privacidade ? '' : 'checked'}><img src="${f.item.thumb}" alt=""><span>${escapeHtml(f.ambiente || 'foto')}${f.privacidade ? ' · ⚠️ pessoas/placas' : ''}</span></label>`).join('')}</div>
+    ${fotos.length ? `<div class="ia-linha">📷 ${fotos.length} foto(s) do imóvel no material — vão sozinhas para a galeria (com marca d’água); as com ⚠️ pessoas/placas ficam de fora: marque e clique abaixo se quiser.
+        <div class="ia-fotos">${fotos.map((f) => `<label class="ia-foto"><input type="checkbox" class="ia-foto-chk" value="${f.item.id}" ${f.item.enviado ? 'checked disabled' : f.privacidade ? '' : 'checked'}><img src="${f.item.thumb}" alt=""><span>${escapeHtml(f.ambiente || 'foto')}${f.privacidade ? ' · ⚠️ pessoas/placas' : ''}</span></label>`).join('')}</div>
         <button type="button" class="btn btn-secondary btn-sm" id="btn-ia-fotos" onclick="usarFotosIA()">📷 Adicionar à galeria do imóvel</button></div>` : ''}
-    ${docsIA.length ? `<div class="ia-linha">📎 ${docsIA.length} documento(s)/print(s) no material — marque os que ficam guardados em Documentos do imóvel (não aparecem no site):
-        <div class="ia-docs">${docsIA.map((d) => `<label class="ia-doc"><input type="checkbox" class="ia-doc-chk" value="${d.item.id}" ${d.tipo === 'documento' ? 'checked' : ''}> ${d.item.mimeType === 'application/pdf' ? '📄' : '🖼'} ${escapeHtml(d.item.nome)}</label>`).join('')}</div>
+    ${docsIA.length ? `<div class="ia-linha">📎 ${docsIA.length} documento(s)/print(s) no material — os documentos vão sozinhos para Documentos do imóvel (não aparecem no site); prints de anúncio, marque e clique abaixo se quiser guardar.
+        <div class="ia-docs">${docsIA.map((d) => `<label class="ia-doc"><input type="checkbox" class="ia-doc-chk" value="${d.item.id}" ${d.item.enviado ? 'checked disabled' : d.tipo === 'documento' ? 'checked' : ''}> ${d.item.mimeType === 'application/pdf' ? '📄' : '🖼'} ${escapeHtml(d.item.nome)}</label>`).join('')}</div>
         <button type="button" class="btn btn-secondary btn-sm" id="btn-ia-docs" onclick="usarDocumentosIA()">📎 Guardar no imóvel</button></div>` : ''}
     ${(r.anuncio?.destaques || []).length ? `<div class="ia-linha">⭐ Destaques: ${escapeHtml(r.anuncio.destaques.join(' · '))}</div>` : ''}
     <div class="ia-linha"><button type="button" class="btn btn-primary btn-sm btn-ia" onclick="abrirGeradorAnuncio()">✨ Refinar o anúncio com as fotos e a região</button></div>`;
