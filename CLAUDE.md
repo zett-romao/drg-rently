@@ -768,6 +768,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 🌐 **Publicar sempre visível + 🐛 rascunho eterno.** "Publicação pública" aparece também no imóvel novo,
+  com a chave travada e o aviso "💾 Primeiro clique em Salvar" (`estadoPublicarImovel`). 🐛 `saveImovel` não limpava
+  `rascunho: true` (criado no 1º envio de foto/doc por `garantirRascunhoImovel`): o imóvel ficava sem Divulgar e fora da
+  vitrine mesmo publicado (`sincronizarVitrine` exige `!rascunho`). Agora o Salvar grava `rascunho: false`.
 - **2026-10-21**: 📷 **Fotos e documentos da IA vão sozinhos** (dono: *"se eu já anexei as imagens lá atrás, pq precisa
   aqui novamente?"*). Após a leitura, `anexarAutomaticoIA()`: fotos `foto_imovel` sem `privacidade` → galeria (marca d'água
   de sempre; cria o rascunho se preciso) e `documento` → Documentos. Pessoas/placas e prints ficam para o usuário marcar.

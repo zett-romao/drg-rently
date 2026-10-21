@@ -10992,6 +10992,7 @@ async function openImovelModal(id) {
     try {
       const docSnap = await tenantPath().collection('imoveis').doc(id).get();
       const linkAtivo = !!(docSnap.data() || {}).linkPublico;
+      estadoPublicarImovel(!(docSnap.data() || {}).rascunho);
       $('imovel-link-publico').checked = linkAtivo;
       updateLinkPublicoUI(linkAtivo, id);
     } catch (_) {}
@@ -11016,7 +11017,11 @@ async function openImovelModal(id) {
     $('imovel-fotos-section').style.display = 'block';
     travarMarcaDaguaDoCorretor();
     if (typeof prepararMatriculaImovel === 'function') prepararMatriculaImovel(null);
-    $('imovel-publicacao-section').style.display = 'none';
+    // Imóvel novo: a seção aparece (para ninguém procurar), mas a chave só libera depois do Salvar
+    $('imovel-publicacao-section').style.display = isCorretor() ? 'none' : 'block';
+    $('imovel-link-publico').checked = false;
+    updateLinkPublicoUI(false, null);
+    estadoPublicarImovel(false);
     const grid = $('imovel-fotos-grid');
     if (grid) {
       grid.innerHTML = `<p class="empty">📷 Anexe fotos aqui — o imóvel será salvo automaticamente como rascunho no primeiro upload.<br><span class="muted" style="font-size:12px;">💡 Você pode arrastar arquivos direto pra esta área.</span></p>`;
@@ -11149,6 +11154,9 @@ async function saveImovel() {
     ...lerRedeDoModalImovel(),
     // Anúncio: tituloAnuncio, anuncioPortais, anuncioIA (anuncios.js)
     ...lerAnuncioDoModalImovel(),
+    // Salvar completo encerra o rascunho criado no 1º envio de foto/documento (garantirRascunhoImovel);
+    // sem isso o imóvel ficava sem Divulgar e fora da vitrine mesmo publicado.
+    rascunho: false,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -11589,6 +11597,7 @@ async function garantirRascunhoImovel(alertId) {
       $('imovel-docs-section').style.display = 'block';
       // Corretor não publica no site/portais — quem publica é a imobiliária
       $('imovel-publicacao-section').style.display = isCorretor() ? 'none' : 'block';
+      estadoPublicarImovel(false);   // rascunho: publica depois do Salvar
       // Avisa o operador
       showAlert(
         'imovel-alert',
@@ -11792,6 +11801,14 @@ async function onTogglePublicoImovel() {
     $('imovel-link-publico').checked = !ativo;
     showAlert('imovel-alert', 'Erro: ' + err.message);
   }
+}
+
+// Chave "Publicar": só depois do Salvar (rascunho/novo não entra na vitrine)
+function estadoPublicarImovel(liberado) {
+  const chk = $('imovel-link-publico');
+  if (chk) chk.disabled = !liberado;
+  const av = $('imovel-publicar-salve');
+  if (av) av.style.display = liberado ? 'none' : 'block';
 }
 
 function updateLinkPublicoUI(ativo, imovelId) {

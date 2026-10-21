@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v43-20261021h-fotos';
+const CACHE_VERSION = 'drg-rently-v44-20261021i-publicar2';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
