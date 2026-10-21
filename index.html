@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261019c-tiktok">
+  <link rel="stylesheet" href="styles.css?v=20261021b-anexos">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -4732,6 +4732,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
               <button type="button" class="btn btn-primary btn-ia" id="btn-imovel-ia" onclick="preencherImovelComIA()">✨ Preencher tudo com IA</button>
               <span class="muted" style="font-size:12px;">A IA só usa o que está no material e não apaga o que você já digitou. Confira os campos destacados antes de salvar.</span>
             </div>
+            <div class="ia-depois">Para anexar mais depois, use as seções no fim do cadastro:
+              <button type="button" class="btn btn-secondary btn-sm" onclick="irParaSecaoImovel('imovel-fotos-section')">📷 Fotos do imóvel ↓</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="irParaSecaoImovel('imovel-docs-section')">📎 Documentos ↓</button>
+            </div>
             <div id="imovel-ia-status" style="margin-top:8px;"></div>
             <div id="imovel-ia-resultado"></div>
           </div>
@@ -5154,7 +5158,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
           <div class="upload-area">
             <input type="file" id="imovel-doc-input" multiple accept=".pdf,.jpg,.jpeg,.png">
-            <button class="btn btn-secondary btn-sm" onclick="uploadImovelDocs()">⬆ Enviar arquivos</button>
+            <button class="btn btn-secondary btn-sm" id="btn-imovel-docs-upload" onclick="uploadImovelDocs()">⬆ Enviar arquivos</button>
             <span class="muted" style="font-size:12px;">PDF, JPG ou PNG • máx. 10MB por arquivo</span>
           </div>
         </div>
@@ -6029,11 +6033,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261021a-ia-cadastros"></script>
+  <script src="app.js?v=20261021b-anexos"></script>
   <script src="rede.js?v=20261021a-ia-cadastros"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
-  <script src="ia-imovel.js?v=20261021a-ia-cadastros"></script>
+  <script src="ia-imovel.js?v=20261021b-anexos"></script>
   <script src="imediacoes.js?v=20261017r-imediacoes"></script>
   <script src="divulgar.js?v=20261019c-tiktok"></script>
   <script src="assinaturas.js?v=20261017j-protecao"></script>

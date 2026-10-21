@@ -768,6 +768,11 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-21**: 📎 **Anexar mais depois** (dono: *"quero um espaço para anexar mais docs e fotos depois"*).
+  "Documentos legais" do imóvel visível já no cadastro novo (1º envio cria o rascunho via `garantirRascunhoImovel`,
+  como as fotos); `uploadImovelDocs` trava o botão e devolve true/false. Quadro da IA: atalhos 📷 Fotos ↓ / 📎 Documentos ↓
+  e, no resumo, **📎 Guardar no imóvel** para os documentos/prints do material (PDF/imagem original; print colado
+  "image.png" ganha nome único para não sobrescrever no Storage).
 - **2026-10-19**: 📣 **Divulgar imóvel** (`divulgar.js`; dono: *"compartilhar imóvel… whats, e-mail, link… gerador de anúncios para status de WhatsApp, reels, story"*).
   Botão na lista e no cadastro. Compartilhar: link do Worker do feed (prévia com foto), WhatsApp, e-mail, Facebook, X, Telegram, LinkedIn, copiar, navigator.share.
   Peças em canvas: Story/Status 9:16, Feed 1:1 e 4:5 (modelos Foto inteira e Mosaico) e vídeo 9:16 (MediaRecorder, MP4 no Chrome, WebM de reserva),

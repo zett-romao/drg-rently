@@ -11009,7 +11009,9 @@ async function openImovelModal(id) {
     // Em modo CRIAÇÃO mantemos a seção de fotos VISÍVEL (cria rascunho on-demand
     // quando user faz primeiro upload). Docs e publicação ficam ocultos porque
     // não fazem sentido antes do save completo.
-    $('imovel-docs-section').style.display = 'none';
+    // Docs também visíveis: o 1º envio cria o rascunho (garantirRascunhoImovel), como nas fotos
+    $('imovel-docs-section').style.display = 'block';
+    $('imovel-docs-list').innerHTML = '<p class="empty">Nenhum documento ainda.</p>';
     $('imovel-fotos-section').style.display = 'block';
     travarMarcaDaguaDoCorretor();
     if (typeof prepararMatriculaImovel === 'function') prepararMatriculaImovel(null);
@@ -11281,12 +11283,6 @@ async function loadImovelDocs(imovelId) {
 
 async function uploadImovelDocs() {
   if (!exigirNivelAnexo('imoveis', 'criar', 'imovel-alert')) return; // Perfis 3.0
-  const imovelId = $('imovel-id').value;
-  if (!imovelId) {
-    showAlert('imovel-alert', 'Salve o imóvel antes de anexar documentos.');
-    return;
-  }
-
   const input = $('imovel-doc-input');
   const files = Array.from(input.files || []);
   if (files.length === 0) {
@@ -11300,8 +11296,13 @@ async function uploadImovelDocs() {
     return;
   }
 
-  const folderRef = storageTenantRef().child(`imoveis/${imovelId}`);
+  const btn = $('btn-imovel-docs-upload');
+  if (btn) { btn.disabled = true; btn.textContent = `⏳ Enviando ${files.length} arquivo(s)… aguarde`; }
   try {
+    // Imóvel novo: cria o rascunho (como nas fotos) para os documentos já ficarem guardados
+    const imovelId = $('imovel-id').value || await garantirRascunhoImovel('imovel-alert');
+    if (!imovelId) return false;
+    const folderRef = storageTenantRef().child(`imoveis/${imovelId}`);
     for (const file of files) {
       await folderRef.child(file.name).put(file, {
         contentType: file.type,
@@ -11309,11 +11310,15 @@ async function uploadImovelDocs() {
       });
     }
     input.value = '';
-    showAlert('imovel-alert', `${files.length} arquivo(s) enviado(s).`, 'success');
+    showAlert('imovel-alert', `✓ ${files.length} documento(s) guardado(s) no imóvel.`, 'success');
     loadImovelDocs(imovelId);
+    return true;
   } catch (err) {
     console.error('Erro no upload:', err);
     showAlert('imovel-alert', 'Erro: ' + err.message);
+    return false;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬆ Enviar arquivos'; }
   }
 }
 
@@ -11563,7 +11568,7 @@ async function garantirRascunhoImovel(alertId) {
   if (!imovelId) {
     const apelido = $('imovel-apelido').value.trim();
     if (!apelido) {
-      showAlert(alertId, 'Antes de subir fotos, preencha pelo menos o "Apelido" do imóvel.');
+      showAlert(alertId, 'Antes de subir fotos ou documentos, preencha pelo menos o "Apelido" do imóvel.');
       return null;
     }
     try {

@@ -413,6 +413,37 @@ async function usarFotosIA() {
   if (btn) { btn.textContent = `✓ ${fotos.length} foto(s) na galeria`; btn.disabled = true; }
 }
 
+// ---------- documentos do material → "Documentos legais" do imóvel (não vão ao site) ----------
+async function usarDocumentosIA() {
+  const marcados = Array.from(document.querySelectorAll('.ia-doc-chk:checked')).map((c) => c.value);
+  const docs = _iaImovel.itens.filter((i) => marcados.includes(i.id));
+  if (!docs.length) { showInlineStatus('imovel-ia-status', '⚠️ Marque os documentos que vão ficar guardados no imóvel.', 'error', 5000); return; }
+  const input = $('imovel-doc-input');
+  if (!input || typeof uploadImovelDocs !== 'function') return;
+  // print colado chega como "image.png": nomes repetidos se sobrescreveriam no Storage
+  const usados = new Set();
+  const dt = new DataTransfer();
+  docs.forEach((d, i) => {
+    let nome = d.file.name && d.file.name !== 'image.png' ? d.file.name : `print-${Date.now()}-${i + 1}.png`;
+    if (usados.has(nome)) nome = nome.replace(/(\.[^.]*)?$/, `-${i + 1}$1`);
+    usados.add(nome);
+    dt.items.add(nome === d.file.name ? d.file : new File([d.file], nome, { type: d.file.type }));
+  });
+  input.files = dt.files;
+  const btn = $('btn-ia-docs');
+  let ok = false;
+  await drgSubmit(btn, `⏳ Guardando ${docs.length} documento(s)… aguarde`, async () => { ok = await uploadImovelDocs(); }, { destravar: true });
+  if (ok && btn) { btn.textContent = `✓ ${docs.length} documento(s) guardado(s)`; btn.disabled = true; }
+}
+
+// Atalho do quadro da IA para as seções de anexos no fim do cadastro
+function irParaSecaoImovel(id) {
+  const el = $(id);
+  if (!el) return;
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // ---------- resumo do que a IA fez ----------
 function renderResultadoIA(r, rel) {
   _iaImovel.ultimoRel = rel;
@@ -420,6 +451,10 @@ function renderResultadoIA(r, rel) {
   if (!out) return;
   const arqs = Array.isArray(r?.arquivos) ? r.arquivos : [];
   const fotos = arqs.filter((x) => x.tipo === 'foto_imovel').map((x) => ({ ...x, item: _iaImovel.itens[x.indice] })).filter((x) => x.item && x.item.thumb);
+  // documentos e prints (PDF/imagem; .txt não): o arquivo original vai para Documentos do imóvel
+  const docsIA = arqs.filter((x) => x.tipo === 'documento' || x.tipo === 'print_anuncio')
+    .map((x) => ({ ...x, item: _iaImovel.itens[x.indice] }))
+    .filter((x) => x.item && x.item.mimeType !== 'text/plain');
   const p = rel.proprietario;
   const linhaDono = !p ? '' : p.achado
     ? `<div class="ia-linha">👤 Proprietário: <strong>${escapeHtml(p.achado.nome || '')}</strong> — já cadastrado, selecionado no campo Locador.</div>`
@@ -450,6 +485,9 @@ function renderResultadoIA(r, rel) {
     ${fotos.length ? `<div class="ia-linha">📷 ${fotos.length} foto(s) do imóvel no material — marque as que vão para a galeria:
         <div class="ia-fotos">${fotos.map((f) => `<label class="ia-foto"><input type="checkbox" class="ia-foto-chk" value="${f.item.id}" ${f.privacidade ? '' : 'checked'}><img src="${f.item.thumb}" alt=""><span>${escapeHtml(f.ambiente || 'foto')}${f.privacidade ? ' · ⚠️ pessoas/placas' : ''}</span></label>`).join('')}</div>
         <button type="button" class="btn btn-secondary btn-sm" id="btn-ia-fotos" onclick="usarFotosIA()">📷 Adicionar à galeria do imóvel</button></div>` : ''}
+    ${docsIA.length ? `<div class="ia-linha">📎 ${docsIA.length} documento(s)/print(s) no material — marque os que ficam guardados em Documentos do imóvel (não aparecem no site):
+        <div class="ia-docs">${docsIA.map((d) => `<label class="ia-doc"><input type="checkbox" class="ia-doc-chk" value="${d.item.id}" ${d.tipo === 'documento' ? 'checked' : ''}> ${d.item.mimeType === 'application/pdf' ? '📄' : '🖼'} ${escapeHtml(d.item.nome)}</label>`).join('')}</div>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-ia-docs" onclick="usarDocumentosIA()">📎 Guardar no imóvel</button></div>` : ''}
     ${(r.anuncio?.destaques || []).length ? `<div class="ia-linha">⭐ Destaques: ${escapeHtml(r.anuncio.destaques.join(' · '))}</div>` : ''}
     <div class="ia-linha"><button type="button" class="btn btn-primary btn-sm btn-ia" onclick="abrirGeradorAnuncio()">✨ Refinar o anúncio com as fotos e a região</button></div>`;
 }
@@ -490,6 +528,8 @@ window.removerArquivoIA = removerArquivoIA;
 window.preencherImovelComIA = preencherImovelComIA;
 window.cadastrarProprietarioIA = cadastrarProprietarioIA;
 window.completarProprietarioIA = completarProprietarioIA;
+window.usarDocumentosIA = usarDocumentosIA;
+window.irParaSecaoImovel = irParaSecaoImovel;
 window.abrirCorretoresIA = abrirCorretoresIA;
 window.usarFotosIA = usarFotosIA;
 window.substituirComIA = substituirComIA;
