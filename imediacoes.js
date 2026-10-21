@@ -40,20 +40,29 @@ async function buscarImediacoes(centro, raio, catIds) {
   const cats = IMEDIACOES_CATEGORIAS.filter((c) => catIds.includes(c.id));
   const linhas = cats.flatMap((c) => c.sel.map((s) => `${s}(around:${raio},${centro.lat},${centro.lng})["name"];`));
   const q = `[out:json][timeout:60];(\n${linhas.join('\n')}\n);out center 600;`;
-  const servidores = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
-  const limite = Date.now() + 110000;   // o Overpass público costuma levar 30–60 s
+  // Espelhos públicos do Overpass. Em 21/10/2026: overpass-api.de dava 406/502 na hora,
+  // private.coffee e kumi ficavam 70 s pendurados e só o mail.ru respondia (~12 s).
+  // Antes era um por vez: um espelho pendurado comia o prazo inteiro antes de chegar no que
+  // funcionava. Agora largam escalonados (3 s entre um e outro); vale o 1º que responder,
+  // os demais são cancelados.
+  const servidores = ['https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass-api.de/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+  const PRAZO = 100000;
+  const ctls = servidores.map(() => new AbortController());
+  const tentar = async (srv, i) => {
+    await new Promise((res) => setTimeout(res, i * 3000));
+    if (ctls[i].signal.aborted) throw new Error('cancelado');
+    const r = await fetch(srv, { method: 'POST', body: 'data=' + encodeURIComponent(q), signal: ctls[i].signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    if (!Array.isArray(j.elements)) throw new Error('resposta sem dados');
+    return j.elements;
+  };
+  const timer = setTimeout(() => ctls.forEach((c) => c.abort()), PRAZO);
   let elementos = null;
-  for (const srv of servidores) {
-    const resta = limite - Date.now();
-    if (resta < 3000) break;
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), Math.min(70000, resta));
-    try {
-      const r = await fetch(srv, { method: 'POST', body: 'data=' + encodeURIComponent(q), signal: ctl.signal, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-      if (r.ok) { elementos = (await r.json()).elements || []; break; }
-    } catch (_) { /* próximo espelho */ } finally { clearTimeout(timer); }
-  }
+  try { elementos = await Promise.any(servidores.map(tentar)); }
+  catch (_) { /* todos falharam */ }
+  finally { clearTimeout(timer); ctls.forEach((c) => c.abort()); }
   if (!elementos) throw new Error('o serviço de mapas (OpenStreetMap) não respondeu — tente de novo em instantes');
   const porCat = new Map();
   for (const e of elementos) {
