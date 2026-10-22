@@ -14839,7 +14839,7 @@ async function criarPerfisSeed() {
   const SID = 'perfis-seed-status';
   const ok = await confirmar({
     titulo: 'Criar perfis padrão?',
-    mensagem: 'Vamos criar os perfis-base (um por tipo de usuário) e os perfis dos cargos: Gerente, Gestor, Corretor, Aux. Administrativo, Financeiro e Cobrança.',
+    mensagem: 'Vamos criar os perfis-base (um por tipo de usuário) e os perfis dos cargos: CEO, Gerente, Gestor, Corretor, Aux. Administrativo, Financeiro e Cobrança.',
     detalhe: 'Os perfis-base são <strong>recriados</strong> com o padrão do sistema. Os perfis dos cargos só são criados se ainda <strong>não existirem</strong> — o que vocês já ajustaram fica como está. Perfis acima do seu limite são pulados.',
     confirmar: '⚙ Criar perfis',
     aviso: true,
