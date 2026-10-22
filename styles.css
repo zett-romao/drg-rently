@@ -4390,3 +4390,10 @@ details.card > summary:hover {
 .btn.btn-publicar:active{transform:scale(.98);filter:brightness(.92)}
 .btn.btn-publicar:disabled{opacity:.55;cursor:not-allowed}
 .publicado-selo{font-weight:700;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:999px;padding:8px 14px}
+
+/* Imóveis: filtros Finalidade + Status na mesma linha, rótulos em destaque */
+.imoveis-filtros-linha{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:14px}
+.imoveis-filtros-linha .filtro-grupo{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.imoveis-filtros-linha .filtro-grupo + .filtro-grupo{padding-left:18px;border-left:2px solid var(--border,#e2e8f0)}
+.filtro-rotulo{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--primary,#1e293b);padding:6px 10px;border-radius:6px;margin-right:4px}
+@media (max-width:760px){.imoveis-filtros-linha .filtro-grupo + .filtro-grupo{padding-left:0;border-left:0}}

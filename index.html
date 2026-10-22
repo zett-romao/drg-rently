@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261021l-btn-publicar">
+  <link rel="stylesheet" href="styles.css?v=20261022b-filtros">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -675,21 +675,23 @@
               <input type="search" id="imoveis-busca" placeholder="🔎 Buscar por código do anúncio (ex.: DRG-00012), apelido, bairro ou tag…" oninput="renderImoveisTable()" onkeydown="onBuscaImoveisKey(event)" autocomplete="off">
             </div>
 
-            <!-- Filtros: finalidade + status (chips, similar aos Locadores/Vendedores) -->
-            <div class="papel-filtros" id="imoveis-filtros-finalidade">
-              <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Finalidade:</span>
+            <!-- Filtros: finalidade + status na MESMA linha, rótulos em destaque (dono, 22/10/2026) -->
+            <div class="imoveis-filtros-linha">
+            <div class="papel-filtros filtro-grupo" id="imoveis-filtros-finalidade">
+              <span class="filtro-rotulo">Finalidade</span>
               <button type="button" class="papel-filtro-btn active" data-fin="todos" onclick="setFiltroImovelFinalidade('todos')">Todos</button>
               <button type="button" class="papel-filtro-btn" data-fin="locacao" onclick="setFiltroImovelFinalidade('locacao')">🏠 Locação</button>
               <button type="button" class="papel-filtro-btn" data-fin="venda" onclick="setFiltroImovelFinalidade('venda')">💼 Venda</button>
               <button type="button" class="papel-filtro-btn" data-fin="ambos" onclick="setFiltroImovelFinalidade('ambos')">🔁 Ambos</button>
             </div>
-            <div class="papel-filtros" id="imoveis-filtros-status" style="margin-bottom:14px;">
-              <span class="muted" style="font-size:12px; align-self:center; margin-right:4px;">Status:</span>
+            <div class="papel-filtros filtro-grupo" id="imoveis-filtros-status">
+              <span class="filtro-rotulo">Status</span>
               <button type="button" class="papel-filtro-btn active" data-st="todos" onclick="setFiltroImovelStatus('todos')">Todos</button>
               <button type="button" class="papel-filtro-btn" data-st="disponivel" onclick="setFiltroImovelStatus('disponivel')">🟢 Disponível</button>
               <button type="button" class="papel-filtro-btn" data-st="alugado" onclick="setFiltroImovelStatus('alugado')">🏘 Alugado</button>
               <button type="button" class="papel-filtro-btn" data-st="vendido" onclick="setFiltroImovelStatus('vendido')">💰 Vendido</button>
               <button type="button" class="papel-filtro-btn" data-st="em_reforma" onclick="setFiltroImovelStatus('em_reforma')">🔧 Em reforma</button>
+            </div>
             </div>
 
             <div class="table-wrap">
