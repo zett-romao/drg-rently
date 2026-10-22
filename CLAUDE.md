@@ -768,6 +768,12 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-22**: 🐛 **"Procurar repetidas" dizia "nenhuma" nas 99 fotos** (dono: *"fala sério"*). Causa: o bucket
+  `drg-rently.firebasestorage.app` NÃO tinha CORS — a página baixava a foto mas não podia ler os pixels; assinatura
+  null era tratada como "diferente". Conserto: CORS só GET/HEAD com origem `*` aplicado no bucket
+  (`gsutil cors set storage-cors.json gs://drg-rently.firebasestorage.app`, arquivo no repo); leitura por `fetch`
+  com `&assinatura=1` (o cache do navegador guardava a foto sem o cabeçalho); 🔒 foto não lida = "não conferida",
+  nunca "nenhuma repetida". Testado no Chrome: 99/99 lidas, 33 distintas, 66 repetidas (54 s).
 - **2026-10-22**: 🔁 **Bloqueio de fotos repetidas** (dono: *"subiram várias fotos repetidas, devemos implementar um bloqueio"*).
   Assinatura visual dHash 64 bits (`assinaturaFoto`, da foto ORIGINAL, antes da marca d'água) gravada em `fotos.assinatura`;
   fotos antigas ganham a assinatura lida pela URL (Storage tem CORS) na 1ª comparação. Envio compara com a galeria e

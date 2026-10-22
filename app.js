@@ -11762,7 +11762,8 @@ async function _uploadImovelFotos(input, btn, opts) {
     loadImovelFotos(imovelId);
     const fora = [...grandes.map(f => `${f.name} (passa de 10 MB)`), ...falhas.map(n => `${n} (erro no envio)`)];
     if (!enviadas) { st(`❌ Nenhuma foto subiu: ${escapeHtml(fora.join(', '))}. Tente de novo.`, 'error'); return false; }
-    st(`✓ ${enviadas} foto(s) na galeria.${puladas ? ` 🔁 ${puladas} repetida(s) não subiram de novo.` : ''}${fora.length ? ` ⚠️ Ficaram de fora: ${escapeHtml(fora.join(', '))}.` : ''}`, fora.length ? 'error' : 'success', fora.length ? 0 : 10000);
+    const naoConferidas = galeria.filter(g => !g.assinatura).length;
+    st(`✓ ${enviadas} foto(s) na galeria.${puladas ? ` 🔁 ${puladas} repetida(s) não subiram de novo.` : ''}${naoConferidas ? ` ⚠️ ${naoConferidas} foto(s) antigas da galeria não puderam ser lidas para comparar — use 🔁 Procurar repetidas depois.` : ''}${fora.length ? ` ⚠️ Ficaram de fora: ${escapeHtml(fora.join(', '))}.` : ''}`, fora.length ? 'error' : 'success', fora.length ? 0 : 10000);
     return true;
   } catch (err) {
     console.error('Erro no upload de fotos:', err);
@@ -11806,19 +11807,28 @@ function distanciaAssinatura(a, b) {
   return n;
 }
 
-// fonte: File/Blob ou URL (Storage libera CORS). null se não der para ler.
+// fonte: File/Blob ou URL do Storage. null se não der para ler (quem chama TEM de tratar).
+// URL: baixa por fetch com um parâmetro a mais — a galeria já pôs a foto no cache do navegador
+// SEM o cabeçalho CORS (o bucket só ganhou CORS em 22/10/2026, ver storage-cors.json) e o
+// Chrome reaproveitaria essa cópia "suja".
 async function assinaturaFoto(fonte) {
-  const ehUrl = typeof fonte === 'string';
-  const url = ehUrl ? fonte : URL.createObjectURL(fonte);
+  let blob = fonte;
+  if (typeof fonte === 'string') {
+    try {
+      const r = await fetch(fonte + (fonte.includes('?') ? '&' : '?') + 'assinatura=1', { mode: 'cors' });
+      if (!r.ok) return null;
+      blob = await r.blob();
+    } catch (_) { return null; }
+  }
+  const url = URL.createObjectURL(blob);
   try {
     const img = await new Promise((res, rej) => {
       const i = new Image();
-      if (ehUrl) i.crossOrigin = 'anonymous';
       i.onload = () => res(i); i.onerror = () => rej(new Error('imagem não carregou')); i.src = url;
     });
     return _dHashDeImagem(img);
   } catch (_) { return null; }
-  finally { if (!ehUrl) URL.revokeObjectURL(url); }
+  finally { URL.revokeObjectURL(url); }
 }
 
 // Fotos da galeria com assinatura. Fotos antigas (sem o campo) são lidas pela URL e a
@@ -11848,14 +11858,18 @@ async function limparFotosRepetidas(btn) {
   const txt = btn.textContent;
   btn.disabled = true; btn.textContent = '⏳ Conferindo as fotos…';
   try {
-    st('🔎 Comparando todas as fotos da galeria… aguarde', 'loading');
+    st('🔎 Comparando todas as fotos da galeria… aguarde (na 1ª vez leva mais: são baixadas uma a uma)', 'loading');
     const fotos = await assinaturasDaGaleria(imovelId);
     const ficam = [], repetidas = [];
     for (const f of fotos) {
       const igual = f.assinatura && ficam.find(k => k.assinatura && distanciaAssinatura(k.assinatura, f.assinatura) <= FOTO_REPETIDA_DIST);
       if (igual) repetidas.push({ ...f, de: igual }); else ficam.push(f);
     }
-    if (!repetidas.length) { st(`✓ Nenhuma foto repetida entre as ${fotos.length} da galeria.`, 'success', 8000); return; }
+    // 🔒 Sem assinatura = NÃO conferida. Nunca dizer "nenhuma repetida" sem ter lido as fotos.
+    const semLeitura = fotos.filter(f => !f.assinatura).length;
+    if (semLeitura === fotos.length && fotos.length) { st(`❌ Não consegui ler nenhuma das ${fotos.length} fotos para comparar. Recarregue a página (Ctrl+F5) e tente de novo.`, 'error'); return; }
+    const aviso = semLeitura ? ` ⚠️ ${semLeitura} foto(s) não puderam ser lidas e ficaram sem conferir.` : '';
+    if (!repetidas.length) { st(`✓ Nenhuma foto repetida entre as ${fotos.length - semLeitura} conferidas.${aviso}`, semLeitura ? 'error' : 'success', semLeitura ? 0 : 8000); return; }
     const ok = await confirmar({
       titulo: `🔁 ${repetidas.length} foto(s) repetida(s)`,
       mensagem: `Ficam ${ficam.length} foto(s); as cópias abaixo saem da galeria (a primeira de cada uma fica).`,
@@ -11872,7 +11886,7 @@ async function limparFotosRepetidas(btn) {
     }
     logAuditoria('delete', 'imovel-fotos-repetidas', imovelId, { apagadas: repetidas.length });
     loadImovelFotos(imovelId);
-    st(`✓ ${repetidas.length} foto(s) repetida(s) apagada(s). Ficaram ${ficam.length}.`, 'success', 10000);
+    st(`✓ ${repetidas.length} foto(s) repetida(s) apagada(s). Ficaram ${ficam.length}.${aviso}`, semLeitura ? 'error' : 'success', semLeitura ? 0 : 10000);
   } catch (err) {
     console.error('Limpar repetidas:', err);
     st('❌ Não consegui: ' + escapeHtml(err.message), 'error');

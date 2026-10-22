@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v49-20261022b-filtros';
+const CACHE_VERSION = 'drg-rently-v50-20261022c-repetidas-cors';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
