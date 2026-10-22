@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v52-20261022e-perfis';
+const CACHE_VERSION = 'drg-rently-v53-20261022f-auditoria-ceo';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

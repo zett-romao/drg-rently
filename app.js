@@ -14678,10 +14678,13 @@ function gerarSenhaUsuario() {
 
 // Perfis-modelo dos cargos (o dono: Gerente, Gestor, Corretor, Aux. Adm.,
 // Financeiro, Cobrança…). São pontos de partida: cada imobiliária ajusta.
+// Módulos que, nos modelos de cargo, só o CEO enxerga (dono, 22/10/2026: "somente para o CEO - ver auditoria")
+const MODULOS_SO_CEO = ['auditoria'];
+
 function montarPerfilModelo(spec) {
   const permissoes = {};
   MODULOS_DISPONIVEIS.forEach(m => {
-    const ver = spec.ver === '*' ? true : spec.ver.includes(m.id);
+    const ver = spec.ver === '*' ? (!!spec.verTudo || !MODULOS_SO_CEO.includes(m.id)) : spec.ver.includes(m.id);
     const ops = { ...spec.ops, ...((spec.excecoes || {})[m.id] || {}) };
     const r = { ver };
     OPS_MODULO.forEach(op => { r[op] = (!ver || m.somenteLeitura) ? 'nao' : (ops[op] || 'nao'); });
@@ -14700,7 +14703,8 @@ const PERFIS_MODELO = {
   // 👑 CEO (22/10/2026): tudo — ver, criar, editar, excluir e todas as ações delicadas
   modelo_ceo: {
     nome: 'CEO',
-    ver: '*', ops: { criar: 'sim', editar: 'sim', excluir: 'sim' },
+    ver: '*', verTudo: true,   // inclusive Auditoria (MODULOS_SO_CEO)
+    ops: { criar: 'sim', editar: 'sim', excluir: 'sim' },
     acoesSim: ACOES_SENSIVEIS.map(a => a.id).filter(id => id !== 'excluirTenant'),   // excluir tenant é da plataforma
   },
   modelo_gerente: {

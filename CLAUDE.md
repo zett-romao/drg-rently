@@ -768,6 +768,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-22**: 👑 **Perfis CEO/Gestor/Corretor + Auditoria só para o CEO.** Modelo `modelo_ceo` (tudo, menos `excluirTenant`,
+  que é da plataforma) e botão "👑 Marcar acesso total" no editor. `MODULOS_SO_CEO = ['auditoria']`: modelos com `ver: '*'`
+  (Gerente, Gestor) não enxergam a Auditoria; só o CEO (`verTudo`). Base "Admin" (dono do tenant) continua vendo.
+  Dono pediu também "editar auditoria" — NÃO feito: auditoria imutável é regra travada (17/10); só com `ALTERAR: auditoria`.
 - **2026-10-22**: 🐛 **"Procurar repetidas" dizia "nenhuma" nas 99 fotos** (dono: *"fala sério"*). Causa: o bucket
   `drg-rently.firebasestorage.app` NÃO tinha CORS — a página baixava a foto mas não podia ler os pixels; assinatura
   null era tratada como "diferente". Conserto: CORS só GET/HEAD com origem `*` aplicado no bucket
