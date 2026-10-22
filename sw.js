@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v50-20261022c-repetidas-cors';
+const CACHE_VERSION = 'drg-rently-v51-20261022d-ceo';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

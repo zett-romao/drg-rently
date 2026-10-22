@@ -4397,3 +4397,6 @@ details.card > summary:hover {
 .imoveis-filtros-linha .filtro-grupo + .filtro-grupo{padding-left:18px;border-left:2px solid var(--border,#e2e8f0)}
 .filtro-rotulo{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;background:var(--primary,#1e293b);padding:6px 10px;border-radius:6px;margin-right:4px}
 @media (max-width:760px){.imoveis-filtros-linha .filtro-grupo + .filtro-grupo{padding-left:0;border-left:0}}
+
+/* 👑 Perfil: atalho "Marcar acesso total" */
+.perfil-atalhos{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:4px 0 10px}

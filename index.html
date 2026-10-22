@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261022b-filtros">
+  <link rel="stylesheet" href="styles.css?v=20261022d-ceo">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -3505,6 +3505,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
         <div class="form-group">
           <label>Permissões por módulo</label>
+          <div class="perfil-atalhos" id="perfil-atalhos">
+            <button type="button" class="btn btn-primary btn-sm" onclick="perfilAcessoTotal(this)">👑 Marcar acesso total</button>
+            <span class="muted" style="font-size:11px;">liga Ver em tudo e ✅ Pode em todas as operações e ações — até o limite do seu próprio perfil</span>
+          </div>
           <p class="muted" style="font-size:11px; margin-bottom:10px;">
             <strong>Ver</strong> = enxerga o módulo. <strong>Criar / Editar / Excluir</strong>:
             ✅ Pode · 🕓 Com aprovação (vai para ✅ Aprovações e só vale quando alguém com "Pode" aprovar) · ⛔ Não pode.
@@ -6052,7 +6056,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261022c-repetidas-cors"></script>
+  <script src="app.js?v=20261022d-ceo"></script>
   <script src="rede.js?v=20261021k-publicar-fim"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>

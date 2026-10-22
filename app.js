@@ -14697,6 +14697,12 @@ function montarPerfilModelo(spec) {
 
 const SO_LER = { criar: 'nao', editar: 'nao', excluir: 'nao' };
 const PERFIS_MODELO = {
+  // 👑 CEO (22/10/2026): tudo — ver, criar, editar, excluir e todas as ações delicadas
+  modelo_ceo: {
+    nome: 'CEO',
+    ver: '*', ops: { criar: 'sim', editar: 'sim', excluir: 'sim' },
+    acoesSim: ACOES_SENSIVEIS.map(a => a.id).filter(id => id !== 'excluirTenant'),   // excluir tenant é da plataforma
+  },
   modelo_gerente: {
     nome: 'Gerente',
     ver: '*', ops: { criar: 'sim', editar: 'sim', excluir: 'sim' },
@@ -14961,6 +14967,28 @@ function onPerfilVerChange(moduloId) {
   });
 }
 window.onPerfilVerChange = onPerfilVerChange;
+
+// 👑 "Marcar acesso total" (dono, 22/10/2026: perfil CEO "com todos os acessos… todos mesmo").
+// Respeita "ninguém concede o que não tem": opção acima do seu limite vem desabilitada e fica como está.
+// "Excluir tenant" fica de fora: é ação da plataforma DR Systems, não da imobiliária.
+function perfilAcessoTotal(btn) {
+  let marcadas = 0, presas = 0;
+  document.querySelectorAll('#perfil-modulos-container .chk-ver').forEach(chk => {
+    if (!chk.checked && !chk.disabled) { chk.checked = true; onPerfilVerChange(chk.dataset.modulo); }
+    if (!chk.checked) presas++;
+  });
+  const maximo = (sel) => {
+    const op = [...sel.options].find(o => o.value === 'sim');
+    if (sel.disabled || !op || op.disabled) { presas++; return; }
+    if (sel.value !== 'sim') { sel.value = 'sim'; marcadas++; }
+  };
+  document.querySelectorAll('#perfil-modulos-container .sel-op').forEach(maximo);
+  document.querySelectorAll('#perfil-acoes-container .sel-acao').forEach(sel => { if (sel.dataset.acao !== 'excluirTenant') maximo(sel); });
+  btn.textContent = '✓ Acesso total marcado';
+  showAlert('perfil-alert', `✓ Tudo marcado no máximo${presas ? ` (${presas} item(ns) ficaram como estavam por estarem acima do seu próprio perfil)` : ''}. Confira e clique em Salvar.`, 'success');
+  setTimeout(() => { btn.textContent = '👑 Marcar acesso total'; }, 2500);
+}
+window.perfilAcessoTotal = perfilAcessoTotal;
 
 function lerPerfilDoEditor() {
   const permissoes = {};
