@@ -5124,6 +5124,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
           <div class="upload-area">
             <input type="file" id="imovel-foto-input" multiple accept=".jpg,.jpeg,.png,.webp" onchange="if (this.files.length) uploadImovelFotos()">
+            <button class="btn btn-secondary btn-sm" type="button" onclick="limparFotosRepetidas(this)" title="Acha e apaga fotos repetidas que já estão na galeria">🔁 Procurar repetidas</button>
             <button class="btn btn-secondary btn-sm" id="btn-imovel-fotos-upload" onclick="if ($('imovel-foto-input').files.length) uploadImovelFotos(); else $('imovel-foto-input').click()">📷 Adicionar fotos</button>
             <label class="toggle-row" style="margin-left:auto; font-size:12px;">
               <input type="checkbox" id="imovel-foto-watermark" checked>
@@ -6049,7 +6050,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261021l-btn-publicar"></script>
+  <script src="app.js?v=20261022a-repetidas"></script>
   <script src="rede.js?v=20261021k-publicar-fim"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>

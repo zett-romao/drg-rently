@@ -11669,6 +11669,36 @@ async function _uploadImovelFotos(input, btn, opts) {
     return false;
   }
 
+  // 🔁 Bloqueio de repetidas: compara com a galeria e com as outras da mesma remessa
+  st('🔎 Conferindo se alguma foto já está na galeria…', 'loading');
+  let galeria = [];
+  try { galeria = await assinaturasDaGaleria(imovelId); } catch (e) { console.warn('Galeria sem assinaturas:', e); }
+  const aceitas = [], repetidas = [];
+  for (const f of files) {
+    const a = await assinaturaFoto(f);
+    const base = [...galeria, ...aceitas.map(x => ({ assinatura: x.a, nome: x.f.name }))];
+    const igual = a && base.find(g => g.assinatura && distanciaAssinatura(g.assinatura, a) <= FOTO_REPETIDA_DIST);
+    if (igual) repetidas.push({ f, a, de: igual.nome }); else aceitas.push({ f, a });
+  }
+  let lista = aceitas;
+  // Na tela, quem decide é o usuário (fechar a janela = pular); no Cadastro com IA, pula sozinho
+  if (repetidas.length && !opts.semRolar) {
+    const mesmoAssim = await confirmar({
+      titulo: `🔁 ${repetidas.length} foto(s) repetida(s)`,
+      mensagem: `${repetidas.length} foto(s) iguais a outras que já estão na galeria (ou nesta mesma remessa). Elas não vão subir de novo.`,
+      detalhe: repetidas.slice(0, 15).map(r => `• ${escapeHtml(r.f.name)}${r.de ? ` = ${escapeHtml(r.de)}` : ''}`).join('<br>') + (repetidas.length > 15 ? '<br>…' : ''),
+      confirmar: 'Subir as repetidas também',
+      cancelar: aceitas.length ? `Pular repetidas (subir ${aceitas.length})` : 'Pular repetidas',
+    });
+    if (mesmoAssim) lista = [...aceitas, ...repetidas];
+  }
+  const puladas = lista.length < files.length ? repetidas.length : 0;
+  if (!lista.length) {
+    input.value = '';
+    st(`✓ Nada a enviar: ${repetidas.length === 1 ? 'a foto já estava' : `as ${repetidas.length} fotos já estavam`} na galeria.`, 'success', 8000);
+    return true;
+  }
+
   const fotoDoCorretor = isCorretor();
   const useWatermark = fotoDoCorretor || $('imovel-foto-watermark').checked;
   let logoImg = null;
@@ -11693,11 +11723,11 @@ async function _uploadImovelFotos(input, btn, opts) {
   const falhas = [];
   let enviadas = 0;
   try {
-    for (const original of files) {
+    for (const { f: original, a: assinatura } of lista) {
      try {
       const n = enviadas + falhas.length + 1;
-      if (btn) btn.textContent = `⏳ Enviando ${n}/${files.length}…`;
-      st(`⏳ Enviando foto ${n} de ${files.length}${useWatermark ? ' (com marca d’água)' : ''}… não feche o cadastro.`, 'loading');
+      if (btn) btn.textContent = `⏳ Enviando ${n}/${lista.length}…`;
+      st(`⏳ Enviando foto ${n} de ${lista.length}${useWatermark ? ' (com marca d’água)' : ''}… não feche o cadastro.`, 'loading');
       const fileToUpload = (useWatermark && logoImg)
         ? await applyWatermark(original, logoImg)
         : original;
@@ -11718,6 +11748,7 @@ async function _uploadImovelFotos(input, btn, opts) {
         nome: fotoDoCorretor ? `foto-${nextOrdem + 1}.jpg` : original.name,
         path: `imoveis/${imovelId}/fotos/${finalName}`,
         watermark: useWatermark,
+        assinatura: assinatura || null,   // da foto original (antes da marca d'água) — bloqueio de repetidas
         ordem: nextOrdem++,
         criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
@@ -11731,12 +11762,122 @@ async function _uploadImovelFotos(input, btn, opts) {
     loadImovelFotos(imovelId);
     const fora = [...grandes.map(f => `${f.name} (passa de 10 MB)`), ...falhas.map(n => `${n} (erro no envio)`)];
     if (!enviadas) { st(`❌ Nenhuma foto subiu: ${escapeHtml(fora.join(', '))}. Tente de novo.`, 'error'); return false; }
-    st(`✓ ${enviadas} foto(s) na galeria.${fora.length ? ` ⚠️ Ficaram de fora: ${escapeHtml(fora.join(', '))}.` : ''}`, fora.length ? 'error' : 'success', fora.length ? 0 : 8000);
+    st(`✓ ${enviadas} foto(s) na galeria.${puladas ? ` 🔁 ${puladas} repetida(s) não subiram de novo.` : ''}${fora.length ? ` ⚠️ Ficaram de fora: ${escapeHtml(fora.join(', '))}.` : ''}`, fora.length ? 'error' : 'success', fora.length ? 0 : 10000);
     return true;
   } catch (err) {
     console.error('Erro no upload de fotos:', err);
     st('❌ Erro: ' + escapeHtml(err.message), 'error');
     return false;
+  }
+}
+
+// ---------- 🔁 Fotos repetidas (22/10/2026) ----------
+// Dono: "subiram várias fotos repetidas, devemos implementar um bloqueio". Assinatura visual
+// (dHash de 64 bits): a mesma foto reenviada, reduzida, recomprimida pelo WhatsApp ou com a
+// marca d'água no canto dá quase a mesma assinatura; fotos diferentes ficam longe.
+// Medido em 22/10/2026 nas 99 fotos do DRG-00001: marca d'água muda ≤2 bits, recompressão do
+// WhatsApp ≤1; duas fotos DIFERENTES do mesmo ângulo deram 6; fotos diferentes, 16 ou mais.
+// 4 pega toda cópia e deixa passar a 2ª foto do mesmo ambiente (essa decisão é do usuário).
+const FOTO_REPETIDA_DIST = 4;   // bits diferentes (de 64) que ainda contam como "a mesma foto"
+
+function _dHashDeImagem(img) {
+  // 1º reduz para 72×64 (suavizado) e tira a média de blocos 8×8 → grade 9×8 estável
+  const c = document.createElement('canvas'); c.width = 72; c.height = 64;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, 72, 64);
+  const d = ctx.getImageData(0, 0, 72, 64).data;
+  const grade = [];
+  for (let gy = 0; gy < 8; gy++) for (let gx = 0; gx < 9; gx++) {
+    let soma = 0;
+    for (let y = gy * 8; y < gy * 8 + 8; y++) for (let x = gx * 8; x < gx * 8 + 8; x++) {
+      const i = (y * 72 + x) * 4; soma += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+    }
+    grade.push(soma / 64);
+  }
+  let bits = '';
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += grade[y * 9 + x] > grade[y * 9 + x + 1] ? '1' : '0';
+  return BigInt('0b' + bits).toString(16).padStart(16, '0');
+}
+
+function distanciaAssinatura(a, b) {
+  let x = BigInt('0x' + a) ^ BigInt('0x' + b), n = 0;
+  while (x) { n += Number(x & 1n); x >>= 1n; }
+  return n;
+}
+
+// fonte: File/Blob ou URL (Storage libera CORS). null se não der para ler.
+async function assinaturaFoto(fonte) {
+  const ehUrl = typeof fonte === 'string';
+  const url = ehUrl ? fonte : URL.createObjectURL(fonte);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      if (ehUrl) i.crossOrigin = 'anonymous';
+      i.onload = () => res(i); i.onerror = () => rej(new Error('imagem não carregou')); i.src = url;
+    });
+    return _dHashDeImagem(img);
+  } catch (_) { return null; }
+  finally { if (!ehUrl) URL.revokeObjectURL(url); }
+}
+
+// Fotos da galeria com assinatura. Fotos antigas (sem o campo) são lidas pela URL e a
+// assinatura é guardada no doc para a próxima vez.
+async function assinaturasDaGaleria(imovelId) {
+  const coll = tenantPath().collection('imoveis').doc(imovelId).collection('fotos');
+  const snap = await coll.orderBy('ordem').get();
+  const out = [];
+  for (const d of snap.docs) {
+    const f = d.data();
+    let a = f.assinatura || null;
+    if (!a && f.url) {
+      a = await assinaturaFoto(f.url);
+      if (a) coll.doc(d.id).update({ assinatura: a }).catch(() => {});
+    }
+    out.push({ id: d.id, nome: f.nome || '', path: f.path || null, ordem: f.ordem ?? 0, url: f.url, assinatura: a });
+  }
+  return out;
+}
+
+// "🔁 Procurar repetidas": acha as cópias que já estão na galeria (fica a 1ª de cada grupo)
+async function limparFotosRepetidas(btn) {
+  const imovelId = $('imovel-id').value;
+  if (!imovelId) return;
+  if (!exigirNivelAnexo('imoveis', 'excluir', 'imovel-alert')) return;
+  const st = (msg, tipo, ms) => showInlineStatus('imovel-fotos-status', msg, tipo, ms);
+  const txt = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Conferindo as fotos…';
+  try {
+    st('🔎 Comparando todas as fotos da galeria… aguarde', 'loading');
+    const fotos = await assinaturasDaGaleria(imovelId);
+    const ficam = [], repetidas = [];
+    for (const f of fotos) {
+      const igual = f.assinatura && ficam.find(k => k.assinatura && distanciaAssinatura(k.assinatura, f.assinatura) <= FOTO_REPETIDA_DIST);
+      if (igual) repetidas.push({ ...f, de: igual }); else ficam.push(f);
+    }
+    if (!repetidas.length) { st(`✓ Nenhuma foto repetida entre as ${fotos.length} da galeria.`, 'success', 8000); return; }
+    const ok = await confirmar({
+      titulo: `🔁 ${repetidas.length} foto(s) repetida(s)`,
+      mensagem: `Ficam ${ficam.length} foto(s); as cópias abaixo saem da galeria (a primeira de cada uma fica).`,
+      detalhe: `<div style="display:flex;flex-wrap:wrap;gap:6px;">${repetidas.slice(0, 24).map(r => `<img src="${escapeHtml(r.url)}" alt="" style="width:72px;height:54px;object-fit:cover;border-radius:4px;">`).join('')}</div>${repetidas.length > 24 ? `<p>… e mais ${repetidas.length - 24}</p>` : ''}`,
+      confirmar: `🗑 Apagar ${repetidas.length} repetida(s)`, perigo: true,
+    });
+    if (!ok) { clearInlineStatus('imovel-fotos-status'); return; }
+    const coll = tenantPath().collection('imoveis').doc(imovelId).collection('fotos');
+    let n = 0;
+    for (const r of repetidas) {
+      btn.textContent = `⏳ Apagando ${++n}/${repetidas.length}…`;
+      await coll.doc(r.id).delete();
+      if (r.path) { try { await storageTenantRef().child(r.path).delete(); } catch (_) {} }
+    }
+    logAuditoria('delete', 'imovel-fotos-repetidas', imovelId, { apagadas: repetidas.length });
+    loadImovelFotos(imovelId);
+    st(`✓ ${repetidas.length} foto(s) repetida(s) apagada(s). Ficaram ${ficam.length}.`, 'success', 10000);
+  } catch (err) {
+    console.error('Limpar repetidas:', err);
+    st('❌ Não consegui: ' + escapeHtml(err.message), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = txt;
   }
 }
 

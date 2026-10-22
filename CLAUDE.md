@@ -768,6 +768,13 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   PENDENTE sem login** em `corretores/{auto}` com `semConta: true` (dedup por CRECI/e-mail/telefone/nome);
   só equipe com Corretores ✅ criar; corretor logado só vê o nome. Em Corretores: **🔑 Criar acesso** (abre o
   "Novo corretor" preenchido; ao criar o login a ficha pré vira a do uid) e **🗑 Descartar**.
+- **2026-10-22**: 🔁 **Bloqueio de fotos repetidas** (dono: *"subiram várias fotos repetidas, devemos implementar um bloqueio"*).
+  Assinatura visual dHash 64 bits (`assinaturaFoto`, da foto ORIGINAL, antes da marca d'água) gravada em `fotos.assinatura`;
+  fotos antigas ganham a assinatura lida pela URL (Storage tem CORS) na 1ª comparação. Envio compara com a galeria e
+  com a própria remessa: na tela pergunta (fechar = pular), no Cadastro com IA pula sozinho. `FOTO_REPETIDA_DIST = 4`
+  medido nas 99 fotos do DRG-00001 (marca ≤2, WhatsApp ≤1, mesma cena em outra foto = 6, diferentes ≥16).
+  Botão **🔁 Procurar repetidas** na galeria: mostra as cópias e apaga com confirmação (fica a 1ª de cada).
+  Causa das 99 fotos (33 distintas): remessas simultâneas IA + seleção manual — a trava `_enviandoFotos` (21/10) já impede.
 - **2026-10-21**: 🌐 **Chave Publicar no FIM do cadastro** (dono: *"tem de estar no final, depois de revisar inclusive as fotos"*).
   Nova seção `#imovel-publicar-final` (depois de Documentos): prévia + chave + link. A antiga `#imovel-publicacao-section`
   virou "Privacidade e portais" (o que mostrar + descrição longa/vídeo/XML). Toda linha que mostra/esconde uma espelha na outra.
