@@ -14827,7 +14827,7 @@ async function loadMapaAcessos() {
       const role = u.role || 'operador';
       const ativo = u.ativo !== false && u.status !== 'suspenso';
       const pendente = u.status === 'pendente';
-      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Equipe interna';
       const norm = perfilEfetivoDe(u);
       const P = norm.permissoes;
       const c = u.perfilId && _perfisCache[u.perfilId];
@@ -14895,7 +14895,7 @@ async function loadPerfis() {
       const resumoTxt = `${r.mods} módulo(s) · ${r.sim} pode` + (r.aprovacao ? ` · ${r.aprovacao} com aprovação` : '')
         + (r.acoes ? ` · <strong style="color:#b45309;">${r.acoes} ação(ões) delicada(s)</strong>` : '');
       return `<tr>
-        <td><strong>${escapeHtml(p.nome || '—')}</strong>${badges}</td>
+        <td><strong>${escapeHtml(String(p.nome || '—').replace('Operador comum', 'Equipe interna'))}</strong>${badges}</td>
         <td style="font-size:11px; color:var(--text-muted);">${resumoTxt}</td>
         <td><button class="btn btn-sm btn-secondary" onclick="openPerfilModal('${d.id}')">Abrir</button></td>
       </tr>`;
@@ -14930,7 +14930,7 @@ async function criarPerfisSeed() {
         super_admin:  'Base — Super Admin (acesso total)',
         operador_drg: 'Base — Operador DRG (equipe interna)',
         admin:        'Base — Administrador do tenant',
-        operador:     'Base — Operador comum',
+        operador:     'Base — Equipe interna',
         corretor:     'Base — Corretor',
       };
       const batch = db.batch();
@@ -15146,7 +15146,7 @@ async function openPermissoesUsuario(uid) {
   const somenteLeitura = proprio || excessos.length > 0;
   const atual = u.perfilId && _perfisCache[u.perfilId];
   const role = u.role || 'operador';
-  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Equipe interna';
   const titulo = `🔐 Permissões de ${u.nome || 'usuário'}`;
   const avisoCorretor = role === 'corretor'
     ? '<br>🔒 Independente do que estiver marcado, corretor <strong>nunca</strong> vê imóveis/proprietários captados por outros, nem telefone/e-mail de lead — isso é travado no servidor.'
@@ -15250,10 +15250,10 @@ async function deletePerfil() {
   } catch (_) {}
   const ind = _perfilIndividual;
   if (ind?.somenteLeitura) { showAlert('perfil-alert', 'Você não pode alterar as permissões deste usuário.'); return; }
-  const nomeTipoInd = ind ? ({ admin: 'Administrador', corretor: 'Corretor' }[ind.role] || 'Operador') : '';
+  const nomeTipoInd = ind ? ({ admin: 'Administrador', corretor: 'Corretor' }[ind.role] || 'Equipe interna') : '';
   const conf = ind
     ? { titulo: `Excluir as permissões de ${ind.nome}?`, mensagem: 'Apaga o perfil individual dele.', detalhe: `Ele volta para o padrão do tipo ${nomeTipoInd}. Você pode personalizar de novo depois.`, confirmar: '🗑 Excluir', perigo: true }
-    : { titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Operador, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true };
+    : { titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Equipe interna, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true };
   if (!(await confirmar(conf))) return;
   try {
     const rDel = await drgSubmit($('btn-delete-perfil'), '⏳ Excluindo... aguarde', async () => {
@@ -15272,7 +15272,7 @@ async function deletePerfil() {
 
 // <option>s de perfil para um usuário do tipo `role`. Perfis acima do seu limite vêm desabilitados.
 function opcoesPerfilUsuario(role, selecionado) {
-  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Equipe interna';
   const base = _perfisCache['seed_' + role];
   let html = `<option value="">— Padrão do tipo ${nomeTipo}${base ? '' : ' (sem perfil-base criado)'}</option>`;
   Object.entries(_perfisCache)
@@ -15313,7 +15313,7 @@ async function loadUsuariosTenant() {
       const u = doc.data();
       const isSelf = doc.id === State.user.uid;
       const ativo = u.ativo !== false;
-      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[u.role] || 'Operador';
+      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[u.role] || 'Equipe interna';
       // Não mexe em quem está acima de você (nem em você mesmo)
       const acima = !souSuper && excessosSobreMeuPerfil(perfilEfetivoDe(u)).length > 0;
       const bloqueado = isSelf || acima || !pode('gerenciarUsuariosPerfis') || (u.role === 'admin' && !souSuper && State.userDoc?.role !== 'admin');
