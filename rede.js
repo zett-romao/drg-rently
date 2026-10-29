@@ -664,7 +664,7 @@ async function saveCorretor() {
       const emailAntigo = ($('corretor-email').dataset.original || '').toLowerCase();
       const semConta = $('corretor-email').dataset.semConta === '1';
       if (email !== emailAntigo) {
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('corretor-alert', 'E-mail inválido.'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('corretor-alert', 'E-mail inválido.'); $('corretor-alert').scrollIntoView({ block: 'start' }); return; }
         if (semConta) {
           await tenantPath().collection('corretores').doc(uidExistente).update({ email });
         } else {
@@ -734,6 +734,7 @@ async function saveCorretor() {
   } catch (err) {
     console.error('Erro ao salvar corretor:', err);
     showAlert('corretor-alert', 'Erro: ' + err.message);
+    $('corretor-alert').scrollIntoView({ behavior: 'smooth', block: 'start' });   // o modal costuma estar rolado
   } finally {
     btn.disabled = false;
     btn.textContent = uidExistente ? 'Salvar' : 'Criar corretor';
