@@ -438,30 +438,96 @@ async function trocarEmailUsuario(request, env, origin, usuario) {
   }
   if (!pode) return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária pode trocar o e-mail de login deste usuário.' }, 403, origin);
 
-  if ((alvo.email || '').toLowerCase() === email) return jsonResponse({ ok: true, email, semMudanca: true }, 200, origin);
+  const mudouEmail = (alvo.email || '').toLowerCase() !== email;
 
-  // 1) Firebase Auth (o login de verdade)
-  const token = await getGoogleAccessToken(env);
-  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/accounts:update`, {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ localId: alvoUid, email, emailVerified: false }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = (data.error && data.error.message) || ('Auth ' + res.status);
-    if (msg.startsWith('EMAIL_EXISTS')) return jsonResponse({ ok: false, error: 'Já existe um login com este e-mail. Use outro e-mail.' }, 409, origin);
+  // 1) Firebase Auth (o login de verdade). A senha é TROCADA por uma aleatória que
+  // ninguém conhece: a provisória pode ter ido para o e-mail errado. O corretor
+  // cria a dele pelo link que volta na resposta (o app manda no e-mail de boas-vindas).
+  const upd = { localId: alvoUid, password: senhaAleatoria() };
+  if (mudouEmail) { upd.email = email; upd.emailVerified = false; }
+  const r = await authAdmin(env, 'accounts:update', upd);
+  if (!r.ok) {
+    const msg = (r.data.error && r.data.error.message) || ('Auth ' + r.status);
+    if (msg.startsWith('EMAIL_EXISTS')) {
+      const dono = await quemTemOLogin(env, email, quem, alvo);
+      // Login solto (sem cadastro no sistema, sobra de tentativa): pode ser liberado
+      if (dono.orfao && body.liberarOrfao === true) {
+        const del = await authAdmin(env, 'accounts:delete', { localId: dono.uid });
+        if (!del.ok) return jsonResponse({ ok: false, error: 'Não consegui liberar o login antigo.' }, 502, origin);
+        return trocarEmailUsuario(new Request(request.url, { method: 'POST', body: JSON.stringify({ uid: alvoUid, email }) }), env, origin, usuario);
+      }
+      return jsonResponse({ ok: false, codigo: 'EMAIL_EXISTS', dono, error: 'Já existe um login com este e-mail. ' + dono.texto }, 409, origin);
+    }
     if (msg.startsWith('USER_NOT_FOUND')) return jsonResponse({ ok: false, error: 'O login deste usuário não existe mais no sistema.' }, 404, origin);
     return jsonResponse({ ok: false, error: 'Falha ao trocar o login: ' + msg }, 502, origin);
   }
 
   // 2) Cadastros (users + cartão do corretor)
-  await firestoreAdminMerge(env, `users/${alvoUid}`, { email });
-  if (alvo.tenantId && alvo.role === 'corretor') {
-    const cartao = `tenants/${alvo.tenantId}/corretores/${alvoUid}`;
-    if (await firestoreAdminGet(env, cartao)) await firestoreAdminMerge(env, cartao, { email });
+  if (mudouEmail) {
+    await firestoreAdminMerge(env, `users/${alvoUid}`, { email });
+    if (alvo.tenantId && alvo.role === 'corretor') {
+      const cartao = `tenants/${alvo.tenantId}/corretores/${alvoUid}`;
+      if (await firestoreAdminGet(env, cartao)) await firestoreAdminMerge(env, cartao, { email });
+    }
   }
-  return jsonResponse({ ok: true, email, emailAnterior: alvo.email || '' }, 200, origin);
+
+  // 3) Link para o corretor criar a senha pessoal (vale ~1 h, uso único)
+  const continuar = ALLOWED_ORIGINS.includes(origin) && origin.startsWith('https://') ? origin : 'https://rently.dev.br';
+  const l = await authAdmin(env, 'accounts:sendOobCode', {
+    requestType: 'PASSWORD_RESET', email, returnOobLink: true, continueUrl: continuar,
+  });
+  let link = l.ok ? (l.data.oobLink || '') : '';
+  if (link) link = link.replace(/([?&]lang=)[^&]*/, '$1pt-BR') + (/[?&]lang=/.test(link) ? '' : '&lang=pt-BR');
+  return jsonResponse({ ok: true, email, emailAnterior: alvo.email || '', mudouEmail, linkSenha: link }, 200, origin);
+}
+
+function senhaAleatoria() {
+  const b = new Uint8Array(24);
+  crypto.getRandomValues(b);
+  return b64urlEncode(b);
+}
+
+// Identity Toolkit como admin (service account)
+async function authAdmin(env, acao, corpo) {
+  const token = await getGoogleAccessToken(env);
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/${acao}`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+  return { ok: res.ok, status: res.status, data: await res.json().catch(() => ({})) };
+}
+
+// Diz de quem é o login que já usa o e-mail. Detalhe só para a mesma imobiliária
+// (ou equipe DRG); de outra imobiliária só diz que é de outra.
+async function quemTemOLogin(env, email, quem, alvo) {
+  const r = await authAdmin(env, 'accounts:lookup', { email: [email] });
+  const conta = r.ok && r.data.users && r.data.users[0];
+  if (!conta) return { texto: 'Use outro e-mail.' };
+  const doc = await firestoreAdminGet(env, `users/${conta.localId}`);
+  const quando = (ms) => ms ? new Date(Number(ms)).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '';
+  const criado = quando(conta.createdAt);
+  if (!doc) {
+    return {
+      uid: conta.localId, orfao: true, criadoEm: criado,
+      texto: `É um login solto, sem cadastro no sistema (criado em ${criado}, sobra de uma tentativa que não terminou). Pode ser liberado para usar aqui.`,
+    };
+  }
+  const equipeDRG = quem.role === 'super_admin' || quem.role === 'operador_drg';
+  const mesmo = doc.tenantId && doc.tenantId === alvo.tenantId;
+  if (!mesmo && !equipeDRG) return { texto: 'Ele pertence a um usuário de outra imobiliária. Use outro e-mail.' };
+  const papel = { corretor: 'corretor', operador: 'usuário da equipe', admin: 'administrador', super_admin: 'Super Admin', operador_drg: 'equipe DRG' }[doc.role] || doc.role;
+  const situacao = doc.status === 'pendente' ? ' — AUTOCADASTRO AGUARDANDO APROVAÇÃO (Corretores → pendentes)'
+    : doc.ativo === false ? ' — desativado' : '';
+  let onde = '';
+  if (!mesmo && doc.tenantId) {
+    const t = await firestoreAdminGet(env, `tenants/${doc.tenantId}`).catch(() => null);
+    onde = ` da imobiliária ${(t && t.nome) || doc.tenantId}`;
+  }
+  return {
+    uid: conta.localId, nome: doc.nome || '', role: doc.role, status: doc.status || '', mesmoTenant: !!mesmo, criadoEm: criado,
+    texto: `Ele é de ${doc.nome || 'um usuário'} (${papel}${onde}${situacao}), criado em ${criado}.`,
+  };
 }
 
 // =============================================================

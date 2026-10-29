@@ -657,6 +657,7 @@ async function saveCorretor() {
 
   const btn = $('btn-save-corretor');
   btn.disabled = true;
+  let avisoEmailTrocado = '';
   try {
     if (uidExistente) {
       // E-mail = login: trocar exige o servidor (Worker Asaas, /usuarios/trocar-email)
@@ -667,10 +668,15 @@ async function saveCorretor() {
         if (semConta) {
           await tenantPath().collection('corretores').doc(uidExistente).update({ email });
         } else {
-          if (!(await confirmar({ titulo: 'Trocar o e-mail de login?', mensagem: `O corretor passará a entrar com <strong>${escapeHtml(email)}</strong> (antes: ${escapeHtml(emailAntigo || '—')}). A senha continua a mesma.`, confirmar: '✉️ Trocar e-mail' }))) return;
+          if (!(await confirmar({ titulo: 'Trocar o e-mail de login?', mensagem: `O corretor passará a entrar com <strong>${escapeHtml(email)}</strong> (antes: ${escapeHtml(emailAntigo || '—')}).`, detalhe: 'A senha antiga deixa de valer. Ele recebe no e-mail novo as boas-vindas com um link para criar a senha pessoal.', confirmar: '✉️ Trocar e-mail' }))) return;
           btn.textContent = 'Trocando e-mail…';
-          await mfaFetch('/usuarios/trocar-email', 'POST', { uid: uidExistente, email });
+          const r = await trocarEmailLoginCorretor(uidExistente, email);
+          if (!r) return;
           logAuditoria('trocar_email_login', 'corretor', uidExistente, { de: emailAntigo, para: email });
+          const enviado = r.linkSenha ? await enviarEmailAcessoCorretor(nome, email, null, r.linkSenha) : false;
+          avisoEmailTrocado = enviado
+            ? `✅ E-mail de ${escapeHtml(nome)} trocado para <strong>${escapeHtml(email)}</strong>. Boas-vindas com o link para criar a senha enviadas.`
+            : `⚠️ E-mail de ${escapeHtml(nome)} trocado, mas o e-mail de boas-vindas <strong>não foi enviado</strong>${r.linkSenha ? '' : ' (link de senha não gerado)'}. Peça para ele usar "Esqueci minha senha" na tela de login com ${escapeHtml(email)}.`;
         }
         $('corretor-email').dataset.original = email;
       }
@@ -681,6 +687,7 @@ async function saveCorretor() {
       await db.collection('users').doc(uidExistente).update({ nome });
       logAuditoria('update', 'corretor', uidExistente, { nome, tipo });
       closeCorretorModal();
+      if (avisoEmailTrocado) showInlineStatus('corretores-status', avisoEmailTrocado, avisoEmailTrocado.startsWith('✅') ? 'success' : 'error');
       loadCorretores();
       return;
     }
@@ -775,26 +782,62 @@ async function apagarContaAuth(idToken) {
   } catch (_) {}
 }
 
-async function enviarEmailAcessoCorretor(nome, email, senha) {
+// Chama o Worker para trocar o e-mail de login. Login solto (sem cadastro) com o mesmo
+// e-mail: pergunta e libera. Devolve { linkSenha, ... } ou null (cancelado/erro já mostrado).
+async function trocarEmailLoginCorretor(uid, email, liberarOrfao = false) {
+  const url = await getMfaWorkerUrl();
+  const idToken = await getIdTokenAtual();
+  const res = await fetch(`${url}/usuarios/trocar-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+    body: JSON.stringify({ uid, email, liberarOrfao }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.ok !== false) return data;
+  if (data.codigo === 'EMAIL_EXISTS' && data.dono && data.dono.orfao && !liberarOrfao) {
+    const ok = await confirmar({
+      titulo: 'E-mail preso num login solto',
+      mensagem: escapeHtml(data.dono.texto),
+      detalhe: 'Esse login não tem cadastro em nenhuma imobiliária, então ninguém usa. Liberar apaga só esse login solto e passa o e-mail para este corretor.',
+      confirmar: '🔓 Liberar e usar', aviso: true,
+    });
+    if (!ok) return null;
+    return trocarEmailLoginCorretor(uid, email, true);
+  }
+  throw new Error(data.error || `Erro ${res.status}`);
+}
+
+// Boas-vindas ao corretor. Com linkSenha: botão para ele criar a senha pessoal (troca de
+// e-mail); sem: senha inicial (criação). Devolve true se o envio foi aceito.
+async function enviarEmailAcessoCorretor(nome, email, senha, linkSenha) {
   try {
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    if (!cfg.workerUrl) return;
+    if (!cfg.workerUrl) return false;
     const td = 'padding:6px 12px;border:1px solid #ccc;';
+    const acesso = linkSenha
+      ? `<table style="border-collapse:collapse;margin:14px 0;">
+        <tr><td style="${td}background:#f0f0f0;"><strong>Link</strong></td><td style="${td}"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
+        <tr><td style="${td}background:#f0f0f0;"><strong>E-mail (login)</strong></td><td style="${td}">${escapeHtml(email)}</td></tr>
+      </table>
+      <p>Para entrar, crie a sua senha pessoal e intransferível:</p>
+      <p style="margin:18px 0;"><a href="${linkSenha}" style="background:#00897B;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold;">🔑 Criar minha senha</a></p>
+      <p style="font-size:12px;color:#666;">O link vale por 1 hora e só pode ser usado uma vez. Se expirar, use "Esqueci minha senha" na tela de login. Não compartilhe sua senha com ninguém.</p>`
+      : `<table style="border-collapse:collapse;margin:14px 0;">
+        <tr><td style="${td}background:#f0f0f0;"><strong>Link</strong></td><td style="${td}"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
+        <tr><td style="${td}background:#f0f0f0;"><strong>E-mail</strong></td><td style="${td}">${escapeHtml(email)}</td></tr>
+        <tr><td style="${td}background:#f0f0f0;"><strong>Senha inicial</strong></td><td style="${td}font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
+      </table>
+      <p style="font-size:12px;color:#666;">Troque a senha no primeiro acesso pelo "Esqueci minha senha".</p>`;
     const html = `<html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111;max-width:600px;margin:0 auto;padding:20px;">
       <h2 style="color:#00897B;">Bem-vindo à rede de corretores</h2>
       <p>Olá <strong>${escapeHtml(nome)}</strong>,</p>
       <p>Você agora faz parte da rede de corretores de <strong>${escapeHtml(State.tenant.nome)}</strong>.
          Cadastre seus imóveis captados e acesse as fichas compartilhadas pela rede.</p>
-      <table style="border-collapse:collapse;margin:14px 0;">
-        <tr><td style="${td}background:#f0f0f0;"><strong>Link</strong></td><td style="${td}"><a href="${urlDoSistema()}">${urlDoSistema()}</a></td></tr>
-        <tr><td style="${td}background:#f0f0f0;"><strong>E-mail</strong></td><td style="${td}">${escapeHtml(email)}</td></tr>
-        <tr><td style="${td}background:#f0f0f0;"><strong>Senha inicial</strong></td><td style="${td}font-family:'Courier New',monospace;"><strong>${escapeHtml(senha)}</strong></td></tr>
-      </table>
-      <p style="font-size:12px;color:#666;">Troque a senha no primeiro acesso pelo "Esqueci minha senha".</p>
+      ${acesso}
       <p style="margin-top:24px;">— ${escapeHtml(State.tenant.nome)}</p>
     </body></html>`;
-    await fetch(cfg.workerUrl, {
+    const res = await fetch(cfg.workerUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -805,7 +848,8 @@ async function enviarEmailAcessoCorretor(nome, email, senha) {
         html,
       }),
     });
-  } catch (e) { console.warn('Falha ao enviar e-mail ao corretor (conta criada mesmo assim):', e); }
+    return res.ok;
+  } catch (e) { console.warn('Falha ao enviar e-mail ao corretor:', e); return false; }
 }
 
 async function definirStatusCorretor(uid, status) {
