@@ -4455,3 +4455,18 @@ label.carac-item:has(input:checked){background:#eef6ff;color:#0f172a;font-weight
 .carac-nova-linha{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:6px}
 @media (max-width:600px){.carac-nova-linha{grid-template-columns:1fr}.carac-grade{grid-template-columns:1fr 1fr}}
 .carac-topo input{padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;min-height:42px}
+
+/* Alcance do módulo no perfil (29/10/2026): só os dele / corretores escolhidos / toda a rede */
+.perfil-alcance { margin-top: 8px; }
+.perfil-alcance .perfil-op select { width: 100%; }
+.alcance-corretores {
+  margin-top: 6px; max-height: 160px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; background: var(--bg);
+}
+.alcance-corretor { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 12.5px; cursor: pointer; }
+.alcance-corretor input { width: 17px; height: 17px; accent-color: var(--primary); flex-shrink: 0; }
+.alcance-corretor.bloqueado { opacity: .45; cursor: not-allowed; }
+.alcance-aviso {
+  font-size: 12.5px; color: #1E40AF; background: #EFF6FF; border: 1px solid #BFDBFE;
+  border-radius: 6px; padding: 6px 10px; margin-bottom: 8px;
+}

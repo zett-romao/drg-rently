@@ -24,18 +24,18 @@ const State = {
 // somenteLeitura: true → módulo só tem nível "acesso" (sem "editar").
 const MODULOS_DISPONIVEIS = [
   { id: 'dashboard',     label: 'Dashboard',     grupo: 'Visão Geral', somenteLeitura: true },
-  { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral', somenteLeitura: true },
+  { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral', somenteLeitura: true, alcance: true },
   { id: 'relatorios',    label: 'Relatórios',    grupo: 'Visão Geral', somenteLeitura: true },
-  { id: 'locadores',     label: 'Proprietários',     grupo: 'Cadastros' },
-  { id: 'locatarios',    label: 'Locatários',    grupo: 'Cadastros' },
-  { id: 'compradores',   label: 'Compradores',   grupo: 'Cadastros' },
-  { id: 'garantias',     label: 'Garantias',     grupo: 'Cadastros' },
-  { id: 'imoveis',       label: 'Imóveis',       grupo: 'Cadastros' },
-  { id: 'contratos',     label: 'Contratos',     grupo: 'Operação' },
-  { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação' },
-  { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação' },
-  { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação', somenteLeitura: true },
-  { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação' },
+  { id: 'locadores',     label: 'Proprietários',     grupo: 'Cadastros', alcance: true },
+  { id: 'locatarios',    label: 'Locatários',    grupo: 'Cadastros', alcance: true },
+  { id: 'compradores',   label: 'Compradores',   grupo: 'Cadastros', alcance: true },
+  { id: 'garantias',     label: 'Garantias',     grupo: 'Cadastros', alcance: true },
+  { id: 'imoveis',       label: 'Imóveis',       grupo: 'Cadastros', alcance: true },
+  { id: 'contratos',     label: 'Contratos',     grupo: 'Operação', alcance: true },
+  { id: 'negociacoes',   label: 'Negociações',   grupo: 'Operação', alcance: true },
+  { id: 'leads',         label: 'Leads (anúncios captados via vitrine)', grupo: 'Operação', alcance: true },
+  { id: 'calendario',    label: 'Calendário (vencimentos)', grupo: 'Operação', somenteLeitura: true, alcance: true },
+  { id: 'balancetes',    label: 'Balancetes',    grupo: 'Operação', alcance: true },
   { id: 'caixa',         label: 'Livro Caixa (conta pool)', grupo: 'Operação' },
   { id: 'vitrine',       label: 'Vitrine pública (abrir)', grupo: 'Operação', somenteLeitura: true },
   { id: 'portais',       label: 'Portais imobiliários',    grupo: 'Operação' },
@@ -965,6 +965,7 @@ function normalizarPerfil(perfilDoc, role) {
         if (m.somenteLeitura || !ver) n = 'nao';
         r[op] = n;
       });
+      if (m.alcance) Object.assign(r, normalizarAlcance(p, role));
       permissoes[m.id] = r;
     });
   } else {
@@ -977,6 +978,7 @@ function normalizarPerfil(perfilDoc, role) {
       OPS_MODULO.forEach(op => {
         r[op] = (!ver || m.somenteLeitura) ? 'nao' : (usarOpsRole && opsRole[op]) || 'sim';
       });
+      if (m.alcance) Object.assign(r, normalizarAlcance(null, role));
       permissoes[m.id] = r;
     });
   }
@@ -1098,6 +1100,10 @@ function excessosSobreMeuPerfil(norm) {
     OPS_MODULO.forEach(op => {
       if (rankNivel(p[op]) > rankNivel(eu.ver ? eu[op] : 'nao')) exc.push(`${m.label}: ${OP_LABEL[op].toLowerCase()} (${NIVEL_LABEL[p[op]]})`);
     });
+    if (m.alcance && p.ver && eu.ver) {
+      const e = excessoAlcance(p, eu);
+      if (e) exc.push(`${m.label}: mostrar (${e})`);
+    }
   });
   ACOES_SENSIVEIS.forEach(a => {
     if (rankNivel(norm.acoes[a.id]) > rankNivel(meu.acoes[a.id])) exc.push(`${a.label.replace(/^\S+\s/, '')} (${NIVEL_LABEL[norm.acoes[a.id]]})`);
@@ -3439,10 +3445,12 @@ async function loadCalendario() {
     const limite = new Date(hoje);
     limite.setDate(limite.getDate() + 365); // sempre carrega 1 ano
 
+    const noAlcance = await filtroAlcanceItens('calendario');
+    const corta = (col) => (sn) => ({ docs: sn.docs.filter(d => noAlcance(col, d.id, d.data())) });
     const [contratosSnap, garantiasSnap, balancetesSnap] = await Promise.all([
-      tenantPath().collection('contratos').get(),
-      tenantPath().collection('garantias').get(),
-      tenantPath().collection('balancetes').get(),
+      tenantPath().collection('contratos').get().then(corta('contratos')),
+      tenantPath().collection('garantias').get().then(corta('garantias')),
+      tenantPath().collection('balancetes').get().then(corta('balancetes')),
     ]);
 
     const imoveisSnap = await tenantPath().collection('imoveis').get();
@@ -3848,7 +3856,7 @@ async function loadAlertasResumoDashboard() {
     const mesAtual = hoje.getMonth() + 1;
     const anoAtual = hoje.getFullYear();
 
-    const [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, garantiasSnap] = await Promise.all([
+    let [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, garantiasSnap] = await Promise.all([
       tenantPath().collection('contratos').get(),
       tenantPath().collection('locatarios').get(),
       tenantPath().collection('imoveis').get(),
@@ -3858,6 +3866,14 @@ async function loadAlertasResumoDashboard() {
     ]);
 
     const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido]));
+    // Mesmo alcance da tela de Alertas
+    const noAlcance = await filtroAlcanceItens('alertas');
+    const corta = (col, sn) => ({ docs: sn.docs.filter(d => noAlcance(col, d.id, d.data())) });
+    contratosSnap = corta('contratos', contratosSnap);
+    locatariosSnap = corta('locatarios', locatariosSnap);
+    imoveisSnap = corta('imoveis', imoveisSnap);
+    negociacoesSnap = corta('negociacoes', negociacoesSnap);
+    garantiasSnap = corta('garantias', garantiasSnap);
 
     let qtdCriticos = 0;
     let qtdAtencao = 0;
@@ -4165,7 +4181,8 @@ async function loadLocadores() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await queryDoUsuario('locadores', 'nome');
+    const snap = await aplicarAlcance('locadores', 'locadores', await queryDoUsuario('locadores', 'nome'));
+    mostrarAvisoAlcance('locadores', 'tbody-locadores');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum cadastro ainda. Clique em "Novo Proprietário" para começar.</td></tr>`;
       _locadoresCarregados = [];
@@ -6755,7 +6772,8 @@ async function loadLocatarios() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await tenantPath().collection('locatarios').orderBy('nome').get();
+    const snap = await aplicarAlcance('locatarios', 'locatarios', await tenantPath().collection('locatarios').orderBy('nome').get());
+    mostrarAvisoAlcance('locatarios', 'tbody-locatarios');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum locatário cadastrado. Clique em "Novo Locatário" para começar.</td></tr>`;
       return;
@@ -7229,7 +7247,8 @@ async function loadGarantias() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get();
+    const snap = await aplicarAlcance('garantias', 'garantias', await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get());
+    mostrarAvisoAlcance('garantias', 'tbody-garantias');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhuma garantia cadastrada. Clique em "Nova Garantia" para começar.</td></tr>`;
       return;
@@ -7781,8 +7800,10 @@ async function loadBalancetes() {
   }
 
   try {
+    mostrarAvisoAlcance('balancetes', 'tbody-balancetes');
     const [snap, imoveis, locadores, locatarios] = await Promise.all([
-      tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+      tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get()
+        .then(s => aplicarAlcance('balancetes', 'balancetes', s)),
       ensureImoveisCache(),
       ensureLocadoresCache(),
       ensureLocatariosCache(),
@@ -9826,7 +9847,8 @@ async function loadCompradores() {
   tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await tenantPath().collection('compradores').orderBy('nome').get();
+    const snap = await aplicarAlcance('compradores', 'compradores', await tenantPath().collection('compradores').orderBy('nome').get());
+    mostrarAvisoAlcance('compradores', 'tbody-compradores');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum comprador cadastrado.</td></tr>`;
       return;
@@ -10341,7 +10363,8 @@ async function loadLeads() {
   if (!tbody) return;
   tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
   try {
-    const snap = await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get();
+    const snap = await aplicarAlcance('leads', 'leadsImoveis', await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get());
+    mostrarAvisoAlcance('leads', 'tbody-leads');
     _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     if (typeof mesclarAtendimentoDosCorretores === 'function') await mesclarAtendimentoDosCorretores(_leadsCarregados);
     renderLeadsTable();
@@ -10414,7 +10437,8 @@ async function loadNegociacoes() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
   try {
     const [snap, imoveis, compradores] = await Promise.all([
-      tenantPath().collection('negociacoes').orderBy('criadoEm', 'desc').get(),
+      tenantPath().collection('negociacoes').orderBy('criadoEm', 'desc').get()
+        .then(s => aplicarAlcance('negociacoes', 'negociacoes', s)),
       ensureImoveisCache(),
       ensureCompradoresCache(),
     ]);
@@ -10422,6 +10446,7 @@ async function loadNegociacoes() {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhuma negociação cadastrada.</td></tr>`;
       return;
     }
+    mostrarAvisoAlcance('negociacoes', 'tbody-negociacoes');
     const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
     const compMap = Object.fromEntries(compradores.map(c => [c.id, c.nome]));
     const rows = snap.docs.map((doc, i) => {
@@ -10977,9 +11002,10 @@ async function loadImoveis() {
 
   try {
     const [imSnap, locs] = await Promise.all([
-      queryDoUsuario('imoveis', 'apelido'),
+      queryDoUsuario('imoveis', 'apelido').then(s => aplicarAlcance('imoveis', 'imoveis', s)),
       ensureLocadoresCache(),
     ]);
+    mostrarAvisoAlcance('imoveis', 'tbody-imoveis');
 
     if (imSnap.empty) {
       tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum imóvel cadastrado. Clique em "Novo Imóvel" para começar.</td></tr>`;
@@ -13360,10 +13386,12 @@ async function loadContratos() {
 
   try {
     const [snap, imoveis, locatarios] = await Promise.all([
-      tenantPath().collection('contratos').orderBy('criadoEm', 'desc').get(),
+      tenantPath().collection('contratos').orderBy('criadoEm', 'desc').get()
+        .then(s => aplicarAlcance('contratos', 'contratos', s)),
       ensureImoveisCache(),
       ensureLocatariosCache(),
     ]);
+    mostrarAvisoAlcance('contratos', 'tbody-contratos');
 
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum contrato cadastrado. Clique em "Novo Contrato" para começar.</td></tr>`;
@@ -14660,7 +14688,7 @@ async function loadAlertas() {
     const mesAtual = hoje.getMonth() + 1;
     const anoAtual = hoje.getFullYear();
 
-    const [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, fotosByImovel] = await Promise.all([
+    let [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, fotosByImovel] = await Promise.all([
       tenantPath().collection('contratos').get(),
       tenantPath().collection('locatarios').get(),
       tenantPath().collection('imoveis').get(),
@@ -14681,6 +14709,14 @@ async function loadAlertas() {
     ]);
 
     const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido]));
+
+    // Alcance do perfil (só os vinculados a ele / corretores escolhidos / toda a rede)
+    const noAlcance = await filtroAlcanceItens('alertas');
+    const corta = (col, sn) => ({ docs: sn.docs.filter(d => noAlcance(col, d.id, d.data())) });
+    contratosSnap = corta('contratos', contratosSnap);
+    locatariosSnap = corta('locatarios', locatariosSnap);
+    negociacoesSnap = corta('negociacoes', negociacoesSnap);
+    fotosByImovel = Object.fromEntries(Object.entries(fotosByImovel).filter(([id]) => noAlcance('imoveis', id, {})));
 
     // CRÍTICOS
     const criticos = [];
@@ -15143,6 +15179,7 @@ function montarPerfilModelo(spec) {
     const ops = { ...spec.ops, ...((spec.excecoes || {})[m.id] || {}) };
     const r = { ver };
     OPS_MODULO.forEach(op => { r[op] = (!ver || m.somenteLeitura) ? 'nao' : (ops[op] || 'nao'); });
+    if (m.alcance) { r.alcance = spec.alcance || 'rede'; r.alcanceCorretores = []; }
     permissoes[m.id] = r;
   });
   const acoes = {};
@@ -15181,6 +15218,7 @@ const PERFIS_MODELO = {
   modelo_corretor: {
     nome: 'Corretor',
     ver: ['imoveis', 'locadores', 'rede'],
+    alcance: 'proprios',
     ops: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
     acoesAprovacao: ['alterarDadosRepasse', 'repasseRepresentante'],
   },
@@ -15297,9 +15335,12 @@ async function loadMapaAcessos() {
         leads = verde('só os repassados a ele, sem telefone/e-mail');
         contratos = cinza('não vê');
       } else {
-        imoveis = P.imoveis.ver ? laranja('todos') + `<br><span class="muted" style="font-size:11px;">${ops(P.imoveis) || 'só ver'}</span>` : cinza('módulo oculto');
-        locadores = P.locadores.ver ? laranja('todos (CPF, Pix)') : cinza('módulo oculto');
-        leads = P.leads.ver ? laranja('todos, com telefone/e-mail') : cinza('módulo oculto');
+        // Alcance do perfil (29/10/2026): "todos" só quando o Mostrar está em toda a rede
+        const quais = (pm, todos) => pm.alcance === 'proprios' ? verde('só os vinculados a ele')
+          : pm.alcance === 'escolhidos' ? verde(`dele + ${(pm.alcanceCorretores || []).length} escolhido(s)`) : laranja(todos);
+        imoveis = P.imoveis.ver ? quais(P.imoveis, 'todos') + `<br><span class="muted" style="font-size:11px;">${ops(P.imoveis) || 'só ver'}</span>` : cinza('módulo oculto');
+        locadores = P.locadores.ver ? quais(P.locadores, 'todos (CPF, Pix)') : cinza('módulo oculto');
+        leads = P.leads.ver ? quais(P.leads, 'todos, com telefone/e-mail') : cinza('módulo oculto');
         const fin = ['contratos', 'balancetes', 'caixa'].filter(m => P[m] && P[m].ver).map(m => ({ contratos: 'contratos', balancetes: 'balancetes', caixa: 'livro caixa' }[m]));
         contratos = fin.length ? laranja(fin.join(', ')) : cinza('módulo oculto');
       }
@@ -15465,6 +15506,7 @@ function renderPerfilEditor(norm, travado) {
                   </select>
                 </label>`).join('')}
             </div>`}
+            ${m.alcance ? renderAlcanceModulo(m, p, meu.permissoes[m.id] || {}, travado) : ''}
           </div>`;
         }).join('')}
       </div>
@@ -15494,6 +15536,8 @@ function onPerfilVerChange(moduloId) {
     sel.disabled = !ver;
     if (!ver) sel.value = 'nao';
   });
+  const selAl = document.querySelector(`.sel-alcance[data-modulo="${moduloId}"]`);
+  if (selAl) { selAl.disabled = !ver; onAlcanceChange(moduloId); }
 }
 window.onPerfilVerChange = onPerfilVerChange;
 
@@ -15512,6 +15556,11 @@ function perfilAcessoTotal(btn) {
     if (sel.value !== 'sim') { sel.value = 'sim'; marcadas++; }
   };
   document.querySelectorAll('#perfil-modulos-container .sel-op').forEach(maximo);
+  document.querySelectorAll('#perfil-modulos-container .sel-alcance').forEach(sel => {
+    const op = [...sel.options].find(o => o.value === 'rede');
+    if (sel.disabled || !op || op.disabled) { presas++; return; }
+    if (sel.value !== 'rede') { sel.value = 'rede'; onAlcanceChange(sel.dataset.modulo); marcadas++; }
+  });
   document.querySelectorAll('#perfil-acoes-container .sel-acao').forEach(sel => { if (sel.dataset.acao !== 'excluirTenant') maximo(sel); });
   btn.textContent = '✓ Acesso total marcado';
   showAlert('perfil-alert', `✓ Tudo marcado no máximo${presas ? ` (${presas} item(ns) ficaram como estavam por estarem acima do seu próprio perfil)` : ''}. Confira e clique em Salvar.`, 'success');
@@ -15528,6 +15577,7 @@ function lerPerfilDoEditor() {
       const sel = document.querySelector(`.sel-op[data-modulo="${m.id}"][data-op="${op}"]`);
       r[op] = (!ver || m.somenteLeitura || !sel) ? 'nao' : sel.value;
     });
+    if (m.alcance) Object.assign(r, lerAlcanceDoEditor(m.id) || { alcance: 'rede', alcanceCorretores: [] });
     permissoes[m.id] = r;
   });
   const acoes = {};
@@ -15573,7 +15623,9 @@ async function openPerfilModal(id) {
   }
   aviso.style.display = travado ? 'block' : 'none';
 
+  await carregarCorretoresParaAlcance();
   renderPerfilEditor(norm, travado);
+  if ((roleDoPerfilId(id) || perfilDoc?.seedRole) === 'corretor') travarAlcanceCorretor();
   $('modal-perfil').style.display = 'flex';
 }
 
@@ -15633,6 +15685,7 @@ async function openPermissoesUsuario(uid) {
       : `🔒 Só para consulta: este usuário tem permissões que <strong>você não tem</strong> (${escapeHtml(excessos.slice(0, 6).join('; '))}${excessos.length > 6 ? '…' : ''}). Só quem está acima pode alterar.`;
     $('perfil-travado-aviso').style.display = 'block';
   }
+  if (role === 'corretor') travarAlcanceCorretor();
   $('modal-perfil').style.display = 'flex';
 }
 window.openPermissoesUsuario = openPermissoesUsuario;
@@ -15648,6 +15701,12 @@ async function savePerfil() {
     showAlert('perfil-alert', 'Você não pode alterar o seu próprio perfil.'); return;
   }
   const norm = lerPerfilDoEditor();
+  const semEscolha = MODULOS_DISPONIVEIS.filter(m => m.alcance && norm.permissoes[m.id].ver
+    && norm.permissoes[m.id].alcance === 'escolhidos' && !norm.permissoes[m.id].alcanceCorretores.length);
+  if (semEscolha.length) {
+    showAlert('perfil-alert', `Em "${semEscolha.map(m => m.label).join('", "')}" o Mostrar está em "corretores escolhidos", mas nenhum foi marcado. Marque ao menos um ou escolha outra opção.`);
+    return;
+  }
   const excessos = excessosSobreMeuPerfil(norm);
   if (excessos.length) {
     showAlert('perfil-alert', 'Você não pode conceder o que não tem: ' + excessos.join('; ') + '.'); return;
