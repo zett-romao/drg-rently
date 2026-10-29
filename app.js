@@ -17672,6 +17672,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('link-show-signup').addEventListener('click', () => {
     clearAlert('signup-alert');
     showScreen('screen-signup');
+    setTipoPessoaSignup('PJ');
   });
   $('link-show-login').addEventListener('click', () => {
     clearAlert('login-alert');

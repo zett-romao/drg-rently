@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261022d-ceo">
+  <link rel="stylesheet" href="styles.css?v=20261029a-login">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -76,7 +76,7 @@
     <div class="auth-card">
       <img src="logo.png?v=20260513a" alt="D.R. Global" class="auth-logo">
       <h1>DRG-Rently</h1>
-      <p class="subtitle">Gestão de locações residenciais e comerciais</p>
+      <p class="subtitle">Gestão imobiliária completa — locação e venda, para imobiliárias e corretores</p>
 
       <div id="login-alert" class="alert alert-error" style="display:none;"></div>
 
@@ -115,8 +115,21 @@
         🔐 Entrar com biometria
       </button>
 
-      <div class="auth-footer">
-        Nova imobiliária? <a id="link-show-signup">Criar conta</a>
+      <div class="auth-cadastro">
+        <div class="auth-cadastro-titulo">Ainda não tem conta? Escolha o seu perfil:</div>
+        <div class="auth-cadastro-opcoes">
+          <button type="button" class="auth-cadastro-btn" id="link-show-signup">
+            <span class="auth-cadastro-ico">🏢</span>
+            <strong>Sou imobiliária</strong>
+            <small>CNPJ · equipe, corretores, contratos e site</small>
+          </button>
+          <button type="button" class="auth-cadastro-btn" onclick="clearAlert('signup-alert'); showScreen('screen-signup'); setTipoPessoaSignup('PF');">
+            <span class="auth-cadastro-ico">👤</span>
+            <strong>Sou corretor autônomo</strong>
+            <small>CPF · minha carteira, meus imóveis e meu site</small>
+          </button>
+        </div>
+        <p class="auth-cadastro-nota">🤝 Corretor <strong>parceiro de uma imobiliária</strong> que usa o Rently? Peça a ela o link <strong>“Seja corretor parceiro”</strong> — o seu acesso é criado por lá.</p>
       </div>
     </div>
   </div>
@@ -6109,7 +6122,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261028i-carteira"></script>
+  <script src="app.js?v=20261029a-login"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
   <script src="rede.js?v=20261028i-carteira"></script>
   <script src="protecao.js?v=20261028h-cadastro"></script>
