@@ -1190,8 +1190,10 @@ async function renderApp() {
   enableSidebarDnD();
 
   // Se a seção atual não é permitida, manda pra tela inicial do papel
-  // (corretor não tem dashboard — o dashboard lê dados da imobiliária toda)
-  const inicial = isCorretor() ? 'imoveis' : 'dashboard';
+  // (corretor não tem dashboard — o dashboard lê dados da imobiliária toda).
+  // Corretor começa no catálogo da rede (dono: "precisa entrar na tela inicial" —
+  // "Imóveis" dele vinha vazio para quem ainda não captou); captador, sem rede, em Imóveis.
+  const inicial = isCorretor() ? (podeVerSecao('rede') ? 'rede' : 'imoveis') : 'dashboard';
   if (State.currentSection && !podeVerSecao(State.currentSection)) {
     State.currentSection = inicial;
   }
