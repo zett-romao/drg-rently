@@ -626,6 +626,7 @@ async function loadCorretores() {
       if (c.status === 'ativo') acoes.push(`<button class="btn btn-sm btn-danger" onclick="definirStatusCorretor('${c.uid}','suspenso')">Suspender</button>`);
       if (c.status === 'suspenso') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">Reativar</button>`);
       acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openCorretorModal('${c.uid}')">Editar</button>`);
+      if (c.status === 'ativo' && c.email) acoes.push(`<button class="btn btn-sm btn-secondary" onclick="reenviarAcessoCorretor('${c.uid}', this)" title="Gera um link novo para o corretor criar a senha (a senha atual deixa de valer)">🔑 Reenviar acesso</button>`);
       if (typeof openTransferirCarteira === 'function' && typeof nivelPermissao === 'function' && nivelPermissao('corretores', 'editar') === 'sim')
         acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openTransferirCarteira('${c.uid}')" title="Passar imóveis, proprietários e leads deste corretor para outro">🔁 Carteira</button>`);
       if (typeof pode === 'function' && pode('gerenciarUsuariosPerfis')) acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openPermissoesUsuario('${c.uid}')" title="Ver, editar ou excluir o que este corretor pode fazer">🔐 Permissões</button>`);
@@ -915,6 +916,35 @@ async function trocarEmailLoginCorretor(uid, email, liberarOrfao = false) {
   }
   throw new Error(data.error || `Erro ${res.status}`);
 }
+
+// 🔑 Reenviar acesso (29/10/2026): link novo de criar senha (mesmo e-mail). Anula a senha atual —
+// é para quem não conseguiu entrar. Manda as boas-vindas por e-mail e mostra o link para mandar no WhatsApp.
+async function reenviarAcessoCorretor(uid, btn) {
+  let c = {};
+  try { c = (await tenantPath().collection('corretores').doc(uid).get()).data() || {}; } catch (_) {}
+  if (!c.email) return;
+  if (!(await confirmar({ titulo: '🔑 Reenviar acesso?', mensagem: `Gerar um link novo para <strong>${escapeHtml(c.nome || c.email)}</strong> criar a senha.`,
+    detalhe: `A senha atual dele deixa de valer. O link vai por e-mail para ${escapeHtml(c.email)} e aparece aqui para você mandar no WhatsApp. Vale por 1 hora.`, confirmar: '🔑 Gerar link' }))) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando…'; }
+  try {
+    const r = await trocarEmailLoginCorretor(uid, String(c.email).toLowerCase());
+    if (!r || !r.linkSenha) throw new Error('O servidor não devolveu o link.');
+    const enviado = await enviarEmailAcessoCorretor(c.nome || '', c.email, null, r.linkSenha);
+    logAuditoria('reenviar_acesso', 'corretor', uid, { email: c.email, emailEnviado: enviado });
+    const msg = `Olá ${primeiroNome(c.nome) || ''}! Para entrar no sistema da ${State.tenant?.nome || 'imobiliária'}, crie sua senha por este link (vale 1 hora): ${r.linkSenha}`;
+    const whats = c.telefone ? `https://wa.me/${telefoneWhatsApp(c.telefone)}?text=${encodeURIComponent(msg)}` : '';
+    await confirmar({
+      titulo: '✅ Link gerado',
+      mensagem: enviado ? `Boas-vindas enviadas para <strong>${escapeHtml(c.email)}</strong>.` : '⚠️ O e-mail <strong>não</strong> saiu — mande o link pelo WhatsApp.',
+      detalhe: `<input type="text" readonly value="${escapeHtml(r.linkSenha)}" style="width:100%;font-size:11px;" onclick="this.select()">`
+        + (whats ? `<br><a class="btn btn-sm btn-primary" style="margin-top:8px;" href="${whats}" target="_blank" rel="noopener">💬 Mandar no WhatsApp</a>` : ''),
+      confirmar: '📋 Copiar link', cancelar: 'Fechar',
+    }).then(async (copiar) => { if (copiar) { try { await navigator.clipboard.writeText(r.linkSenha); } catch (_) {} } });
+  } catch (err) {
+    showInlineStatus('corretores-status', `❌ Reenviar acesso: ${escapeHtml(err.message)}`, 'error');
+  } finally { if (btn) { btn.disabled = false; btn.textContent = '🔑 Reenviar acesso'; } }
+}
+window.reenviarAcessoCorretor = reenviarAcessoCorretor;
 
 // Boas-vindas ao corretor. Com linkSenha: botão para ele criar a senha pessoal (troca de
 // e-mail); sem: senha inicial (criação). Devolve true se o envio foi aceito.
