@@ -34,7 +34,7 @@ function _ms(ts) {
   if (typeof ts.toMillis === 'function') return ts.toMillis();
   const d = new Date(ts); return isNaN(d) ? 0 : d.getTime();
 }
-function _telNorm(t) {
+function _distTel(t) {
   let d = String(t || '').replace(/\D/g, '');
   if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
   return d.length >= 10 ? d : '';
@@ -144,12 +144,12 @@ async function _participantes(cfg) {
 async function _escolherCorretor(lead, cfg, corretores, recentes) {
   const ativos = new Set(corretores.map(c => c.uid));
   if (cfg.retornoSemanas > 0) {
-    const tel = _telNorm(lead.telefone);
+    const tel = _distTel(lead.telefone);
     const email = String(lead.email || '').trim().toLowerCase();
     const limite = _ms(lead.criadoEm || Date.now()) - cfg.retornoSemanas * 7 * 86400000;
     const anterior = recentes.find(l => l._id !== lead._id && l.corretorUid && ativos.has(l.corretorUid)
       && _ms(l.criadoEm) >= limite
-      && ((tel && _telNorm(l.telefone) === tel) || (email && String(l.email || '').trim().toLowerCase() === email)));
+      && ((tel && _distTel(l.telefone) === tel) || (email && String(l.email || '').trim().toLowerCase() === email)));
     if (anterior) return { uid: anterior.corretorUid, motivo: 'retorno' };
   }
   if (cfg.regra === 'captador' && lead.imovelId) {

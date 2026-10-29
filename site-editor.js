@@ -111,7 +111,7 @@ function _statusTexto() {
   const pub = _site.publicado?.publicadoEm?.toDate ? _site.publicado.publicadoEm.toDate().toLocaleString('pt-BR') : null;
   return `${_site.salvoEm ? '✓ Rascunho salvo' : 'Rascunho inicial (modelo padrão)'} · ${pub ? `publicado em ${pub}` : '<strong>nunca publicado</strong>'}`;
 }
-function _atualizarStatus() { const el = $('site-status'); if (el) el.innerHTML = _statusTexto(); }
+function _atualizarStatusSite() { const el = $('site-status'); if (el) el.innerHTML = _statusTexto(); }
 
 // ---------- campos ----------
 function _campo(rotulo, path, tipo = 'texto', extra = {}) {
@@ -452,7 +452,7 @@ function destinoSite(path, el) {
   _marcarAlterado(); _redesenharPainel();
 }
 function _marcarAlterado(redesenhar) {
-  _site.sujo = true; _atualizarStatus();
+  _site.sujo = true; _atualizarStatusSite();
   clearTimeout(_site.timerPrevia); _site.timerPrevia = setTimeout(_enviarPrevia, 200);
   clearTimeout(_site.timerSalvar); _site.timerSalvar = setTimeout(() => salvarRascunhoSite(false), 2500);
   if (redesenhar) _redesenharPainel();
@@ -539,7 +539,7 @@ async function salvarRascunhoSite(manual) {
   if (!_site || _site.salvando) return;
   clearTimeout(_site.timerSalvar);
   const b = manual ? $('btn-site-salvar') : null; const txt = b ? b.textContent : '';
-  _site.salvando = true; _atualizarStatus();
+  _site.salvando = true; _atualizarStatusSite();
   if (b) { b.disabled = true; b.textContent = '⏳ Salvando… aguarde'; }
   try {
     await _siteRef().doc('rascunho').set({ config: _configParaSalvar(), atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(), atualizadoPor: State.user.uid });
@@ -548,7 +548,7 @@ async function salvarRascunhoSite(manual) {
   } catch (err) {
     console.error(err); _alertaSite('Não consegui salvar o rascunho: ' + err.message);
   } finally {
-    _site.salvando = false; _atualizarStatus();
+    _site.salvando = false; _atualizarStatusSite();
     if (b) { b.disabled = false; b.textContent = txt; }
   }
 }
@@ -568,7 +568,7 @@ async function publicarSite() {
     await lote.commit();
     _site.publicado = { config, publicadoEm: { toDate: () => new Date() } };
     _site.sujo = false; _site.salvoEm = new Date();
-    _atualizarStatus();
+    _atualizarStatusSite();
     const d = $('btn-site-descartar'); if (d) d.disabled = false;
     _alertaSite(`✓ Site publicado! Já está no ar em ${_urlSitePublicado()}`, 'success');
   } catch (err) {
