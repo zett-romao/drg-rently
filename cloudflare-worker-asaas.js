@@ -281,6 +281,14 @@ async function firestoreAdminMerge(env, docPath, obj) {
   return true;
 }
 
+async function firestoreAdminDelete(env, docPath) {
+  const token = await getGoogleAccessToken(env);
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}`;
+  const res = await fetch(url, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok && res.status !== 404) throw new Error('Firestore DELETE ' + res.status);
+  return true;
+}
+
 // Cria um documento novo numa coleção (ID automático).
 async function firestoreAdminAddDoc(env, collectionPath, obj) {
   const token = await getGoogleAccessToken(env);
@@ -454,6 +462,7 @@ async function trocarEmailUsuario(request, env, origin, usuario) {
       if (dono.orfao && body.liberarOrfao === true) {
         const del = await authAdmin(env, 'accounts:delete', { localId: dono.uid });
         if (!del.ok) return jsonResponse({ ok: false, error: 'Não consegui liberar o login antigo.' }, 502, origin);
+        if (dono.apagarUserDoc) await firestoreAdminDelete(env, `users/${dono.uid}`);
         return trocarEmailUsuario(new Request(request.url, { method: 'POST', body: JSON.stringify({ uid: alvoUid, email }) }), env, origin, usuario);
       }
       return jsonResponse({ ok: false, codigo: 'EMAIL_EXISTS', dono, error: 'Já existe um login com este e-mail. ' + dono.texto }, 409, origin);
@@ -511,6 +520,14 @@ async function quemTemOLogin(env, email, quem, alvo) {
     return {
       uid: conta.localId, orfao: true, criadoEm: criado,
       texto: `É um login solto, sem cadastro no sistema (criado em ${criado}, sobra de uma tentativa que não terminou). Pode ser liberado para usar aqui.`,
+    };
+  }
+  // Imobiliária já excluída: o login não entra em lugar nenhum → também é solto
+  if (doc.tenantId && doc.role !== 'super_admin' && doc.role !== 'operador_drg'
+      && !(await firestoreAdminGet(env, `tenants/${doc.tenantId}`))) {
+    return {
+      uid: conta.localId, orfao: true, apagarUserDoc: true, criadoEm: criado,
+      texto: `É o login antigo de ${doc.nome || 'um usuário'} numa imobiliária que já foi excluída (criado em ${criado}). Ninguém consegue usá-lo. Pode ser liberado para usar aqui.`,
     };
   }
   const equipeDRG = quem.role === 'super_admin' || quem.role === 'operador_drg';

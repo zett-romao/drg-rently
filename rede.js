@@ -799,7 +799,7 @@ async function trocarEmailLoginCorretor(uid, email, liberarOrfao = false) {
     const ok = await confirmar({
       titulo: 'E-mail preso num login solto',
       mensagem: escapeHtml(data.dono.texto),
-      detalhe: 'Esse login não tem cadastro em nenhuma imobiliária, então ninguém usa. Liberar apaga só esse login solto e passa o e-mail para este corretor.',
+      detalhe: 'Ninguém consegue entrar com esse login. Liberar apaga só ele e passa o e-mail para este corretor.',
       confirmar: '🔓 Liberar e usar', aviso: true,
     });
     if (!ok) return null;
