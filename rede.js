@@ -582,7 +582,8 @@ async function openCorretorModal(uid) {
   const editando = !!uid;
   $('corretor-uid').value = uid || '';
   $('modal-corretor-title').textContent = editando ? 'Editar corretor' : 'Novo corretor';
-  $('corretor-email').disabled = editando;
+  $('corretor-email').disabled = false;
+  $('corretor-email-dica').style.display = editando ? 'block' : 'none';
   $('corretor-acesso-group').style.display = editando ? 'none' : 'block';
   $('btn-save-corretor').textContent = editando ? 'Salvar' : 'Criar corretor';
   let c = {};
@@ -597,6 +598,8 @@ async function openCorretorModal(uid) {
   $('corretor-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
   $('corretor-creci').value = c.creci || '';
   $('corretor-tipo').value = c.tipo || 'parceiro';
+  $('corretor-email').dataset.original = c.email || '';
+  $('corretor-email').dataset.semConta = c.semConta ? '1' : '';
   $('corretor-senha').value = gerarSenhaAleatoria(10);
   $('corretor-enviar-email').checked = true;
   $('modal-corretor').style.display = 'flex';
@@ -656,6 +659,21 @@ async function saveCorretor() {
   btn.disabled = true;
   try {
     if (uidExistente) {
+      // E-mail = login: trocar exige o servidor (Worker Asaas, /usuarios/trocar-email)
+      const emailAntigo = ($('corretor-email').dataset.original || '').toLowerCase();
+      const semConta = $('corretor-email').dataset.semConta === '1';
+      if (email !== emailAntigo) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('corretor-alert', 'E-mail inválido.'); return; }
+        if (semConta) {
+          await tenantPath().collection('corretores').doc(uidExistente).update({ email });
+        } else {
+          if (!(await confirmar({ titulo: 'Trocar o e-mail de login?', mensagem: `O corretor passará a entrar com <strong>${escapeHtml(email)}</strong> (antes: ${escapeHtml(emailAntigo || '—')}). A senha continua a mesma.`, confirmar: '✉️ Trocar e-mail' }))) return;
+          btn.textContent = 'Trocando e-mail…';
+          await mfaFetch('/usuarios/trocar-email', 'POST', { uid: uidExistente, email });
+          logAuditoria('trocar_email_login', 'corretor', uidExistente, { de: emailAntigo, para: email });
+        }
+        $('corretor-email').dataset.original = email;
+      }
       await tenantPath().collection('corretores').doc(uidExistente).update({
         nome, telefone, creci, tipo,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),

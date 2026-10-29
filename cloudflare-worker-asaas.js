@@ -190,7 +190,8 @@ async function getGoogleAccessToken(env) {
   const header = { alg: 'RS256', typ: 'JWT' };
   const claim = {
     iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/datastore',
+    // datastore = Firestore (mfa/, caixa); identitytoolkit = trocar e-mail de login
+    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/identitytoolkit',
     aud: 'https://oauth2.googleapis.com/token',
     iat: agora,
     exp: agora + 3600,
@@ -403,6 +404,64 @@ async function mfaConfirm(request, env, origin, usuario) {
 async function mfaStatus(env, origin, usuario) {
   const doc = await firestoreAdminGet(env, `mfa/${usuario.uid}`);
   return jsonResponse({ ok: true, ativo: !!(doc && doc.ativo) }, 200, origin);
+}
+
+// =============================================================
+// Trocar o e-mail de LOGIN de um usuário (ex.: corretor cadastrado com e-mail errado).
+// O navegador não consegue mudar o login de outra pessoa no Firebase Auth — só a
+// service account. Pode: equipe DRG (usuários de cliente; super_admin qualquer um) e
+// admin do tenant (só corretor/operador do MESMO tenant). Atualiza Auth + users/{uid}
+// + tenants/{t}/corretores/{uid}. A senha continua a mesma.
+// =============================================================
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function trocarEmailUsuario(request, env, origin, usuario) {
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+  const alvoUid = String(body.uid || '').trim();
+  const email = String(body.email || '').trim().toLowerCase();
+  if (!/^[A-Za-z0-9_-]{6,128}$/.test(alvoUid)) return jsonResponse({ ok: false, error: 'Usuário inválido.' }, 400, origin);
+  if (!EMAIL_RE.test(email) || email.length > 254) return jsonResponse({ ok: false, error: 'E-mail inválido.' }, 400, origin);
+  if (alvoUid === usuario.uid) return jsonResponse({ ok: false, error: 'Para trocar o seu próprio e-mail use "Minha conta".' }, 403, origin);
+
+  const quem = await firestoreAdminGet(env, `users/${usuario.uid}`);
+  const alvo = await firestoreAdminGet(env, `users/${alvoUid}`);
+  if (!quem) return jsonResponse({ ok: false, error: 'Seu usuário não foi encontrado.' }, 403, origin);
+  if (!alvo) return jsonResponse({ ok: false, error: 'Usuário a alterar não foi encontrado.' }, 404, origin);
+
+  const equipeDRG = quem.role === 'super_admin' || quem.role === 'operador_drg';
+  const alvoDRG = alvo.role === 'super_admin' || alvo.role === 'operador_drg' || !alvo.tenantId;
+  let pode = false;
+  if (equipeDRG) pode = !alvoDRG || quem.role === 'super_admin';
+  else if (quem.role === 'admin' && quem.ativo !== false && quem.tenantId && quem.tenantId === alvo.tenantId) {
+    pode = alvo.role === 'corretor' || alvo.role === 'operador';
+  }
+  if (!pode) return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária pode trocar o e-mail de login deste usuário.' }, 403, origin);
+
+  if ((alvo.email || '').toLowerCase() === email) return jsonResponse({ ok: true, email, semMudanca: true }, 200, origin);
+
+  // 1) Firebase Auth (o login de verdade)
+  const token = await getGoogleAccessToken(env);
+  const res = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/accounts:update`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ localId: alvoUid, email, emailVerified: false }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (data.error && data.error.message) || ('Auth ' + res.status);
+    if (msg.startsWith('EMAIL_EXISTS')) return jsonResponse({ ok: false, error: 'Já existe um login com este e-mail. Use outro e-mail.' }, 409, origin);
+    if (msg.startsWith('USER_NOT_FOUND')) return jsonResponse({ ok: false, error: 'O login deste usuário não existe mais no sistema.' }, 404, origin);
+    return jsonResponse({ ok: false, error: 'Falha ao trocar o login: ' + msg }, 502, origin);
+  }
+
+  // 2) Cadastros (users + cartão do corretor)
+  await firestoreAdminMerge(env, `users/${alvoUid}`, { email });
+  if (alvo.tenantId && alvo.role === 'corretor') {
+    const cartao = `tenants/${alvo.tenantId}/corretores/${alvoUid}`;
+    if (await firestoreAdminGet(env, cartao)) await firestoreAdminMerge(env, cartao, { email });
+  }
+  return jsonResponse({ ok: true, email, emailAnterior: alvo.email || '' }, 200, origin);
 }
 
 // =============================================================
@@ -636,6 +695,27 @@ export default {
         return jsonResponse({ error: 'Endpoint MFA não encontrado: ' + path }, 404, origin);
       } catch (e) {
         return jsonResponse({ error: 'Erro MFA: ' + e.message }, 500, origin);
+      }
+    }
+
+    // =============================================================
+    // ROTA /usuarios/trocar-email — troca o e-mail de login (Auth + cadastros).
+    // =============================================================
+    if (path === '/usuarios/trocar-email') {
+      if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+        return jsonResponse({ error: 'Origin not allowed' }, 403, origin);
+      }
+      if (request.method !== 'POST') return jsonResponse({ error: 'Use POST.' }, 405, origin);
+      let usuarioTe;
+      try {
+        usuarioTe = await verificarIdToken(await extrairIdToken(request));
+      } catch (e) {
+        return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
+      }
+      try {
+        return await trocarEmailUsuario(request, env, origin, usuarioTe);
+      } catch (e) {
+        return jsonResponse({ ok: false, error: 'Erro ao trocar e-mail: ' + e.message }, 500, origin);
       }
     }
 
