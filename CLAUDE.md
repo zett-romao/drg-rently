@@ -833,9 +833,10 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   drglobalimoveis e localhost — a página padrão do Firebase (`drg-rently.firebaseapp.com/__/auth/action`) é barrada.
   Conserto: **`acao.html`** (rently.dev.br, verifyPasswordResetCode/confirmPasswordReset); Worker Asaas monta o link
   `https://rently.dev.br/acao.html?mode=resetPassword&oobCode=…`. Botão **🔑 Reenviar acesso** no corretor.
-  ⚠️ Pendente (precisa do dono — o auto mode barrou): Authentication → Modelos → "URL de ação personalizada" =
-  `https://rently.dev.br/acao.html` + idioma pt-BR (hoje callbackUri padrão e e-mails em inglês) — senão o
-  "Esqueci minha senha" continua caindo na página barrada.
+  ✅ **Esqueci minha senha** também resolvido: Worker Asaas `/usuarios/esqueci-senha` (pública, só origens do sistema,
+  sempre responde ok, 1/min por e-mail em `resetSenha/{sha256}`) gera o link p/ acao.html e manda pelo worker Resend de
+  **no-reply@drglobalimoveis.com.br** (pt-BR). `enviarResetSenha` usa o Worker e cai no Firebase se ele falhar.
+  (Não foi preciso mudar a URL de ação do Firebase; `scripts/firebase-auth-emails.mjs` fica de reserva.)
 - **2026-10-29 (2)**: 🏷 **Tipos de corretor** (`TIPOS_CORRETOR` no rede.js): parceiro, associado (Lei 13.097), equipe,
   estagiário/trainee (tudo 🕓), captador (só imóveis/proprietários, sem fichas da rede, sem leads, sem "Meus leads").
   Cada tipo ganha perfil-base `perfis/tipo_<tipo>` (sistema, criado no 1º uso por `aplicarPerfilDoTipo`, editável);
