@@ -485,8 +485,11 @@ async function trocarEmailUsuario(request, env, origin, usuario) {
   const l = await authAdmin(env, 'accounts:sendOobCode', {
     requestType: 'PASSWORD_RESET', email, returnOobLink: true, continueUrl: continuar,
   });
-  let link = l.ok ? (l.data.oobLink || '') : '';
-  if (link) link = link.replace(/([?&]lang=)[^&]*/, '$1pt-BR') + (/[?&]lang=/.test(link) ? '' : '&lang=pt-BR');
+  // O link padrão abre drg-rently.firebaseapp.com, barrado pela restrição de domínio da chave do Google.
+  // Usa a página própria (acao.html) no domínio do sistema, que já é liberado; só o oobCode vem do Firebase.
+  let link = '';
+  const oob = l.ok && l.data.oobLink ? new URL(l.data.oobLink).searchParams.get('oobCode') : '';
+  if (oob) link = `https://rently.dev.br/acao.html?mode=resetPassword&oobCode=${encodeURIComponent(oob)}&continueUrl=${encodeURIComponent(continuar + '/')}`;
   return jsonResponse({ ok: true, email, emailAnterior: alvo.email || '', mudouEmail, linkSenha: link }, 200, origin);
 }
 

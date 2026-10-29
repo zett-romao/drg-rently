@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Criar senha — DRG-Rently</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="icones/favicon.ico?v=20260801" sizes="any">
+  <link rel="stylesheet" href="styles.css?v=20261029b-parceiro">
+  <style>
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+           background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); }
+    .auth-card h1 { font-size: 24px; }
+    .acao-ok { text-align: center; font-size: 15px; line-height: 1.6; }
+    .acao-ok .grande { font-size: 44px; display: block; margin-bottom: 8px; }
+    .regras-senha { font-size: 12px; color: var(--text-muted); margin: -6px 0 14px; }
+  </style>
+  <!-- Página própria das ações de conta (28/10/2026). O link do Firebase (drg-rently.firebaseapp.com)
+       era barrado pela restrição de domínio da chave do Google; aqui é o rently.dev.br, já liberado.
+       Trata mode=resetPassword (criar/trocar senha) — o Worker Asaas e o "Esqueci minha senha" apontam para cá. -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js?v=20261013a"></script>
+</head>
+<body>
+  <div class="auth-card">
+    <img src="logo.png?v=20260513a" alt="" class="auth-logo">
+    <h1 id="acao-titulo">Criar sua senha</h1>
+    <p class="subtitle" id="acao-sub">⏳ Conferindo o link…</p>
+    <div id="acao-alert" class="alert alert-error" style="display:none;"></div>
+
+    <form id="acao-form" style="display:none;" onsubmit="event.preventDefault(); salvarSenha();">
+      <div class="form-group">
+        <label for="s1">Nova senha</label>
+        <input type="password" id="s1" autocomplete="new-password" minlength="8" required>
+      </div>
+      <p class="regras-senha">Mínimo de 8 caracteres. É pessoal e intransferível — não compartilhe.</p>
+      <div class="form-group">
+        <label for="s2">Repita a senha</label>
+        <input type="password" id="s2" autocomplete="new-password" minlength="8" required>
+      </div>
+      <label class="toggle-row" style="cursor:pointer; font-size:13px; margin-bottom:14px;">
+        <input type="checkbox" onchange="['s1','s2'].forEach(i => document.getElementById(i).type = this.checked ? 'text' : 'password')"> <span>Mostrar senha</span>
+      </label>
+      <button class="btn btn-primary" id="btn-salvar" type="submit">🔑 Salvar senha</button>
+    </form>
+
+    <div id="acao-fim" class="acao-ok" style="display:none;"></div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const q = new URLSearchParams(location.search);
+    const modo = q.get('mode');
+    const codigo = q.get('oobCode');
+    let emailDaConta = '';
+
+    function erro(msg) { const a = $('acao-alert'); a.textContent = msg; a.style.display = msg ? 'block' : 'none'; }
+    function fim(html) { $('acao-form').style.display = 'none'; $('acao-fim').innerHTML = html; $('acao-fim').style.display = 'block'; }
+    const MSG = {
+      'auth/expired-action-code': 'Este link expirou (vale por 1 hora). Na tela de login, use "Esqueci minha senha" para receber outro.',
+      'auth/invalid-action-code': 'Este link já foi usado ou não é mais válido. Na tela de login, use "Esqueci minha senha" para receber outro.',
+      'auth/user-disabled': 'Este acesso está desativado. Fale com a imobiliária.',
+      'auth/user-not-found': 'Este acesso não existe mais. Fale com a imobiliária.',
+      'auth/weak-password': 'Senha fraca — use pelo menos 8 caracteres, misturando letras e números.',
+    };
+
+    (async function iniciar() {
+      if (modo !== 'resetPassword' || !codigo) {
+        $('acao-sub').textContent = '';
+        fim('<span class="grande">🔗</span>Link incompleto. Abra de novo o link do e-mail, ou peça outro em <a href="/">rently.dev.br</a> → "Esqueci minha senha".');
+        return;
+      }
+      try {
+        emailDaConta = await firebase.auth().verifyPasswordResetCode(codigo);
+        $('acao-sub').innerHTML = 'Acesso: <strong></strong>';
+        $('acao-sub').querySelector('strong').textContent = emailDaConta;
+        $('acao-form').style.display = 'block';
+        $('s1').focus();
+      } catch (e) {
+        $('acao-sub').textContent = '';
+        fim('<span class="grande">⏰</span>' + (MSG[e.code] || ('Não foi possível abrir o link: ' + (e.message || e.code))) + '<br><br><a class="btn btn-secondary" href="/">Ir para o login</a>');
+      }
+    })();
+
+    async function salvarSenha() {
+      erro('');
+      const s1 = $('s1').value, s2 = $('s2').value;
+      if (s1.length < 8) return erro('A senha precisa ter pelo menos 8 caracteres.');
+      if (s1 !== s2) return erro('As duas senhas não são iguais.');
+      const b = $('btn-salvar');
+      b.disabled = true; b.textContent = '⏳ Salvando…';
+      try {
+        await firebase.auth().confirmPasswordReset(codigo, s1);
+        $('acao-titulo').textContent = 'Senha criada!';
+        $('acao-sub').textContent = '';
+        const cont = q.get('continueUrl');
+        const destino = cont && /^https:\/\/(www\.)?(rently\.dev\.br|drglobalimoveis\.com\.br|zett-romao\.github\.io)\//.test(cont + '/') ? cont : '/';
+        fim('<span class="grande">✅</span>Pronto. Entre com <strong></strong> e a senha que você acabou de criar.<br><br><a class="btn btn-primary" id="ir-login">Entrar no Rently</a>');
+        $('acao-fim').querySelector('strong').textContent = emailDaConta;
+        $('ir-login').href = destino;
+      } catch (e) {
+        erro(MSG[e.code] || ('Não foi possível salvar: ' + (e.message || e.code)));
+        b.disabled = false; b.textContent = '🔑 Salvar senha';
+      }
+    }
+  </script>
+</body>
+</html>
