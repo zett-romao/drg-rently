@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v54-20261029-alcance';
+const CACHE_VERSION = 'drg-rently-v55-20261029-equipes';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

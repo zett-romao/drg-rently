@@ -22,5 +22,10 @@ cp ../firestore.rules . && echo '{"firestore":{"rules":"firestore.rules"},"emula
    PLAYWRIGHT_PATH=$(npm root -g)/playwright npx firebase emulators:exec --only firestore,auth --project drg-rently "node teste-telas.mjs"
    ```
 
+3. **`teste-alcance-equipes.mjs`** — 👁 alcance por módulo + 👥 equipes (29/10/2026): o administrador cria
+   equipe e recalcula vínculos; um gerente com "Dele + a equipe dele" vê só a carteira da equipe em
+   12 telas, e o servidor nega ler/abrir/mexer fora dela mesmo contornando a tela:
+   `PLAYWRIGHT_PATH=... npx firebase emulators:exec --only firestore,auth --project drg-rently "node teste-alcance-equipes.mjs"`
+
 Rode **antes de colar regras novas no Console**. Mudou um efeito colateral no app
 (algo que grava fora do próprio módulo)? Acrescente o cenário.

@@ -1,8 +1,8 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-29 (alcance da exceção de contato por corretor/imobiliária; tipos de corretor;
-//                     leitura de leads e Livro Caixa por módulo; conversão de conta — 197 testes)
+// Última atualização: 2026-10-29 (👁 alcance por módulo no servidor — vinculos + equipes; perfis/equipes só por quem gerencia;
+//                     leitura de leads e Livro Caixa por módulo; conversão de conta — 225 testes)
 // =============================================================
 rules_version = '2';
 service cloud.firestore {
@@ -119,6 +119,52 @@ service cloud.firestore {
     function podeGravar(tenantId, colecao, op) {
       return !colecaoProtegida(colecao) || podeNoModulo(tenantId, moduloDaColecao(colecao), op);
     }
+    // 👁 ALCANCE (29/10/2026, ordem do dono): o "Mostrar" de cada módulo no perfil vale no
+    // servidor. Cada registro carrega `vinculos` (uids ligados a ele + '__imobiliaria' quando
+    // nenhum é corretor); quem tem alcance limitado só lê/edita/exclui o que bate com a lista:
+    //   proprios   → ele (criadoPor ou vinculos)
+    //   equipe     → + membros das equipes dele (equipesMembro/{uid}.uids, gravado pelo gestor)
+    //   escolhidos → + alcanceUids do perfil (+ a equipe dele se alcanceMinhaEquipe)
+    // Admin, sem perfil e alcance 'rede' (padrão) = tudo, como sempre foi. Espelho: alcance.js.
+    function colecaoComAlcance(colecao) {
+      return colecao in ['locadores', 'locatarios', 'garantias', 'compradores', 'negociacoes',
+                         'imoveis', 'contratos', 'balancetes', 'leadsImoveis'];
+    }
+    function permissaoDoModulo(tenantId, colecao) {
+      return (userDoc().role == 'admin' || !exists(caminhoPerfil(tenantId))) ? {}
+             : get(caminhoPerfil(tenantId)).data.get('permissoes', {}).get(moduloDaColecao(colecao), {});
+    }
+    function alcanceRestrito(tenantId, colecao) {
+      return colecaoComAlcance(colecao)
+             && permissaoDoModulo(tenantId, colecao).get('alcance', 'rede') in ['proprios', 'equipe', 'escolhidos'];
+    }
+    function uidsDaMinhaEquipe(tenantId) {
+      let p = /databases/$(database)/documents/tenants/$(tenantId)/equipesMembro/$(request.auth.uid);
+      return exists(p) ? get(p).data.get('uids', []) : [];
+    }
+    function dentroDoAlcance(tenantId, colecao, d) {
+      let m = permissaoDoModulo(tenantId, colecao);
+      let a = m.get('alcance', 'rede');
+      let v = d.get('vinculos', []);
+      return !colecaoComAlcance(colecao)
+             || !(a in ['proprios', 'equipe', 'escolhidos'])
+             || d.get('criadoPor', '') == request.auth.uid
+             || v.hasAny([request.auth.uid])
+             || (a == 'escolhidos' && v.hasAny(m.get('alcanceUids', [])))
+             || ((a == 'equipe' || (a == 'escolhidos' && m.get('alcanceMinhaEquipe', false) == true))
+                 && v.hasAny(uidsDaMinhaEquipe(tenantId)));
+    }
+    // Quem tem alcance limitado não mexe nos vínculos (seria se dar acesso)
+    function vinculosIntactos(tenantId, colecao) {
+      return !alcanceRestrito(tenantId, colecao)
+             || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['vinculos']);
+    }
+    // Perfis, equipes e o mapa de membros: só quem gerencia a equipe (antes caíam na regra
+    // genérica e qualquer pessoa da equipe interna regravava qualquer perfil — inclusive o próprio)
+    function gerenciaEquipe(tenantId) {
+      return isAdminOf(tenantId) || isDRGTeam() || (isEquipeTenant(tenantId) && delegadoGerenciar(tenantId));
+    }
+
     function soCampos(lista) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(lista);
     }
@@ -152,7 +198,8 @@ service cloud.firestore {
     }
     // Coleções com regra própria: a regra genérica da equipe não grava nelas
     function colecaoComRegraPropria(colecao) {
-      return colecao in ['auditoria', 'site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave'];
+      return colecao in ['auditoria', 'site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave',
+                         'perfis', 'equipes', 'equipesMembro'];
     }
     // Registro de auditoria honesto: em nome de quem grava e com a hora do servidor
     function registroDeAuditoriaValido() {
@@ -305,14 +352,24 @@ service cloud.firestore {
         allow read: if isEquipeTenant(tenantId)
                     && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'))
                     && (!(collection in ['leadsImoveis', 'leadsCorretor']) || veModulo(tenantId, 'leads'))
-                    && (!(collection in ['caixaPool', 'caixaPoolFechamento']) || veModulo(tenantId, 'caixa'));
+                    && (!(collection in ['caixaPool', 'caixaPoolFechamento']) || veModulo(tenantId, 'caixa'))
+                    && dentroDoAlcance(tenantId, collection, resource.data);
         allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
                       && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave',
+                                          'perfis', 'equipes', 'equipesMembro']);
         allow update: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
-                      && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection));
+                      && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection))
+                      && dentroDoAlcance(tenantId, collection, resource.data)
+                      && vinculosIntactos(tenantId, collection);
+        // Recalcular vínculos (alcance.js): só quem enxerga o módulo inteiro, e só o campo vinculos
+        allow update: if isEquipeTenant(tenantId) && colecaoComAlcance(collection)
+                      && soCampos(['vinculos'])
+                      && !alcanceRestrito(tenantId, collection)
+                      && veModulo(tenantId, moduloDaColecao(collection));
         allow delete: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
-                      && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection));
+                      && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection))
+                      && dentroDoAlcance(tenantId, collection, resource.data);
         allow read: if isDRGTeam();
         allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
                       && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
@@ -356,6 +413,16 @@ service cloud.firestore {
       // Perfis: corretor lê (precisa resolver o próprio perfil no login)
       match /perfis/{perfilId} {
         allow read: if isCorretorOf(tenantId);
+        allow create, update, delete: if gerenciaEquipe(tenantId);
+      }
+      // 👥 Equipes (29/10/2026): nome + membros; o gestor monta. Equipe interna lê pela regra genérica.
+      match /equipes/{equipeId} {
+        allow create, update, delete: if gerenciaEquipe(tenantId);
+      }
+      // Membros das equipes de cada um (a regra dentroDoAlcance lê o do próprio usuário)
+      match /equipesMembro/{uid} {
+        allow read: if belongsToTenant(tenantId) && request.auth.uid == uid;
+        allow create, update, delete: if gerenciaEquipe(tenantId);
       }
 
       // Config da rede (campos visíveis etc.): corretor só lê.

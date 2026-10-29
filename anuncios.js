@@ -137,7 +137,7 @@ function contarTituloAnuncio() {
 async function usoRelevanciaPorPortal(excluirId) {
   const uso = {};
   try {
-    const snap = await tenantPath().collection('imoveis').where('linkPublico', '==', true).get();
+    const snap = await colecaoNoAlcance('imoveis').where('linkPublico', '==', true).get();
     snap.docs.forEach(d => {
       if (d.id === excluirId) return;
       const m = d.data().anuncioPortais;
@@ -295,7 +295,7 @@ async function renderPlanoPublicacao() {
   await ensureConfigCache();
   let imoveis = [];
   try {
-    const snap = await tenantPath().collection('imoveis').get();
+    const snap = await colecaoNoAlcance('imoveis').get();
     imoveis = snap.docs.map(d => ({ _id: d.id, ...d.data() })).filter(im => !im.rascunho);
   } catch (err) {
     box.innerHTML = `<p style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</p>`;
@@ -347,7 +347,7 @@ async function gerarCodigosFaltantes() {
   const btn = $('btn-gerar-codigos');
   try {
     const r = await drgSubmit(btn, '⏳ Gerando códigos… aguarde', async () => {
-      const snap = await tenantPath().collection('imoveis').get();
+      const snap = await colecaoNoAlcance('imoveis').get();
       const faltam = snap.docs
         .map(d => ({ _id: d.id, ...d.data() }))
         .filter(im => !im.rascunho && !im.codigoAnuncio)
@@ -1244,7 +1244,7 @@ async function carregarDesempenho(id, im) {
   const meses = ultimosMeses(3);
   const [docs, leadsSnap] = await Promise.all([
     Promise.all(meses.map(m => tenantPath().collection('estatisticas').doc(`${id}_${m}`).get().catch(() => null))),
-    tenantPath().collection('leadsImoveis').where('imovelId', '==', id).get().catch(() => null),
+    colecaoNoAlcance('leadsImoveis').where('imovelId', '==', id).get().catch(() => null),
   ]);
   const pedidosPorMes = {};
   (leadsSnap ? leadsSnap.docs : []).forEach(d => {

@@ -4470,3 +4470,5 @@ label.carac-item:has(input:checked){background:#eef6ff;color:#0f172a;font-weight
   font-size: 12.5px; color: #1E40AF; background: #EFF6FF; border: 1px solid #BFDBFE;
   border-radius: 6px; padding: 6px 10px; margin-bottom: 8px;
 }
+.alcance-sub { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 6px 0 2px; }
+.alcance-sub:first-child { margin-top: 2px; }

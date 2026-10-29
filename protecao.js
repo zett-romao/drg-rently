@@ -474,7 +474,7 @@ async function loadRegistrosClientes() {
   try {
     const [s, ls] = await Promise.all([
       tenantPath().collection('registrosCliente').orderBy('criadoEm', 'desc').limit(200).get(),
-      tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(500).get().catch(() => ({ docs: [] })),
+      colecaoNoAlcance('leadsImoveis').orderBy('criadoEm', 'desc').limit(500).get().catch(() => ({ docs: [] })),
     ]);
     const leadsPorTel = new Map();
     ls.docs.forEach((d) => { const l = d.data(); const t = _telNorm(l.telefone); if (t && !leadsPorTel.has(t)) leadsPorTel.set(t, l); });

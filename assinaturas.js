@@ -102,7 +102,7 @@ async function abrirNovaAssinaturaAvulsa(imovelIdInicial) {
   const sel = $('av-imovel');
   sel.innerHTML = '<option value="">— Avulso (sem imóvel) —</option>';
   try {
-    const snap = await tenantPath().collection('imoveis').get();
+    const snap = await colecaoNoAlcance('imoveis').get();
     const ims = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => String(a.apelido || '').localeCompare(String(b.apelido || ''), 'pt-BR'));
     sel.insertAdjacentHTML('beforeend', ims.map(i =>

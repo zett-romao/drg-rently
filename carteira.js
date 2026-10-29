@@ -197,7 +197,7 @@ async function distribuirLeadsPendentes() {
   try {
     const cfg = await getDistribuicao();
     if (!cfg.ativo || !cfg.ativadoEm) return;
-    const snap = await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(300).get();
+    const snap = await colecaoNoAlcance('leadsImoveis').orderBy('criadoEm', 'desc').limit(300).get();
     const recentes = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     const pendentes = recentes.filter(l => _leadElegivel(l, cfg)).reverse();   // mais antigo primeiro
     if (!pendentes.length) return;
@@ -278,9 +278,9 @@ async function openTransferirCarteira(uid) {
   const T = tenantPath();
   const [cartaoSnap, imSnap, locSnap, leadSnap, corretores] = await Promise.all([
     T.collection('corretores').doc(uid).get(),
-    T.collection('imoveis').where('criadoPor', '==', uid).get(),
-    T.collection('locadores').where('criadoPor', '==', uid).get(),
-    T.collection('leadsImoveis').where('corretorUid', '==', uid).get(),
+    colecaoNoAlcance('imoveis').where('criadoPor', '==', uid).get(),
+    colecaoNoAlcance('locadores').where('criadoPor', '==', uid).get(),
+    colecaoNoAlcance('leadsImoveis').where('corretorUid', '==', uid).get(),
     (async () => { _corretoresAtivosCache = null; return listarCorretoresAtivos(); })(),
   ]);
   const nome = cartaoSnap.exists ? (cartaoSnap.data().nome || 'corretor') : 'corretor';

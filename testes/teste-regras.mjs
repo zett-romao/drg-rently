@@ -350,8 +350,58 @@ await caso('alcance: imobiliária + cor2 → imóvel do cor1 BLOQUEIA', false, (
 await caso('alcance: sem escopo gravado (antigo) = toda a rede', true, () => contato('cor3', 'fCor1'));
 await caso('alcance: corretor muda o próprio alcance BLOQUEIA', false, () => updateDoc(R(db('cor4'), 'corretores', 'cor4'), { contatoEscopo: { todos: true } }));
 await caso('tipos: corretor muda o próprio tipo BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { tipo: 'captador' }));
-await caso('tipos: equipe cria o perfil-base do tipo', true, () => setDoc(R(db('op0'), 'perfis', 'tipo_captador'), { nome: 'Corretor — Captador', sistema: true, permissoes: {} }));
+// 29/10/2026: perfis só por quem gerencia a equipe (antes qualquer um da equipe interna regravava qualquer perfil)
+await caso('tipos: equipe SEM gerenciar cria perfil-base BLOQUEIA', false, () => setDoc(R(db('op0'), 'perfis', 'tipo_captador'), { nome: 'Corretor — Captador', sistema: true, permissoes: {} }));
+await caso('tipos: admin cria o perfil-base do tipo', true, () => setDoc(R(db('admin1'), 'perfis', 'tipo_captador'), { nome: 'Corretor — Captador', sistema: true, permissoes: {} }));
 await caso('tipos: corretor lê o perfil do tipo dele', true, () => getDoc(R(db('cor1'), 'perfis', 'tipo_captador')));
+
+// ---------- 👁 Alcance por módulo no SERVIDOR + 👥 equipes (29/10/2026) ----------
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  const S = (p, v) => setDoc(doc(d, ...p), v);
+  const tudo = { ver: true, criar: 'sim', editar: 'sim', excluir: 'sim' };
+  await S(['users', 'gerA'], { role: 'operador', tenantId: T, perfilId: 'pGerA' });   // vê a equipe dele
+  await S(['users', 'opEsc'], { role: 'operador', tenantId: T, perfilId: 'pEsc' });   // escolhidos: cor7 + imobiliária
+  await S(['users', 'opSo'], { role: 'operador', tenantId: T, perfilId: 'pSo' });     // só os dele
+  await S(['tenants', T, 'perfis', 'pGerA'], { permissoes: { locadores: { ...tudo, alcance: 'equipe' } } });
+  await S(['tenants', T, 'perfis', 'pEsc'], { permissoes: { locadores: { ...tudo, alcance: 'escolhidos', alcanceUids: ['cor7', '__imobiliaria'] } } });
+  await S(['tenants', T, 'perfis', 'pSo'], { permissoes: { locadores: { ...tudo, alcance: 'proprios' }, locatarios: { ...tudo } } });
+  await S(['tenants', T, 'equipesMembro', 'gerA'], { equipes: ['eqA'], uids: ['gerA', 'cor6'] });
+  await S(['tenants', T, 'locadores', 'lc6'], { nome: 'do cor6', criadoPor: 'cor6', vinculos: ['cor6'] });
+  await S(['tenants', T, 'locadores', 'lc7'], { nome: 'do cor7', criadoPor: 'cor7', vinculos: ['cor7'] });
+  await S(['tenants', T, 'locadores', 'lcImob'], { nome: 'da imobiliária', criadoPor: 'admin1', vinculos: ['admin1', '__imobiliaria'] });
+  await S(['tenants', T, 'locadores', 'lcSo'], { nome: 'do opSo', criadoPor: 'opSo' });
+  await S(['tenants', T, 'locatarios', 'lt7'], { nome: 'inq do cor7', criadoPor: 'cor7', vinculos: ['cor7'] });
+});
+const Lq = (uid, ...w) => getDocs(query(collection(db(uid), 'tenants', T, 'locadores'), ...w));
+await caso('alcance: restrito lista a coleção inteira BLOQUEIA', false, () => Lq('opSo'));
+await caso('alcance: "só os dele" lista os que cadastrou', true, () => Lq('opSo', where('criadoPor', '==', 'opSo')));
+await caso('alcance: "só os dele" lê de outro corretor BLOQUEIA', false, () => getDoc(R(db('opSo'), 'locadores', 'lc6')));
+await caso('alcance: módulo sem limite (locatários) continua livre', true, () => getDocs(collection(db('opSo'), 'tenants', T, 'locatarios')));
+await caso('alcance: equipe → lista os da equipe', true, () => Lq('gerA', where('vinculos', 'array-contains-any', ['gerA', 'cor6'])));
+await caso('alcance: equipe → lê do colega de equipe', true, () => getDoc(R(db('gerA'), 'locadores', 'lc6')));
+await caso('alcance: equipe → de fora da equipe BLOQUEIA', false, () => getDoc(R(db('gerA'), 'locadores', 'lc7')));
+await caso('alcance: equipe → pedir fora da equipe na consulta BLOQUEIA', false, () => Lq('gerA', where('vinculos', 'array-contains-any', ['cor7'])));
+await caso('alcance: escolhidos → lê do corretor escolhido', true, () => getDoc(R(db('opEsc'), 'locadores', 'lc7')));
+await caso('alcance: escolhidos → lê o da imobiliária (sem corretor)', true, () => getDoc(R(db('opEsc'), 'locadores', 'lcImob')));
+await caso('alcance: escolhidos → não escolhido BLOQUEIA', false, () => getDoc(R(db('opEsc'), 'locadores', 'lc6')));
+await caso('alcance: escolhidos → consulta pelos escolhidos', true, () => Lq('opEsc', where('vinculos', 'array-contains-any', ['opEsc', 'cor7', '__imobiliaria'])));
+await caso('alcance: edita fora do alcance BLOQUEIA', false, () => updateDoc(R(db('opSo'), 'locadores', 'lc6'), { nome: 'x' }));
+await caso('alcance: exclui fora do alcance BLOQUEIA', false, () => deleteDoc(R(db('gerA'), 'locadores', 'lc7')));
+await caso('alcance: edita dentro do alcance', true, () => updateDoc(R(db('gerA'), 'locadores', 'lc6'), { nome: 'do cor6 (editado)' }));
+await caso('alcance: restrito se põe nos vínculos BLOQUEIA', false, () => updateDoc(R(db('gerA'), 'locadores', 'lc6'), { vinculos: ['cor6', 'gerA', 'cor7'] }));
+await caso('alcance: quem vê tudo recalcula vínculos', true, () => updateDoc(R(db('op0'), 'locadores', 'lc7'), { vinculos: ['cor7', 'x'] }));
+await caso('alcance: admin vê tudo', true, () => getDocs(collection(db('admin1'), 'tenants', T, 'locadores')));
+await caso('alcance: operador sem limite vê tudo (como antes)', true, () => getDocs(collection(db('op0'), 'tenants', T, 'locadores')));
+await caso('alcance: restrito muda o próprio perfil BLOQUEIA', false, () => updateDoc(R(db('opSo'), 'perfis', 'pSo'), { 'permissoes.locadores.alcance': 'rede' }));
+await caso('equipes: restrito se põe numa equipe BLOQUEIA', false, () => setDoc(R(db('opSo'), 'equipesMembro', 'opSo'), { uids: ['opSo', 'cor7'] }));
+await caso('equipes: equipe interna sem gerenciar cria equipe BLOQUEIA', false, () => setDoc(R(db('op0'), 'equipes', 'eqX'), { nome: 'X', membros: ['op0'] }));
+await caso('equipes: admin cria equipe', true, () => setDoc(R(db('admin1'), 'equipes', 'eqA'), { nome: 'Equipe A', membros: ['gerA', 'cor6'] }));
+await caso('equipes: admin grava o mapa de membros', true, () => setDoc(R(db('admin1'), 'equipesMembro', 'gerA'), { equipes: ['eqA'], uids: ['gerA', 'cor6'] }));
+await caso('equipes: cada um lê o próprio mapa', true, () => getDoc(R(db('gerA'), 'equipesMembro', 'gerA')));
+await caso('equipes: corretor lê mapa de outro BLOQUEIA', false, () => getDoc(R(db('cor1'), 'equipesMembro', 'gerA')));
+await caso('auditoria segue gravando (regressão)', true, () => setDoc(R(db('opSo'), 'auditoria', 'audAlc'), { userId: 'opSo', timestamp: serverTimestamp(), acao: 'x' }));
+
 
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();

@@ -1034,6 +1034,8 @@ async function resolverPerfilUsuario() {
   // Nível 3 — normalizarPerfil(null) deriva do role
   const norm = normalizarPerfil(doc, role);
   State.perfilResolvido = { ...norm, origem, nome: (doc && doc.nome) || null };
+  await carregarMinhaEquipe();      // alcance "a equipe dele" (alcance.js)
+  sincronizarVinculosAoEntrar();    // gestor mantém os vínculos dos registros em dia
   return State.perfilResolvido;
 }
 
@@ -2715,13 +2717,13 @@ async function loadDashboard() {
     const mesAtual = hoje.getMonth() + 1;
     const anoAtual = hoje.getFullYear();
     const [locadoresSnap, locatariosSnap, imoveisSnap, contratosSnap, garantiasSnap, negociacoesSnap, balancetesMesSnap] = await Promise.all([
-      tenantPath().collection('locadores').get(),
-      tenantPath().collection('locatarios').get(),
-      tenantPath().collection('imoveis').get(),
-      tenantPath().collection('contratos').get(),
-      tenantPath().collection('garantias').get(),
-      tenantPath().collection('negociacoes').get(),
-      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
+      colecaoNoAlcance('locadores').get(),
+      colecaoNoAlcance('locatarios').get(),
+      colecaoNoAlcance('imoveis').get(),
+      colecaoNoAlcance('contratos').get(),
+      colecaoNoAlcance('garantias').get(),
+      colecaoNoAlcance('negociacoes').get(),
+      colecaoNoAlcance('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
     ]);
 
     const imoveisAlugados = imoveisSnap.docs.filter(d => d.data().status === 'alugado').length;
@@ -2763,7 +2765,7 @@ async function loadDashboard() {
 
   // Contagem de leads novos (não bloqueia o resto do dashboard se falhar)
   try {
-    const leadsSnap = await tenantPath().collection('leadsImoveis').where('status', '==', 'novo').limit(100).get();
+    const leadsSnap = await colecaoNoAlcance('leadsImoveis').where('status', '==', 'novo').limit(100).get();
     const el = $('stat-leads-novos');
     if (el) el.textContent = leadsSnap.size;
   } catch (e) {
@@ -2804,10 +2806,10 @@ async function loadGraficosDashboard() {
 
     // Carrega dados em paralelo
     const [balancetesSnap, imoveisSnap, leadsSnap, contratosSnap] = await Promise.all([
-      tenantPath().collection('balancetes').get(),
-      tenantPath().collection('imoveis').get(),
-      tenantPath().collection('leadsImoveis').get().catch(() => ({ docs: [] })),
-      tenantPath().collection('contratos').get(),
+      colecaoNoAlcance('balancetes').get(),
+      colecaoNoAlcance('imoveis').get(),
+      colecaoNoAlcance('leadsImoveis').get().catch(() => ({ docs: [] })),
+      colecaoNoAlcance('contratos').get(),
     ]);
 
     // ===== 1. Receita mensal (soma totalEntradas dos balancetes) =====
@@ -3448,12 +3450,12 @@ async function loadCalendario() {
     const noAlcance = await filtroAlcanceItens('calendario');
     const corta = (col) => (sn) => ({ docs: sn.docs.filter(d => noAlcance(col, d.id, d.data())) });
     const [contratosSnap, garantiasSnap, balancetesSnap] = await Promise.all([
-      tenantPath().collection('contratos').get().then(corta('contratos')),
-      tenantPath().collection('garantias').get().then(corta('garantias')),
-      tenantPath().collection('balancetes').get().then(corta('balancetes')),
+      colecaoNoAlcance('contratos').get().then(corta('contratos')),
+      colecaoNoAlcance('garantias').get().then(corta('garantias')),
+      colecaoNoAlcance('balancetes').get().then(corta('balancetes')),
     ]);
 
-    const imoveisSnap = await tenantPath().collection('imoveis').get();
+    const imoveisSnap = await colecaoNoAlcance('imoveis').get();
     const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido || '—']));
 
     const eventos = [];
@@ -3749,7 +3751,7 @@ async function verificarAlertasParaNotificar() {
     // 1. Leads novos cadastrados nas últimas 24h
     const ultimoCheck = (notifGetEstado()._ultimoCheckLeads) || (Date.now() - 6 * 60 * 60 * 1000);
     const checkInicial = new Date(ultimoCheck);
-    const leadsSnap = await tenantPath().collection('leadsImoveis')
+    const leadsSnap = await colecaoNoAlcance('leadsImoveis')
       .where('status', '==', 'novo').get();
     leadsSnap.docs.forEach(d => {
       const lead = d.data();
@@ -3769,7 +3771,7 @@ async function verificarAlertasParaNotificar() {
     notifSetEstado(estado);
 
     // 2. Contratos vencendo em <=7 dias
-    const contratosSnap = await tenantPath().collection('contratos').get();
+    const contratosSnap = await colecaoNoAlcance('contratos').get();
     contratosSnap.docs.forEach(d => {
       const c = d.data();
       if (c.status !== 'vigente' || !c.fim) return;
@@ -3787,7 +3789,7 @@ async function verificarAlertasParaNotificar() {
     });
 
     // 3. Garantias vencendo em <=15 dias
-    const garantiasSnap = await tenantPath().collection('garantias').get();
+    const garantiasSnap = await colecaoNoAlcance('garantias').get();
     garantiasSnap.docs.forEach(d => {
       const g = d.data();
       const fim = g.validadeAte || g.fim || g.vencimento;
@@ -3857,12 +3859,12 @@ async function loadAlertasResumoDashboard() {
     const anoAtual = hoje.getFullYear();
 
     let [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, garantiasSnap] = await Promise.all([
-      tenantPath().collection('contratos').get(),
-      tenantPath().collection('locatarios').get(),
-      tenantPath().collection('imoveis').get(),
-      tenantPath().collection('negociacoes').get(),
-      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
-      tenantPath().collection('garantias').get(),
+      colecaoNoAlcance('contratos').get(),
+      colecaoNoAlcance('locatarios').get(),
+      colecaoNoAlcance('imoveis').get(),
+      colecaoNoAlcance('negociacoes').get(),
+      colecaoNoAlcance('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
+      colecaoNoAlcance('garantias').get(),
     ]);
 
     const imovelMap = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data().apelido]));
@@ -3959,7 +3961,7 @@ async function loadAlertasResumoDashboard() {
 
     // ATENÇÃO — leads novos sem contato (vitrine pública)
     try {
-      const leadsSnap = await tenantPath().collection('leadsImoveis').where('status', '==', 'novo').limit(50).get();
+      const leadsSnap = await colecaoNoAlcance('leadsImoveis').where('status', '==', 'novo').limit(50).get();
       const leadsNovos = leadsSnap.size;
       if (leadsNovos > 0) {
         qtdAtencao++;
@@ -4104,7 +4106,7 @@ function isCorretor() { return State.userDoc?.role === 'corretor'; }
 // Retorna objeto com a mesma forma de um QuerySnapshot ({ docs, empty, size }).
 async function queryDoUsuario(colecao, campoOrdem) {
   const ref = tenantPath().collection(colecao);
-  if (!isCorretor()) return (campoOrdem ? ref.orderBy(campoOrdem) : ref).get();
+  if (!isCorretor()) return (campoOrdem ? colecaoNoAlcance(colecao).orderBy(campoOrdem) : colecaoNoAlcance(colecao)).get();
   const snap = await ref.where('criadoPor', '==', State.user.uid).get();
   const docs = snap.docs.slice();
   if (campoOrdem) {
@@ -5751,6 +5753,11 @@ async function gravar({ modulo, colecao, op, id = null, dados = null, titulo = '
     throw new Error(`⛔ Seu perfil não permite ${OP_VERBO[op]} em ${rotulo}${acaoLbl ? ` (${acaoLbl})` : ''}. Peça a quem gerencia a equipe.`);
   }
   const col = tenantPath().collection(colecao);
+  // Alcance (29/10/2026): registro novo já nasce com os vínculos que o servidor confere
+  if (op === 'criar' && dados && COLECOES_ALCANCE[colecao] && !Array.isArray(dados.vinculos)) {
+    dados = { ...dados, vinculos: await vinculosNovoRegistro(colecao, dados) };
+  }
+  if (nivel === 'sim' && COLECOES_ALCANCE[colecao] && op !== 'excluir') agendarSincronizacaoVinculos();
   if (nivel === 'sim') {
     if (op === 'criar') {
       if (id) { await col.doc(id).set(dados, { merge: true }); return { feito: true, id }; } // ID fixo (ex.: balancete)
@@ -6772,7 +6779,7 @@ async function loadLocatarios() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await aplicarAlcance('locatarios', 'locatarios', await tenantPath().collection('locatarios').orderBy('nome').get());
+    const snap = await aplicarAlcance('locatarios', 'locatarios', await colecaoNoAlcance('locatarios').orderBy('nome').get());
     mostrarAvisoAlcance('locatarios', 'tbody-locatarios');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum locatário cadastrado. Clique em "Novo Locatário" para começar.</td></tr>`;
@@ -7247,7 +7254,7 @@ async function loadGarantias() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await aplicarAlcance('garantias', 'garantias', await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get());
+    const snap = await aplicarAlcance('garantias', 'garantias', await colecaoNoAlcance('garantias').orderBy('criadoEm', 'desc').get());
     mostrarAvisoAlcance('garantias', 'tbody-garantias');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhuma garantia cadastrada. Clique em "Nova Garantia" para começar.</td></tr>`;
@@ -7802,7 +7809,7 @@ async function loadBalancetes() {
   try {
     mostrarAvisoAlcance('balancetes', 'tbody-balancetes');
     const [snap, imoveis, locadores, locatarios] = await Promise.all([
-      tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get()
+      colecaoNoAlcance('balancetes').where('mes', '==', mes).where('ano', '==', ano).get()
         .then(s => aplicarAlcance('balancetes', 'balancetes', s)),
       ensureImoveisCache(),
       ensureLocadoresCache(),
@@ -7855,7 +7862,7 @@ async function populateBalanceteContratos(selected) {
   select.innerHTML = '<option value="">— Selecione —</option>';
 
   try {
-    const snap = await tenantPath().collection('contratos').get();
+    const snap = await colecaoNoAlcance('contratos').get();
     const [imoveis, locatarios] = await Promise.all([
       ensureImoveisCache(),
       ensureLocatariosCache(),
@@ -9836,7 +9843,7 @@ const FORMA_PAGAMENTO_LABEL = {
 let _compradoresCache = null;
 async function ensureCompradoresCache() {
   if (_compradoresCache) return _compradoresCache;
-  const snap = await tenantPath().collection('compradores').orderBy('nome').get();
+  const snap = await colecaoNoAlcance('compradores').orderBy('nome').get();
   _compradoresCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return _compradoresCache;
 }
@@ -9847,7 +9854,7 @@ async function loadCompradores() {
   tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
 
   try {
-    const snap = await aplicarAlcance('compradores', 'compradores', await tenantPath().collection('compradores').orderBy('nome').get());
+    const snap = await aplicarAlcance('compradores', 'compradores', await colecaoNoAlcance('compradores').orderBy('nome').get());
     mostrarAvisoAlcance('compradores', 'tbody-compradores');
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum comprador cadastrado.</td></tr>`;
@@ -10363,7 +10370,7 @@ async function loadLeads() {
   if (!tbody) return;
   tbody.innerHTML = `<tr><td colspan="7" class="empty">Carregando…</td></tr>`;
   try {
-    const snap = await aplicarAlcance('leads', 'leadsImoveis', await tenantPath().collection('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get());
+    const snap = await aplicarAlcance('leads', 'leadsImoveis', await colecaoNoAlcance('leadsImoveis').orderBy('criadoEm', 'desc').limit(200).get());
     mostrarAvisoAlcance('leads', 'tbody-leads');
     _leadsCarregados = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     if (typeof mesclarAtendimentoDosCorretores === 'function') await mesclarAtendimentoDosCorretores(_leadsCarregados);
@@ -10437,7 +10444,7 @@ async function loadNegociacoes() {
   tbody.innerHTML = `<tr><td colspan="6" class="empty">Carregando…</td></tr>`;
   try {
     const [snap, imoveis, compradores] = await Promise.all([
-      tenantPath().collection('negociacoes').orderBy('criadoEm', 'desc').get()
+      colecaoNoAlcance('negociacoes').orderBy('criadoEm', 'desc').get()
         .then(s => aplicarAlcance('negociacoes', 'negociacoes', s)),
       ensureImoveisCache(),
       ensureCompradoresCache(),
@@ -13209,7 +13216,7 @@ async function loadPortaisStatus() {
   countEl.textContent = '…';
   try {
     // Conta imóveis publicados + com vitrineFeed (default true)
-    const snap = await tenantPath().collection('imoveis').where('linkPublico', '==', true).get();
+    const snap = await colecaoNoAlcance('imoveis').where('linkPublico', '==', true).get();
     const total = snap.docs.filter(d => {
       const im = d.data();
       return im.vitrineFeed !== false;
@@ -13345,19 +13352,19 @@ let _garantiasCache = null;
 
 async function ensureLocatariosCache() {
   if (_locatariosCache) return _locatariosCache;
-  const snap = await tenantPath().collection('locatarios').orderBy('nome').get();
+  const snap = await colecaoNoAlcance('locatarios').orderBy('nome').get();
   _locatariosCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return _locatariosCache;
 }
 async function ensureImoveisCache() {
   if (_imoveisCache) return _imoveisCache;
-  const snap = await tenantPath().collection('imoveis').orderBy('apelido').get();
+  const snap = await colecaoNoAlcance('imoveis').orderBy('apelido').get();
   _imoveisCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return _imoveisCache;
 }
 async function ensureGarantiasCache() {
   if (_garantiasCache) return _garantiasCache;
-  const snap = await tenantPath().collection('garantias').orderBy('criadoEm', 'desc').get();
+  const snap = await colecaoNoAlcance('garantias').orderBy('criadoEm', 'desc').get();
   _garantiasCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   return _garantiasCache;
 }
@@ -13386,7 +13393,7 @@ async function loadContratos() {
 
   try {
     const [snap, imoveis, locatarios] = await Promise.all([
-      tenantPath().collection('contratos').orderBy('criadoEm', 'desc').get()
+      colecaoNoAlcance('contratos').orderBy('criadoEm', 'desc').get()
         .then(s => aplicarAlcance('contratos', 'contratos', s)),
       ensureImoveisCache(),
       ensureLocatariosCache(),
@@ -13887,7 +13894,7 @@ async function excluirContratoCascata(id) {
 
     // 2. Garantia vinculada — só apaga se NENHUM outro contrato ainda a usa
     if (c.garantiaId) {
-      const usos = await tenantPath().collection('contratos')
+      const usos = await colecaoNoAlcance('contratos')
         .where('garantiaId', '==', c.garantiaId).get();
       const outrosContratos = usos.docs.filter(d => d.id !== id);
       if (outrosContratos.length === 0) {
@@ -13904,7 +13911,7 @@ async function excluirContratoCascata(id) {
     }
 
     // 3. Balancetes do contrato (+ comprovantes no Storage)
-    const balSnap = await tenantPath().collection('balancetes')
+    const balSnap = await colecaoNoAlcance('balancetes')
       .where('contratoId', '==', id).get();
     for (const bDoc of balSnap.docs) {
       try {
@@ -14689,14 +14696,14 @@ async function loadAlertas() {
     const anoAtual = hoje.getFullYear();
 
     let [contratosSnap, locatariosSnap, imoveisSnap, negociacoesSnap, balancetesMesSnap, fotosByImovel] = await Promise.all([
-      tenantPath().collection('contratos').get(),
-      tenantPath().collection('locatarios').get(),
-      tenantPath().collection('imoveis').get(),
-      tenantPath().collection('negociacoes').get(),
-      tenantPath().collection('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
+      colecaoNoAlcance('contratos').get(),
+      colecaoNoAlcance('locatarios').get(),
+      colecaoNoAlcance('imoveis').get(),
+      colecaoNoAlcance('negociacoes').get(),
+      colecaoNoAlcance('balancetes').where('mes', '==', mesAtual).where('ano', '==', anoAtual).get(),
       // contagem de fotos por imóvel publicado
       (async () => {
-        const imSnap = await tenantPath().collection('imoveis').where('linkPublico', '==', true).get();
+        const imSnap = await colecaoNoAlcance('imoveis').where('linkPublico', '==', true).get();
         const result = {};
         for (const d of imSnap.docs) {
           try {
@@ -14716,7 +14723,8 @@ async function loadAlertas() {
     contratosSnap = corta('contratos', contratosSnap);
     locatariosSnap = corta('locatarios', locatariosSnap);
     negociacoesSnap = corta('negociacoes', negociacoesSnap);
-    fotosByImovel = Object.fromEntries(Object.entries(fotosByImovel).filter(([id]) => noAlcance('imoveis', id, {})));
+    const dadosImovel = Object.fromEntries(imoveisSnap.docs.map(d => [d.id, d.data()]));
+    fotosByImovel = Object.fromEntries(Object.entries(fotosByImovel).filter(([id]) => noAlcance('imoveis', id, dadosImovel[id])));
 
     // CRÍTICOS
     const criticos = [];
@@ -14874,7 +14882,7 @@ async function relatorioFaturamento() {
   const mes = parseInt($('relatorio-mes').value, 10);
   const ano = parseInt($('relatorio-ano').value, 10);
   const [snap, imoveis, locadores] = await Promise.all([
-    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    colecaoNoAlcance('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
     ensureImoveisCache(),
     ensureLocadoresCache(),
   ]);
@@ -14928,7 +14936,7 @@ async function relatorioReceitaImobiliaria() {
   const mes = parseInt($('relatorio-mes').value, 10);
   const ano = parseInt($('relatorio-ano').value, 10);
   const [snap, imoveis] = await Promise.all([
-    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    colecaoNoAlcance('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
     ensureImoveisCache(),
   ]);
   const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
@@ -14950,7 +14958,7 @@ async function relatorioBalancetesPendentes() {
   const mes = parseInt($('relatorio-mes').value, 10);
   const ano = parseInt($('relatorio-ano').value, 10);
   const [snap, imoveis] = await Promise.all([
-    tenantPath().collection('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
+    colecaoNoAlcance('balancetes').where('mes', '==', mes).where('ano', '==', ano).get(),
     ensureImoveisCache(),
   ]);
   const imMap = Object.fromEntries(imoveis.map(i => [i.id, i.apelido]));
@@ -14967,7 +14975,7 @@ async function relatorioBalancetesPendentes() {
 
 async function relatorioContratosVigentes() {
   const [snap, imoveis, locatarios] = await Promise.all([
-    tenantPath().collection('contratos').where('status', '==', 'vigente').get(),
+    colecaoNoAlcance('contratos').where('status', '==', 'vigente').get(),
     ensureImoveisCache(),
     ensureLocatariosCache(),
   ]);
@@ -14994,7 +15002,7 @@ async function relatorioContratosVigentes() {
 }
 
 async function relatorioLocatariosStatus() {
-  const snap = await tenantPath().collection('locatarios').get();
+  const snap = await colecaoNoAlcance('locatarios').get();
   const grupos = { aprovado: 0, reprovado: 0, pendente_analise: 0 };
   const linhas = snap.docs.map(d => { const l = d.data(); grupos[l.status] = (grupos[l.status] || 0) + 1; return l; });
   $('thead-relatorio').innerHTML = '<tr><th>Status</th><th class="valor">Quantidade</th></tr>';
@@ -15005,7 +15013,7 @@ async function relatorioLocatariosStatus() {
 }
 
 async function relatorioImoveisStatus() {
-  const snap = await tenantPath().collection('imoveis').get();
+  const snap = await colecaoNoAlcance('imoveis').get();
   const grupos = {};
   snap.docs.forEach(d => { const s = d.data().status || 'disponivel'; grupos[s] = (grupos[s] || 0) + 1; });
   $('thead-relatorio').innerHTML = '<tr><th>Status</th><th class="valor">Quantidade</th></tr>';
@@ -15024,7 +15032,7 @@ async function relatorioHistoricoImovel() {
     tbody.innerHTML = '<tr><td colspan="6" class="empty">Selecione um imóvel.</td></tr>';
     return;
   }
-  const snap = await tenantPath().collection('balancetes').where('imovelId', '==', imovelId).get();
+  const snap = await colecaoNoAlcance('balancetes').where('imovelId', '==', imovelId).get();
   const linhas = snap.docs.map(d => d.data()).sort((a, b) => (b.ano - a.ano) || (b.mes - a.mes));
   const totalLiquido = linhas.reduce((acc, b) => acc + (b.liquidoLocador || 0), 0);
   thead.innerHTML = '<tr><th>Mês/Ano</th><th class="valor">Aluguel</th><th class="valor">Despesas</th><th class="valor">Líquido</th><th>Status</th></tr>';
@@ -15120,7 +15128,7 @@ async function enviarTelemetria() {
     const projectId = firebase.app().options.projectId;
     if (projectId === SAAS_PRINCIPAL_PROJECT_ID) return; // SaaS principal já está no painel direto
     const [imSnap, usSnap] = await Promise.all([
-      tenantPath().collection('imoveis').get().catch(() => ({ size: 0 })),
+      colecaoNoAlcance('imoveis').get().catch(() => ({ size: 0 })),
       db.collection('users').where('tenantId', '==', State.tenant.id).get().catch(() => ({ size: 0 })),
     ]);
     await fetch(TELEMETRIA_ENDPOINT, {
@@ -15179,7 +15187,7 @@ function montarPerfilModelo(spec) {
     const ops = { ...spec.ops, ...((spec.excecoes || {})[m.id] || {}) };
     const r = { ver };
     OPS_MODULO.forEach(op => { r[op] = (!ver || m.somenteLeitura) ? 'nao' : (ops[op] || 'nao'); });
-    if (m.alcance) { r.alcance = spec.alcance || 'rede'; r.alcanceCorretores = []; }
+    if (m.alcance) Object.assign(r, normalizarAlcance({ alcance: spec.alcance || 'rede' }, null));
     permissoes[m.id] = r;
   });
   const acoes = {};
@@ -15292,6 +15300,7 @@ async function carregarPerfisCache() {
 
 // Seção "👥 Equipe e permissões": perfis primeiro (a lista de usuários usa o cache)
 async function loadEquipe() {
+  loadEquipesTenant();
   await loadPerfis();
   await loadUsuariosTenant();
   await loadMapaAcessos();
@@ -15337,7 +15346,8 @@ async function loadMapaAcessos() {
       } else {
         // Alcance do perfil (29/10/2026): "todos" só quando o Mostrar está em toda a rede
         const quais = (pm, todos) => pm.alcance === 'proprios' ? verde('só os vinculados a ele')
-          : pm.alcance === 'escolhidos' ? verde(`dele + ${(pm.alcanceCorretores || []).length} escolhido(s)`) : laranja(todos);
+          : pm.alcance === 'equipe' ? verde('dele + da equipe dele')
+          : pm.alcance === 'escolhidos' ? verde(`dele + ${(pm.alcanceEquipes || []).length} equipe(s) e ${(pm.alcanceCorretores || []).filter(u => !u.startsWith('__')).length} corretor(es)`) : laranja(todos);
         imoveis = P.imoveis.ver ? quais(P.imoveis, 'todos') + `<br><span class="muted" style="font-size:11px;">${ops(P.imoveis) || 'só ver'}</span>` : cinza('módulo oculto');
         locadores = P.locadores.ver ? quais(P.locadores, 'todos (CPF, Pix)') : cinza('módulo oculto');
         leads = P.leads.ver ? quais(P.leads, 'todos, com telefone/e-mail') : cinza('módulo oculto');
@@ -15577,7 +15587,7 @@ function lerPerfilDoEditor() {
       const sel = document.querySelector(`.sel-op[data-modulo="${m.id}"][data-op="${op}"]`);
       r[op] = (!ver || m.somenteLeitura || !sel) ? 'nao' : sel.value;
     });
-    if (m.alcance) Object.assign(r, lerAlcanceDoEditor(m.id) || { alcance: 'rede', alcanceCorretores: [] });
+    if (m.alcance) Object.assign(r, lerAlcanceDoEditor(m.id) || normalizarAlcance(null, null));
     permissoes[m.id] = r;
   });
   const acoes = {};
@@ -15702,9 +15712,9 @@ async function savePerfil() {
   }
   const norm = lerPerfilDoEditor();
   const semEscolha = MODULOS_DISPONIVEIS.filter(m => m.alcance && norm.permissoes[m.id].ver
-    && norm.permissoes[m.id].alcance === 'escolhidos' && !norm.permissoes[m.id].alcanceCorretores.length);
+    && norm.permissoes[m.id].alcance === 'escolhidos' && !norm.permissoes[m.id].alcanceCorretores.length && !norm.permissoes[m.id].alcanceEquipes.length);
   if (semEscolha.length) {
-    showAlert('perfil-alert', `Em "${semEscolha.map(m => m.label).join('", "')}" o Mostrar está em "corretores escolhidos", mas nenhum foi marcado. Marque ao menos um ou escolha outra opção.`);
+    showAlert('perfil-alert', `Em "${semEscolha.map(m => m.label).join('", "')}" o Mostrar está em "equipes/corretores escolhidos", mas nenhum foi marcado. Marque ao menos um ou escolha outra opção.`);
     return;
   }
   const excessos = excessosSobreMeuPerfil(norm);
@@ -18439,7 +18449,7 @@ function importarContratoErroDocAntigo(detalheErro) {
 async function detectarDuplicatasPessoa(colecao, documentoLimpo) {
   if (!documentoLimpo) return [];
   try {
-    const snap = await tenantPath().collection(colecao)
+    const snap = await colecaoNoAlcance(colecao)
       .where('documento', '==', documentoLimpo).limit(3).get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (err) {
@@ -18451,7 +18461,7 @@ async function detectarDuplicatasPessoa(colecao, documentoLimpo) {
 async function detectarDuplicatasImovel(matricula, cep, numero) {
   if (matricula) {
     try {
-      const snap = await tenantPath().collection('imoveis')
+      const snap = await colecaoNoAlcance('imoveis')
         .where('matricula', '==', matricula).limit(3).get();
       const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       if (matches.length) return matches;
@@ -18459,7 +18469,7 @@ async function detectarDuplicatasImovel(matricula, cep, numero) {
   }
   if (cep && numero) {
     try {
-      const snap = await tenantPath().collection('imoveis')
+      const snap = await colecaoNoAlcance('imoveis')
         .where('endereco.cep', '==', cep)
         .where('endereco.numero', '==', String(numero)).limit(3).get();
       return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -18473,7 +18483,7 @@ async function detectarDuplicatasImovel(matricula, cep, numero) {
 async function detectarDuplicataFiador(cpfLimpo) {
   if (!cpfLimpo) return [];
   try {
-    const snap = await tenantPath().collection('garantias')
+    const snap = await colecaoNoAlcance('garantias')
       .where('tipo', '==', 'fiador')
       .where('fiador.cpf', '==', cpfLimpo).limit(3).get();
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -20721,8 +20731,8 @@ async function detectarContratosAtrasados() {
   if (mesRef === 0) { mesRef = 12; anoRef -= 1; } else { /* mesRef já está em 1-12 do anterior */ }
 
   const [contratosSnap, balancetesSnap, locatariosSnap, imoveisSnap] = await Promise.all([
-    tenantPath().collection('contratos').where('status', '==', 'vigente').get(),
-    tenantPath().collection('balancetes').where('mes', '==', mesRef).where('ano', '==', anoRef).get(),
+    colecaoNoAlcance('contratos').where('status', '==', 'vigente').get(),
+    colecaoNoAlcance('balancetes').where('mes', '==', mesRef).where('ano', '==', anoRef).get(),
     ensureLocatariosCache(),
     ensureImoveisCache(),
   ]);

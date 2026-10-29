@@ -197,7 +197,7 @@ await sessao('Corretor', 'cor', [
     await page.evaluate(() => atualizarMeuLead('lead2', 'contatado')); await page.waitForTimeout(2000);
     return page.evaluate(() => (_meusLeads.find(l => l._id === 'lead2') || {}).status);
   }, 'contatado'],
-  ['devolve lead com motivo', direto(`tenantPath().collection('leadsImoveis').doc('lead2').update({status:'devolvido',corretorUid:null,corretorNome:null,motivoDevolucao:'fora da minha região',historico:[]})`), 'ok'],
+  ['devolve lead com motivo', direto(`tenantPath().collection('leadsCorretor').doc('lead2').update({status:'devolvido',corretorUid:null,motivoDevolucao:'fora da minha região',devolvidoEm:firebase.firestore.FieldValue.serverTimestamp(),devolvidoPor:State.user.uid,historico:[]})`), 'ok'],
   ['lead de fora da caixa dele é barrado', direto(`tenantPath().collection('leadsImoveis').doc('lead2').get()`), /NEGADO/],
 ]);
 

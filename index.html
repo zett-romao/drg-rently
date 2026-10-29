@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261029f-alcance">
+  <link rel="stylesheet" href="styles.css?v=20261029g-equipes">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1811,6 +1811,23 @@
 
             <button class="btn btn-primary btn-sm" type="button" onclick="openUsuarioTenantModal()">+ Adicionar usuário</button>
 
+            <h4 class="form-section-title">👥 Equipes</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:14px;">
+              Agrupe corretores e equipe interna. No perfil de permissões, o <strong>Mostrar</strong> de cada módulo pode ser
+              "Dele + a(s) equipe(s) dele" ou equipes escolhidas — quem está fora fica sem ver. Uma pessoa pode estar em mais de uma equipe.
+            </p>
+            <div class="table-wrap" style="margin-bottom:14px;">
+              <table class="table" style="font-size:13px;">
+                <thead><tr><th>Equipe</th><th>Quem está nela</th><th>Ações</th></tr></thead>
+                <tbody id="tbody-equipes"><tr><td colspan="3" class="empty">Carregando…</td></tr></tbody>
+              </table>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:22px;">
+              <button class="btn btn-primary btn-sm" type="button" onclick="openEquipeModal()">+ Nova equipe</button>
+              <button class="btn btn-secondary btn-sm" type="button" onclick="recalcularVinculosAgora(this)" title="Confere de quem é cada registro (quem captou, contratos, negociações). Roda sozinho ao entrar; use se algo não apareceu para alguém.">🔄 Recalcular vínculos</button>
+            </div>
+            <div id="equipes-status" class="status-inline" style="display:none; margin:-12px 0 18px;"></div>
+
             <h4 class="form-section-title">Perfis e permissões</h4>
             <p class="muted" style="font-size:12px; margin-bottom:14px;">
               Perfis dos cargos da imobiliária. "acima do seu limite" = tem permissão que você não tem: só quem tem pode alterar.
@@ -3567,6 +3584,34 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   <!-- ============================================ -->
   <!-- MODAL: Perfil customizado -->
   <!-- ============================================ -->
+  <div class="modal-overlay" id="modal-equipe" style="display:none;" onclick="if(event.target===this)closeEquipeModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-equipe-title">Nova equipe</h3>
+        <button class="modal-close" onclick="closeEquipeModal()" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="equipe-alert" class="alert alert-error" style="display:none;"></div>
+        <input type="hidden" id="equipe-id">
+        <div class="form-group">
+          <label class="required">Nome da equipe</label>
+          <input type="text" id="equipe-nome" maxlength="60" placeholder="Ex: Equipe Centro, Equipe Lançamentos">
+        </div>
+        <div class="form-group">
+          <label>Quem está nesta equipe</label>
+          <input type="search" id="equipe-busca" placeholder="🔎 Procurar pelo nome" oninput="filtrarMembrosEquipe(this.value)" style="margin-bottom:6px;">
+          <div id="equipe-membros" class="alcance-corretores" style="max-height:320px;"></div>
+          <small class="muted">O administrador já vê tudo e não entra em equipe.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="closeEquipeModal()">Cancelar</button>
+        <button class="btn btn-danger" type="button" id="btn-delete-equipe" onclick="deleteEquipe()" style="display:none;">Excluir</button>
+        <button class="btn btn-primary" type="button" id="btn-save-equipe" onclick="saveEquipe()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-perfil" style="display:none;">
     <div class="modal modal-lg">
       <div class="modal-header">
@@ -6258,19 +6303,19 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261029p-alcance"></script>
-  <script src="alcance.js?v=20261029a"></script>
+  <script src="app.js?v=20261029q-equipes"></script>
+  <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
-  <script src="rede.js?v=20261029j-carac"></script>
+  <script src="rede.js?v=20261029q-alcance"></script>
   <script src="caracteristicas.js?v=20261029a"></script>
-  <script src="protecao.js?v=20261029a-contrato-sign"></script>
-  <script src="carteira.js?v=20261029e-salvo"></script>
+  <script src="protecao.js?v=20261029q-alcance"></script>
+  <script src="carteira.js?v=20261029q-alcance"></script>
   <script src="conversao.js?v=20261029c-conversao"></script>
-  <script src="anuncios.js?v=20261017r-imediacoes"></script>
+  <script src="anuncios.js?v=20261029q-alcance"></script>
   <script src="ia-imovel.js?v=20261029b-carac"></script>
   <script src="imediacoes.js?v=20261021f-mapas"></script>
   <script src="divulgar.js?v=20261021k-publicar-fim"></script>
-  <script src="assinaturas.js?v=20261017j-protecao"></script>
+  <script src="assinaturas.js?v=20261029q-alcance"></script>
   <script src="site-editor.js?v=20261028j-fix"></script>
 </body>
 </html>

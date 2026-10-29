@@ -504,7 +504,7 @@ async function reaplicarTodasFichasRede() {
   const SID = 'rede-config-status';
   try {
     _configRedeCache = null;
-    const snap = await tenantPath().collection('imoveis').get();
+    const snap = await colecaoNoAlcance('imoveis').get();
     let ok = 0, falhas = 0;
     for (const d of snap.docs) {
       showInlineStatus(SID, `🔄 Atualizando fichas e vitrine… ${ok + falhas + 1}/${snap.size}`, 'info');
@@ -603,7 +603,7 @@ async function loadCorretores() {
   try {
     const [snap, imSnap] = await Promise.all([
       tenantPath().collection('corretores').get(),
-      tenantPath().collection('imoveis').get(),
+      colecaoNoAlcance('imoveis').get(),
     ]);
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum corretor cadastrado. Clique em "+ Novo corretor".</td></tr>`;
@@ -1707,6 +1707,8 @@ async function confirmarRepassarLead() {
     historico,
   };
   if (uid) { dados.motivoDevolucao = null; }
+  // Alcance: o lead passa a ser do corretor que recebeu (quem tem alcance limitado não mexe em vínculos)
+  if (!listaAlcance('leads')) dados.vinculos = [uid || ALCANCE_IMOBILIARIA];
 
   try {
     const r = await gravar({ modulo: 'leads', colecao: 'leadsImoveis', op: 'editar', id: leadId, dados,
