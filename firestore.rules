@@ -1,8 +1,8 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-13 (Perfis 3.0 fase 4: trava por perfil também no servidor;
-//                     pedidos de visita e estatísticas do site; config/ia para o corretor)
+// Última atualização: 2026-10-28 (leitura de leads e Livro Caixa por módulo; exceção de contato
+//                     do proprietário por corretor; distribuição de leads e carteira — 179 testes)
 // =============================================================
 rules_version = '2';
 service cloud.firestore {
