@@ -17,6 +17,7 @@ const DIST_PADRAO = {
   retornoSemanas: 4,        // cliente que volta em até N semanas → mesmo corretor (0 = desliga)
   participantes: 'todos',   // 'todos' | 'equipe' | 'parceiro'
   incluirProprietarios: false, // "Anuncie seu imóvel" (proprietário querendo anunciar) também
+  incluirEstagiarios: false,   // estagiário/trainee só recebe se ligar (captador nunca recebe)
   ativadoEm: null,          // só distribui lead que chegou depois de ligar
   rodizioUltimoUid: null,
 };
@@ -82,12 +83,14 @@ async function renderCardDistribuicao() {
       <div class="form-group"><label for="dist-participantes">Quem participa</label>
         <select id="dist-participantes">
           <option value="todos" ${sel('todos', c.participantes)}>Todos os corretores ativos</option>
-          <option value="equipe" ${sel('equipe', c.participantes)}>Só corretores da equipe</option>
+          <option value="equipe" ${sel('equipe', c.participantes)}>Só equipe e associados</option>
           <option value="parceiro" ${sel('parceiro', c.participantes)}>Só parceiros</option>
         </select></div>
     </div>
     <div class="form-group"><label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="dist-proprietarios" ${c.incluirProprietarios ? 'checked' : ''}>
       <span>Distribuir também os proprietários que pedem para anunciar (“Anuncie seu imóvel”)</span></label></div>
+    <div class="form-group"><label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="dist-estagiarios" ${c.incluirEstagiarios ? 'checked' : ''}>
+      <span>Incluir 🎓 estagiários/trainees no rodízio (📸 captadores nunca recebem — só captam)</span></label></div>
     ${c.ativo && c.ativadoEm ? `<p class="muted" style="font-size:11.5px;">Ligada desde ${escapeHtml(new Date(_ms(c.ativadoEm)).toLocaleString('pt-BR'))}.</p>` : ''}
     <div id="dist-status" style="margin-top:8px;"></div>
     <button class="btn btn-primary" id="btn-dist-salvar" onclick="salvarDistribuicao()">💾 Salvar distribuição</button>`;
@@ -105,6 +108,7 @@ async function salvarDistribuicao() {
     retornoSemanas: Math.max(0, Math.min(52, parseInt($('dist-retorno').value, 10) || 0)),
     participantes: $('dist-participantes').value,
     incluirProprietarios: $('dist-proprietarios').checked,
+    incluirEstagiarios: $('dist-estagiarios').checked,
     // ligou agora → só leads daqui pra frente (não despeja o histórico em ninguém)
     ativadoEm: ativo ? (atual.ativo && atual.ativadoEm ? atual.ativadoEm : firebase.firestore.FieldValue.serverTimestamp()) : null,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -138,7 +142,14 @@ function iniciarDistribuicaoLeads() {
 async function _participantes(cfg) {
   _corretoresAtivosCache = null;
   const todos = await listarCorretoresAtivos();
-  return todos.filter(c => !c.semConta && (cfg.participantes === 'todos' || (c.tipo || 'parceiro') === cfg.participantes));
+  return todos.filter(c => {
+    const tipo = c.tipo || 'parceiro';
+    if (c.semConta || tipo === 'captador') return false;              // captador não atende cliente
+    if (tipo === 'estagiario' && !cfg.incluirEstagiarios) return false;
+    if (cfg.participantes === 'equipe') return ['equipe', 'associado', 'estagiario'].includes(tipo);
+    if (cfg.participantes === 'parceiro') return tipo === 'parceiro' || tipo === 'estagiario';
+    return true;
+  });
 }
 
 async function _escolherCorretor(lead, cfg, corretores, recentes) {

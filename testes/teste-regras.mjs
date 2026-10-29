@@ -323,6 +323,36 @@ await caso('conversão: Super Admin dá conta própria ao parceiro', true, () =>
 await caso('conversão: Super Admin grava o cadastro privado da conta nova', true, () => setDoc(doc(db('super'), 'tenants', 'tNovo', 'config', 'cadastro'), { cpf: '529.982.247-25' }));
 await caso('conversão: ex-parceiro (agora admin da conta nova) lê imóveis da antiga BLOQUEIA', false, () => getDoc(R(db('dona'), 'imoveis', 'im2')));
 
+// ---------- 29/10/2026: alcance da exceção de contato ----------
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  const ficha = (id, cap, ehCor) => Promise.all([
+    setDoc(doc(d, 'tenants', T, 'imoveisRede', id), { apelido: id, visivel: true, captadorUid: cap, compartilhadoCom: [] }),
+    setDoc(doc(d, 'tenants', T, 'imoveisRede', id, 'contato', 'proprietario'), { nome: 'Dono ' + id, telefone: '11999990000', captadorUid: cap, captadorEhCorretor: ehCor }),
+  ]);
+  await ficha('fCor2', 'cor2', true);     // captada pelo cor2
+  await ficha('fImob', 'admin1', false);  // captada pela imobiliária
+  await ficha('fCor1', 'cor1', true);     // captada pelo cor1
+  await setDoc(doc(d, 'users', 'cor4'), { role: 'corretor', tenantId: T, ativo: true });
+  await setDoc(doc(d, 'tenants', T, 'corretores', 'cor4'), { nome: 'Cor 4', status: 'ativo', verContatoProprietario: true,
+    contatoEscopo: { todos: false, imobiliaria: false, corretores: ['cor2'] } });
+  await setDoc(doc(d, 'users', 'cor5'), { role: 'corretor', tenantId: T, ativo: true });
+  await setDoc(doc(d, 'tenants', T, 'corretores', 'cor5'), { nome: 'Cor 5', status: 'ativo', verContatoProprietario: true,
+    contatoEscopo: { todos: false, imobiliaria: true, corretores: ['cor2'] } });
+});
+const contato = (uid, f) => getDoc(R(db(uid), 'imoveisRede', f, 'contato', 'proprietario'));
+await caso('alcance: só do cor2 → lê imóvel do cor2', true, () => contato('cor4', 'fCor2'));
+await caso('alcance: só do cor2 → imóvel da imobiliária BLOQUEIA', false, () => contato('cor4', 'fImob'));
+await caso('alcance: só do cor2 → imóvel do cor1 BLOQUEIA', false, () => contato('cor4', 'fCor1'));
+await caso('alcance: imobiliária + cor2 → lê imóvel da imobiliária', true, () => contato('cor5', 'fImob'));
+await caso('alcance: imobiliária + cor2 → lê imóvel do cor2', true, () => contato('cor5', 'fCor2'));
+await caso('alcance: imobiliária + cor2 → imóvel do cor1 BLOQUEIA', false, () => contato('cor5', 'fCor1'));
+await caso('alcance: sem escopo gravado (antigo) = toda a rede', true, () => contato('cor3', 'fCor1'));
+await caso('alcance: corretor muda o próprio alcance BLOQUEIA', false, () => updateDoc(R(db('cor4'), 'corretores', 'cor4'), { contatoEscopo: { todos: true } }));
+await caso('tipos: corretor muda o próprio tipo BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { tipo: 'captador' }));
+await caso('tipos: equipe cria o perfil-base do tipo', true, () => setDoc(R(db('op0'), 'perfis', 'tipo_captador'), { nome: 'Corretor — Captador', sistema: true, permissoes: {} }));
+await caso('tipos: corretor lê o perfil do tipo dele', true, () => getDoc(R(db('cor1'), 'perfis', 'tipo_captador')));
+
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
 process.exit(falhas ? 1 : 0);

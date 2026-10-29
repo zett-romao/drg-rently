@@ -6081,13 +6081,27 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <span><strong>🔓 Exceção: pode ver o contato dos proprietários</strong> (nome, telefone, e-mail) nas fichas da rede.<br>
               <span class="muted" style="font-size:11.5px;">Só para corretor de confiança. Por padrão o contato é sempre da imobiliária. Fica registrado na Auditoria.</span></span>
           </label>
+          <div id="corretor-contato-escopo" style="display:none; margin:8px 0 0 26px; font-size:13px;">
+            <div style="margin-bottom:4px;"><strong>De quais imóveis?</strong></div>
+            <label class="toggle-row" style="cursor:pointer;"><input type="radio" name="contato-escopo" value="todos" checked onchange="onEscopoContatoChange()"> <span>🌐 De toda a rede</span></label>
+            <label class="toggle-row" style="cursor:pointer;"><input type="radio" name="contato-escopo" value="escolher" onchange="onEscopoContatoChange()"> <span>🎯 Só de alguns:</span></label>
+            <div id="contato-escopo-escolher" style="display:none; margin:4px 0 0 24px;">
+              <label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="contato-escopo-imob"> <span>🏢 Imóveis captados pela imobiliária (equipe interna)</span></label>
+              <div class="muted" style="font-size:11.5px; margin:6px 0 2px;">Imóveis captados pelos corretores:</div>
+              <div id="contato-escopo-corretores" style="max-height:160px; overflow:auto; border:1px solid var(--border,#e2e8f0); border-radius:6px; padding:4px 8px;"></div>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label>Tipo</label>
-          <select id="corretor-tipo">
+          <select id="corretor-tipo" onchange="dicaTipoCorretor()">
             <option value="parceiro">🤝 Parceiro (autônomo externo)</option>
+            <option value="associado">📜 Associado (contrato de associação)</option>
             <option value="equipe">👥 Equipe (da imobiliária)</option>
+            <option value="estagiario">🎓 Estagiário / Trainee</option>
+            <option value="captador">📸 Captador (só capta imóveis)</option>
           </select>
+          <small class="muted" id="corretor-tipo-dica" style="display:block; margin-top:4px;"></small>
         </div>
         <div id="corretor-acesso-group">
           <div class="form-group">
@@ -6130,9 +6144,9 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
   <script src="auditoria.js?v=20261017j-protecao"></script>
   <script src="app.js?v=20261029a-login"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
-  <script src="rede.js?v=20261028i-carteira"></script>
+  <script src="rede.js?v=20261029d-tipos"></script>
   <script src="protecao.js?v=20261028h-cadastro"></script>
-  <script src="carteira.js?v=20261028j-fix"></script>
+  <script src="carteira.js?v=20261029d-tipos"></script>
   <script src="conversao.js?v=20261029c-conversao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
   <script src="ia-imovel.js?v=20261021h-fotos"></script>

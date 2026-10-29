@@ -1,8 +1,8 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-28 (leitura de leads e Livro Caixa por módulo; exceção de contato
-//                     do proprietário por corretor; distribuição de leads e carteira — 179 testes)
+// Última atualização: 2026-10-29 (alcance da exceção de contato por corretor/imobiliária; tipos de corretor;
+//                     leitura de leads e Livro Caixa por módulo; conversão de conta — 197 testes)
 // =============================================================
 rules_version = '2';
 service cloud.firestore {
@@ -385,10 +385,10 @@ service cloud.firestore {
         // corretor edita o próprio cartão, sem mexer em status/tipo/comissão
         allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria', 'verContatoProprietario']);
+                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria', 'verContatoProprietario', 'contatoEscopo']);
         // autocadastro: cria o próprio cartão pendente (programa ligado)
         allow create: if isSignedIn() && request.auth.uid == corretorId
-                      && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria', 'verContatoProprietario'])
+                      && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria', 'verContatoProprietario', 'contatoEscopo'])
                       && request.resource.data.status == 'pendente'
                       && request.resource.data.tipo == 'parceiro'
                       && programaParceirosAtivo(tenantId);
@@ -603,11 +603,19 @@ service cloud.firestore {
 
         // 🔓 Contato do proprietário (exceção, 28/10/2026): só a equipe grava; lê só o corretor
         // marcado pela imobiliária (corretores/{uid}.verContatoProprietario) e só de ficha que ele enxerga.
+        // Alcance (29/10/2026): contatoEscopo = {todos} | {imobiliaria, corretores:[uids]} — conferido
+        // pelo captador gravado no próprio doc de contato. Sem contatoEscopo = toda a rede.
         match /contato/{docId} {
+          function escopoContatoOk(e) {
+            return e.get('todos', false) == true
+                   || (e.get('imobiliaria', false) == true && resource.data.get('captadorEhCorretor', true) == false)
+                   || resource.data.get('captadorUid', '') in e.get('corretores', []);
+          }
           allow read, write: if isEquipeTenant(tenantId);
           allow read, write: if isDRGTeam();
           allow read: if isCorretorOf(tenantId)
                       && get(/databases/$(database)/documents/tenants/$(tenantId)/corretores/$(request.auth.uid)).data.get('verContatoProprietario', false) == true
+                      && escopoContatoOk(get(/databases/$(database)/documents/tenants/$(tenantId)/corretores/$(request.auth.uid)).data.get('contatoEscopo', {'todos': true}))
                       && (get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('visivel', false) == true
                           || get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.captadorUid == request.auth.uid
                           || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', []));

@@ -101,7 +101,55 @@ const CORRETOR_STATUS_LABEL = {
   pendente: '<span class="badge-status" style="background:#FEF3C7;color:#92400E;">⏳ Pendente</span>',
   suspenso: '<span class="badge-status suspenso">Suspenso</span>',
 };
-const CORRETOR_TIPO_LABEL = { equipe: '👥 Equipe', parceiro: '🤝 Parceiro' };
+// Tipos de corretor (29/10/2026). Cada tipo nasce com o perfil-base dele (perfis/tipo_<tipo>, criado
+// sozinho no 1º uso e editável em Equipe e permissões). Perfil individual (🔐) ou escolhido à mão vale mais.
+// O alcance do corretor (só o que captou, sem contato de cliente) continua vindo das regras do servidor.
+const _VER_CORRETOR = ['imoveis', 'locadores', 'rede'];
+const TIPOS_CORRETOR = {
+  parceiro:   { label: '🤝 Parceiro', nome: 'Parceiro', desc: 'autônomo externo — divide comissão', recebeLeads: true,
+                ver: _VER_CORRETOR, ops: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' } },
+  associado:  { label: '📜 Associado', nome: 'Associado', desc: 'contrato de associação (Lei 13.097/2015)', recebeLeads: true,
+                ver: _VER_CORRETOR, ops: { criar: 'sim', editar: 'sim', excluir: 'nao' } },
+  equipe:     { label: '👥 Equipe', nome: 'Equipe', desc: 'corretor da casa', recebeLeads: true,
+                ver: _VER_CORRETOR, ops: { criar: 'sim', editar: 'sim', excluir: 'aprovacao' } },
+  estagiario: { label: '🎓 Estagiário / Trainee', nome: 'Estagiário', desc: 'sem CRECI definitivo — tudo passa por aprovação', recebeLeads: false,
+                ver: _VER_CORRETOR, ops: { criar: 'aprovacao', editar: 'aprovacao', excluir: 'nao' } },
+  captador:   { label: '📸 Captador', nome: 'Captador', desc: 'só capta imóveis — não atende clientes nem recebe leads', recebeLeads: false,
+                ver: ['imoveis', 'locadores'], ops: { criar: 'sim', editar: 'aprovacao', excluir: 'nao' } },
+};
+const CORRETOR_TIPO_LABEL = Object.fromEntries(Object.entries(TIPOS_CORRETOR).map(([k, t]) => [k, t.label]));
+
+function perfilDoTipoCorretor(tipo) {
+  const t = TIPOS_CORRETOR[tipo] || TIPOS_CORRETOR.parceiro;
+  const permissoes = {};
+  MODULOS_DISPONIVEIS.forEach(m => {
+    const ver = t.ver.includes(m.id);
+    const op = (o) => (ver && !m.somenteLeitura ? t.ops[o] : 'nao');
+    permissoes[m.id] = { ver, criar: op('criar'), editar: op('editar'), excluir: op('excluir') };
+  });
+  const acoes = {};
+  ACOES_SENSIVEIS.forEach(a => { acoes[a.id] = 'nao'; });
+  acoes.alterarDadosRepasse = 'aprovacao';
+  acoes.repasseRepresentante = 'aprovacao';
+  return { nome: `Corretor — ${t.nome}`, permissoes, acoes, versao: 3, sistema: true, seedRole: 'corretor', tipoCorretor: tipo };
+}
+
+// Dá ao corretor o perfil-base do tipo dele. Não mexe em perfil individual nem em perfil escolhido à mão.
+async function aplicarPerfilDoTipo(uid, tipo) {
+  try {
+    const us = await db.collection('users').doc(uid).get();
+    const u = us.exists ? us.data() : null;
+    if (!u || u.role !== 'corretor') return null;
+    if (u.perfilId && !String(u.perfilId).startsWith('tipo_')) return 'mantido';
+    const pid = 'tipo_' + (TIPOS_CORRETOR[tipo] ? tipo : 'parceiro');
+    const ref = tenantPath().collection('perfis').doc(pid);
+    if (!(await ref.get()).exists) {
+      await ref.set({ ...perfilDoTipoCorretor(tipo), criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid });
+    }
+    if (u.perfilId !== pid) await db.collection('users').doc(uid).update({ perfilId: pid });
+    return pid;
+  } catch (e) { console.warn('Perfil do tipo não aplicado:', e); return null; }
+}
 
 // ---------- Config da rede ----------
 
@@ -269,7 +317,12 @@ async function sincronizarFichaRede(imovelId) {
       const loc = im.locadorId ? await tenantPath().collection('locadores').doc(im.locadorId).get() : null;
       if (loc && loc.exists) {
         const l = loc.data();
+        let captadorEhCorretor = false;
+        if (im.criadoPor) {
+          try { const cs = await tenantPath().collection('corretores').doc(im.criadoPor).get(); captadorEhCorretor = cs.exists && !cs.data().semConta; } catch (_) {}
+        }
         await contatoRef.set({ nome: l.nome || null, telefone: l.telefone || null, email: l.email || null,
+          captadorUid: im.criadoPor || null, captadorEhCorretor,
           atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
       } else {
         await contatoRef.delete().catch(() => {});
@@ -579,7 +632,7 @@ async function loadCorretores() {
       if (typeof botoesProtecaoCorretor === 'function' && c.status !== 'pendente') acoes.push(botoesProtecaoCorretor(c));
       return `
         <tr>
-          <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}</span>${(() => { const f = faltaNoCadastroCorretor(c); return f.length ? `<br><span style="font-size:11px;color:#b45309;font-weight:600;" title="Falta: ${escapeHtml(f.join('; '))}">⚠️ cadastro incompleto</span>` : ''; })()}</td>
+          <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}</span>${(() => { const f = faltaNoCadastroCorretor(c); return f.length ? `<br><span style="font-size:11px;color:#b45309;font-weight:600;" title="Falta: ${escapeHtml(f.join('; '))}">⚠️ cadastro incompleto</span>` : ''; })()}${c.verContatoProprietario ? `<br><span style="font-size:11px;color:#92400E;font-weight:600;" title="Exceção: vê o contato dos proprietários">🔓 vê contatos: ${escapeHtml(!c.contatoEscopo || c.contatoEscopo.todos ? 'toda a rede' : [c.contatoEscopo.imobiliaria ? 'imobiliária' : '', (c.contatoEscopo.corretores || []).length ? `${c.contatoEscopo.corretores.length} corretor(es)` : ''].filter(Boolean).join(' + ') || 'nenhum imóvel')}</span>` : ''}</td>
           <td>${escapeHtml(c.creci || '—')}</td>
           <td>${c.telefone ? escapeHtml(maskTelefone(c.telefone)) : '—'}</td>
           <td>${CORRETOR_TIPO_LABEL[c.tipo] || '—'}</td>
@@ -621,12 +674,24 @@ async function openCorretorModal(uid) {
   preencherEndereco('corretor-end', c.endereco);
   $('corretor-tipo').value = c.tipo || 'parceiro';
   $('corretor-ver-contato-prop').checked = !!c.verContatoProprietario;
+  await montarEscopoContato(c, uid);
+  dicaTipoCorretor();
   $('corretor-email').dataset.original = c.email || '';
   $('corretor-email').dataset.semConta = c.semConta ? '1' : '';
   $('corretor-senha').value = gerarSenhaAleatoria(10);
   $('corretor-enviar-email').checked = true;
   $('modal-corretor').style.display = 'flex';
 }
+
+function dicaTipoCorretor() {
+  const t = TIPOS_CORRETOR[$('corretor-tipo').value];
+  if (!t) return;
+  const nv = { sim: '✅', aprovacao: '🕓 com aprovação', nao: '⛔' };
+  $('corretor-tipo-dica').innerHTML = `${escapeHtml(t.desc)}. Nasce com: criar ${nv[t.ops.criar]} · editar ${nv[t.ops.editar]} · excluir ${nv[t.ops.excluir]}`
+    + `${t.recebeLeads ? ' · recebe leads' : ' · <strong>não</strong> recebe leads automáticos'}${t.ver.includes('rede') ? '' : ' · não vê as fichas da rede'}.`
+    + ' Ajuste fino em 🔐 Permissões.';
+}
+window.dicaTipoCorretor = dicaTipoCorretor;
 
 function closeCorretorModal() {
   $('modal-corretor').style.display = 'none';
@@ -646,6 +711,7 @@ async function criarAcessoCorretorPre(preId) {
   $('corretor-documento').value = c.documento ? fmtCpfCnpj(c.documento) : '';
   preencherEndereco('corretor-end', c.endereco);
   $('corretor-tipo').value = c.tipo || 'parceiro';
+  dicaTipoCorretor();
   if (!c.email) showAlert('corretor-alert', 'O material não trazia e-mail: digite o e-mail do corretor para criar o acesso.', 'info');
 }
 
@@ -717,10 +783,14 @@ async function saveCorretor() {
       await tenantPath().collection('corretores').doc(uidExistente).update({
         nome, telefone, creci, tipo, documento, endereco,
         verContatoProprietario: $('corretor-ver-contato-prop').checked,
+        contatoEscopo: lerEscopoContato(),
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
-      await db.collection('users').doc(uidExistente).update({ nome });
-      logAuditoria('update', 'corretor', uidExistente, { nome, tipo, verContatoProprietario: $('corretor-ver-contato-prop').checked });
+      if ($('corretor-email').dataset.semConta !== '1') {
+        await db.collection('users').doc(uidExistente).update({ nome });
+        await aplicarPerfilDoTipo(uidExistente, tipo);
+      }
+      logAuditoria('update', 'corretor', uidExistente, { nome, tipo, verContatoProprietario: $('corretor-ver-contato-prop').checked, contatoEscopo: lerEscopoContato() });
       closeCorretorModal();
       if (avisoEmailTrocado) showInlineStatus('corretores-status', avisoEmailTrocado, avisoEmailTrocado.startsWith('✅') ? 'success' : 'error');
       loadCorretores();
@@ -745,6 +815,7 @@ async function saveCorretor() {
       await tenantPath().collection('corretores').doc(uid).set({
         uid, nome, email, telefone, creci, tipo, documento, endereco, status: 'ativo',
         verContatoProprietario: $('corretor-ver-contato-prop').checked,
+        contatoEscopo: lerEscopoContato(),
         origem: 'admin', criadoEm: agora, criadoPor: State.user.uid,
       });
     } catch (e) {
@@ -762,6 +833,7 @@ async function saveCorretor() {
 
     if ($('corretor-enviar-email').checked) await enviarEmailAcessoCorretor(nome, email, senha);
 
+    await aplicarPerfilDoTipo(uid, tipo);
     logAuditoria('create', 'corretor', uid, { nome, email, tipo });
     closeCorretorModal();
     showInlineStatus('corretores-status', `✅ Corretor ${escapeHtml(nome)} criado. Senha inicial: <strong>${escapeHtml(senha)}</strong>`, 'success');
@@ -914,6 +986,9 @@ async function definirStatusCorretor(uid, status) {
     });
     await batch.commit();
     logAuditoria('status', 'corretor', uid, { status, creciConferido: !!creciConferido });
+    if (status === 'ativo') {
+      try { const cs = await tenantPath().collection('corretores').doc(uid).get(); await aplicarPerfilDoTipo(uid, cs.data()?.tipo || 'parceiro'); } catch (_) {}
+    }
     _corretoresAtivosCache = null;
     loadCorretores();
     if (status === 'suspenso' && typeof openTransferirCarteira === 'function'
@@ -1040,6 +1115,41 @@ function renderRede() {
         </div>
       </div>`;
   }).join('');
+}
+
+// ---------- Alcance da exceção de contato (29/10/2026) ----------
+// corretores/{uid}.contatoEscopo = { todos, imobiliaria, corretores: [uids] }. Sem o campo = toda a rede.
+function onEscopoContatoChange() {
+  const ligado = $('corretor-ver-contato-prop').checked;
+  $('corretor-contato-escopo').style.display = ligado ? 'block' : 'none';
+  const escolher = document.querySelector('input[name="contato-escopo"]:checked')?.value === 'escolher';
+  $('contato-escopo-escolher').style.display = escolher ? 'block' : 'none';
+}
+window.onEscopoContatoChange = onEscopoContatoChange;
+
+async function montarEscopoContato(c, uidProprio) {
+  const e = c.contatoEscopo || { todos: true };
+  document.querySelectorAll('input[name="contato-escopo"]').forEach(r => { r.checked = (r.value === 'todos') === (e.todos !== false); });
+  $('contato-escopo-imob').checked = !!e.imobiliaria;
+  let lista = [];
+  try { _corretoresAtivosCache = null; lista = (await listarCorretoresAtivos()).filter(x => !x.semConta && x.uid !== uidProprio); } catch (_) {}
+  const marcados = new Set(e.corretores || []);
+  $('contato-escopo-corretores').innerHTML = lista.length
+    ? lista.map(x => `<label class="toggle-row" style="cursor:pointer;"><input type="checkbox" class="contato-escopo-cor" value="${x.uid}" ${marcados.has(x.uid) ? 'checked' : ''}> <span>${escapeHtml(x.nome || x.email || x.uid)} <span class="muted" style="font-size:11px;">${CORRETOR_TIPO_LABEL[x.tipo] || ''}</span></span></label>`).join('')
+    : '<span class="muted" style="font-size:12px;">Nenhum outro corretor ativo.</span>';
+  $('corretor-ver-contato-prop').onchange = onEscopoContatoChange;
+  onEscopoContatoChange();
+}
+
+function lerEscopoContato() {
+  if (!$('corretor-ver-contato-prop').checked) return null;
+  const escolher = document.querySelector('input[name="contato-escopo"]:checked')?.value === 'escolher';
+  if (!escolher) return { todos: true, imobiliaria: false, corretores: [] };
+  return {
+    todos: false,
+    imobiliaria: $('contato-escopo-imob').checked,
+    corretores: Array.from(document.querySelectorAll('.contato-escopo-cor:checked')).map(i => i.value),
+  };
 }
 
 // Corretor marcado como exceção (corretores/{uid}.verContatoProprietario) — lido uma vez por sessão
@@ -1496,7 +1606,7 @@ async function openRepassarLead(leadId) {
     } catch (_) {}
   }
   $('repasse-lead-corretor').innerHTML = (lead.corretorUid ? '<option value="">— Tirar do corretor (volta pra imobiliária)</option>' : '<option value="">— Selecione —</option>')
-    + corretores.map(c => `<option value="${c.uid}">${escapeHtml(c.nome || c.email || c.uid)}${c.uid === sugerido ? ' ⭐ captador do imóvel' : ''}${c.telefone ? '' : ' (sem telefone)'}</option>`).join('');
+    + corretores.map(c => `<option value="${c.uid}">${escapeHtml(c.nome || c.email || c.uid)}${c.uid === sugerido ? ' ⭐ captador do imóvel' : ''}${c.tipo === 'captador' ? ' (📸 captador — não atende cliente)' : ''}${c.tipo === 'estagiario' ? ' (🎓 estagiário)' : ''}${c.telefone ? '' : ' (sem telefone)'}</option>`).join('');
   $('repasse-lead-corretor').value = lead.corretorUid || sugerido || '';
   $('repasse-lead-atual').textContent = lead.corretorUid ? `Hoje está com: ${lead.corretorNome || 'corretor'}` : '';
   $('modal-repasse-lead').style.display = 'flex';
@@ -1871,6 +1981,10 @@ window.devolverMeuLead = devolverMeuLead;
 async function verificarCadastroCorretor() {
   let c = {};
   try { const s = await tenantPath().collection('corretores').doc(State.user.uid).get(); if (!s.exists) return; c = s.data(); } catch (_) { return; }
+  if (c.tipo === 'captador') {   // só capta: não atende cliente
+    const link = document.querySelector('.nav-link[data-section="meusleads"]');
+    if (link) link.style.display = 'none';
+  }
   if (!faltaNoCadastroCorretor(c).length) return;
   let m = $('modal-meu-cadastro');
   if (!m) {

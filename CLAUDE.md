@@ -824,6 +824,13 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
   volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
   é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
+- **2026-10-29 (2)**: 🏷 **Tipos de corretor** (`TIPOS_CORRETOR` no rede.js): parceiro, associado (Lei 13.097), equipe,
+  estagiário/trainee (tudo 🕓), captador (só imóveis/proprietários, sem fichas da rede, sem leads, sem "Meus leads").
+  Cada tipo ganha perfil-base `perfis/tipo_<tipo>` (sistema, criado no 1º uso por `aplicarPerfilDoTipo`, editável);
+  perfil individual/escolhido à mão prevalece. Distribuição: captador nunca recebe; estagiário só com "Incluir estagiários".
+  🔓 **Alcance da exceção de contato**: `corretores.contatoEscopo = {todos} | {imobiliaria, corretores:[uids]}`; o doc
+  `imoveisRede/{id}/contato/proprietario` leva `captadorUid` + `captadorEhCorretor` e a regra confere (sem escopo = toda a rede;
+  contato antigo sem esses campos só abre com "toda a rede" → "Reaplicar a todos"). 197/197 testes.
 - **2026-10-29**: 🔄 **Converter tipo de conta** (Super Admin, `conversao.js`; dono: "a Dayane é parceira D.R. Global…").
   Busca por e-mail; mesmo uid/login. (A) admin/equipe de um tenant → corretor **parceiro** de outro (padrão D.R. Global
   `K52yZ4nqu7Z7DJfVegYo`), já ativo, cartão com telefone/CPF/endereço da conta antiga; arquiva a antiga se ele era o único usuário.
