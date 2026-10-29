@@ -15138,6 +15138,12 @@ async function openPermissoesUsuario(uid) {
   if (!snap.exists) { await confirmar({ titulo: 'Sem acesso ao sistema', mensagem: 'Este usuário ainda não tem login — crie o acesso primeiro.', confirmar: 'OK' }); return; }
   const u = snap.data();
   await carregarPerfisCache();
+  // Delegação: ninguém mexe nas próprias permissões nem em quem tem mais que ele
+  const souSuper = State.userDoc?.role === 'super_admin';
+  const proprio = uid === State.user.uid && !souSuper;
+  const excessos = souSuper ? [] : excessosSobreMeuPerfil(perfilEfetivoDe(u));
+  if (u.role === 'admin' && !souSuper && State.userDoc?.role !== 'admin') excessos.push('é Administrador');
+  const somenteLeitura = proprio || excessos.length > 0;
   const atual = u.perfilId && _perfisCache[u.perfilId];
   const role = u.role || 'operador';
   const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
@@ -15147,22 +15153,31 @@ async function openPermissoesUsuario(uid) {
     : '';
   if (atual && atual.doc.individualUid === uid) {
     await openPerfilModal(u.perfilId);
-    _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId };
+    _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId, somenteLeitura };
     $('modal-perfil-title').textContent = titulo;
     $('perfil-individual-aviso').innerHTML = `Perfil <strong>só deste usuário</strong> — mudar aqui não afeta mais ninguém. `
       + `<strong>Excluir</strong> apaga essas permissões e ele volta para o padrão do tipo ${nomeTipo}.` + avisoCorretor;
-    $('perfil-individual-aviso').style.display = 'block';
-    return;
+  } else {
+    await openPerfilModal(null);
+    _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId || null, somenteLeitura };
+    const nomeAtual = atual ? (atual.doc.nome || u.perfilId) : `padrão do tipo ${nomeTipo}`;
+    $('modal-perfil-title').textContent = titulo;
+    $('perfil-nome').value = `Individual — ${u.nome || uid}`;
+    renderPerfilEditor(perfilEfetivoDe(u), false);
+    $('perfil-individual-aviso').innerHTML = `Hoje ele usa o perfil <strong>${escapeHtml(nomeAtual)}</strong> (abaixo, o que isso permite). `
+      + `Ao <strong>Salvar</strong>, essas permissões viram um perfil <strong>só dele</strong> — os outros que usam “${escapeHtml(nomeAtual)}” não mudam.` + avisoCorretor;
   }
-  await openPerfilModal(null);
-  _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId || null };
-  const nomeAtual = atual ? (atual.doc.nome || u.perfilId) : `padrão do tipo ${nomeTipo}`;
-  $('modal-perfil-title').textContent = titulo;
-  $('perfil-nome').value = `Individual — ${u.nome || uid}`;
-  renderPerfilEditor(perfilEfetivoDe(u), false);
-  $('perfil-individual-aviso').innerHTML = `Hoje ele usa o perfil <strong>${escapeHtml(nomeAtual)}</strong> (abaixo, o que isso permite). `
-    + `Ao <strong>Salvar</strong>, essas permissões viram um perfil <strong>só dele</strong> — os outros que usam “${escapeHtml(nomeAtual)}” não mudam.` + avisoCorretor;
   $('perfil-individual-aviso').style.display = 'block';
+  if (somenteLeitura) {
+    renderPerfilEditor(perfilEfetivoDe(u), true);
+    $('perfil-nome').disabled = true;
+    $('btn-save-perfil').style.display = 'none';
+    $('btn-delete-perfil').style.display = 'none';
+    $('perfil-travado-aviso').innerHTML = proprio
+      ? '🔒 São <strong>as suas próprias permissões</strong>. Ninguém altera as próprias — peça a quem está acima de você.'
+      : `🔒 Só para consulta: este usuário tem permissões que <strong>você não tem</strong> (${escapeHtml(excessos.slice(0, 6).join('; '))}${excessos.length > 6 ? '…' : ''}). Só quem está acima pode alterar.`;
+    $('perfil-travado-aviso').style.display = 'block';
+  }
   $('modal-perfil').style.display = 'flex';
 }
 window.openPermissoesUsuario = openPermissoesUsuario;
@@ -15173,6 +15188,7 @@ async function savePerfil() {
   const nome = $('perfil-nome').value.trim();
   if (!nome) { showAlert('perfil-alert', 'Nome do perfil é obrigatório.'); return; }
   if (!pode('gerenciarUsuariosPerfis')) { showAlert('perfil-alert', 'Seu perfil não tem "Gerenciar usuários e perfis".'); return; }
+  if (_perfilIndividual?.somenteLeitura) { showAlert('perfil-alert', 'Você não pode alterar as permissões deste usuário.'); return; }
   if (id && State.userDoc?.perfilId === id && State.userDoc?.role !== 'super_admin') {
     showAlert('perfil-alert', 'Você não pode alterar o seu próprio perfil.'); return;
   }
@@ -15233,6 +15249,7 @@ async function deletePerfil() {
     }
   } catch (_) {}
   const ind = _perfilIndividual;
+  if (ind?.somenteLeitura) { showAlert('perfil-alert', 'Você não pode alterar as permissões deste usuário.'); return; }
   const nomeTipoInd = ind ? ({ admin: 'Administrador', corretor: 'Corretor' }[ind.role] || 'Operador') : '';
   const conf = ind
     ? { titulo: `Excluir as permissões de ${ind.nome}?`, mensagem: 'Apaga o perfil individual dele.', detalhe: `Ele volta para o padrão do tipo ${nomeTipoInd}. Você pode personalizar de novo depois.`, confirmar: '🗑 Excluir', perigo: true }
