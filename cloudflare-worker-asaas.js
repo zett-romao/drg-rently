@@ -493,6 +493,57 @@ async function trocarEmailUsuario(request, env, origin, usuario) {
   return jsonResponse({ ok: true, email, emailAnterior: alvo.email || '', mudouEmail, linkSenha: link }, 200, origin);
 }
 
+// =============================================================
+// "Esqueci minha senha" (29/10/2026). Antes: auth.sendPasswordResetEmail → e-mail em inglês do
+// Firebase com link para drg-rently.firebaseapp.com, barrado pela restrição de domínio da chave.
+// Agora: link gerado aqui (service account) para https://rently.dev.br/acao.html e e-mail em
+// português saindo de no-reply@drglobalimoveis.com.br (domínio verificado no Resend).
+// Rota pública: responde SEMPRE "ok" (não revela se o e-mail tem conta) e segura 1 envio/min por e-mail.
+// =============================================================
+const RESET_REMETENTE = 'no-reply@drglobalimoveis.com.br';
+const RESEND_WORKER = 'https://drg-rently-resend.zett-romao.workers.dev';
+
+async function sha256Hex(txt) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+async function esqueciSenha(request, env, origin) {
+  let body = {};
+  try { body = await request.json(); } catch (_) {}
+  const email = String(body.email || '').trim().toLowerCase();
+  const ok = () => jsonResponse({ ok: true }, 200, origin);
+  if (!EMAIL_RE.test(email) || email.length > 254) return jsonResponse({ ok: false, error: 'E-mail inválido.' }, 400, origin);
+
+  // 1 envio por minuto por e-mail (documento sem regra de acesso: só o Worker lê/grava)
+  const chave = await sha256Hex(email);
+  const ult = await firestoreAdminGet(env, `resetSenha/${chave}`).catch(() => null);
+  if (ult && Number(ult.ultimoMs) > Date.now() - 60000) return ok();
+  await firestoreAdminMerge(env, `resetSenha/${chave}`, { ultimoMs: Date.now() }).catch(() => {});
+
+  const l = await authAdmin(env, 'accounts:sendOobCode', {
+    requestType: 'PASSWORD_RESET', email, returnOobLink: true, continueUrl: 'https://rently.dev.br',
+  });
+  const oob = l.ok && l.data.oobLink ? new URL(l.data.oobLink).searchParams.get('oobCode') : '';
+  if (!oob) return ok();   // sem conta com esse e-mail: não conta para quem pediu
+  const link = `https://rently.dev.br/acao.html?mode=resetPassword&oobCode=${encodeURIComponent(oob)}&continueUrl=${encodeURIComponent('https://rently.dev.br/')}`;
+
+  const html = `<html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111;max-width:560px;margin:0 auto;padding:20px;">
+    <h2 style="color:#00897B;margin:0 0 12px;">Criar uma nova senha</h2>
+    <p>Recebemos um pedido para criar uma nova senha de acesso ao <strong>DRG-Rently</strong> para <strong>${email.replace(/[<>&"]/g, '')}</strong>.</p>
+    <p style="margin:22px 0;"><a href="${link}" style="background:#00897B;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold;">🔑 Criar nova senha</a></p>
+    <p style="font-size:12px;color:#666;">O link vale por 1 hora e só pode ser usado uma vez. Se não foi você que pediu, ignore este e-mail — sua senha atual continua valendo.</p>
+    <p style="font-size:12px;color:#666;">Este é um e-mail automático, não responda.</p>
+  </body></html>`;
+  try {
+    await fetch(RESEND_WORKER, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: RESET_REMETENTE, fromName: 'DRG-Rently', to: email, subject: 'Criar nova senha — DRG-Rently', html }),
+    });
+  } catch (_) { /* resposta igual: não revela nada */ }
+  return ok();
+}
+
 function senhaAleatoria() {
   const b = new Uint8Array(24);
   crypto.getRandomValues(b);
@@ -782,6 +833,14 @@ export default {
       } catch (e) {
         return jsonResponse({ error: 'Erro MFA: ' + e.message }, 500, origin);
       }
+    }
+
+    // ROTA /usuarios/esqueci-senha — pública (sem login), só do domínio do sistema.
+    if (path === '/usuarios/esqueci-senha') {
+      if (!origin || !ALLOWED_ORIGINS.includes(origin)) return jsonResponse({ error: 'Origin not allowed' }, 403, origin);
+      if (request.method !== 'POST') return jsonResponse({ error: 'Use POST.' }, 405, origin);
+      try { return await esqueciSenha(request, env, origin); }
+      catch (e) { return jsonResponse({ ok: false, error: 'Erro ao enviar: ' + e.message }, 500, origin); }
     }
 
     // =============================================================
