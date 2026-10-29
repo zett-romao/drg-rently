@@ -1506,9 +1506,20 @@ function diasAteData(isoDate) {
   return Math.floor((alvo.getTime() - hoje.getTime()) / 86400000);
 }
 
+// 🎁 Isenção de mensalidade (29/10/2026): tenants/{id}.isencao = { ate: 'AAAA-MM-DD' | null (sem data final),
+// motivo, em, por }. Vale até o fim do dia "ate"; depois volta a contar o vencimento normal.
+function isencaoVigente(t) {
+  const i = t && t.isencao;
+  if (!i) return false;
+  if (!i.ate) return true;
+  const hoje = new Date(); const ymd = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  return i.ate >= ymd;
+}
+
 function tenantSituacao(t) {
   if (t.ativo === false) return 'suspenso';
   if (t.plano === 'ilimitado') return 'ativo'; // cortesia: sem vencimento, nunca inadimplente
+  if (isencaoVigente(t)) return 'isento';       // isento no período: não cobra, não fica inadimplente
   const trialDias = diasAteData(t.trialExpira);
   const vencDias = diasAteData(t.proximoVencimento);
   if (vencDias != null && vencDias < 0) return 'inadimplente';
@@ -1555,12 +1566,13 @@ function renderSuperAdminKpis(tenants) {
   // KPIs ignoram tenants arquivados — eles estão fora da operação
   const ativosLista = tenants.filter(t => !t.arquivado);
   const total = ativosLista.length;
-  const ativos = ativosLista.filter(t => tenantSituacao(t) === 'ativo' || tenantSituacao(t) === 'trial' || tenantSituacao(t) === 'vencendo').length;
+  const ativos = ativosLista.filter(t => ['ativo', 'trial', 'vencendo', 'isento'].includes(tenantSituacao(t))).length;
   const trials = ativosLista.filter(t => t.plano === 'trial' && t.ativo !== false).length;
   const inadimplentes = ativosLista.filter(t => tenantSituacao(t) === 'inadimplente').length;
   const suspensos = ativosLista.filter(t => t.ativo === false).length;
   const mrr = ativosLista
     .filter(t => t.ativo !== false && t.plano !== 'trial')
+    .filter(t => !isencaoVigente(t))   // isento não entra na receita do mês
     .reduce((acc, t) => acc + (t.valorMensalidade || 0), 0);
 
   kpis.innerHTML = `
@@ -1679,6 +1691,7 @@ function renderTenantsTable() {
         trial: '<span class="badge-status pendente_analise">Trial</span>',
         vencendo: '<span class="badge-status em_reforma">Trial vencendo</span>',
         inadimplente: '<span class="badge-status reprovado">Inadimplente</span>',
+        isento: `<span class="badge-status" style="background:#DCFCE7;color:#166534;" title="${escapeHtml(t.isencao?.motivo || '')}">🎁 Isento${t.isencao?.ate ? ' até ' + fmtDataBR(t.isencao.ate) : ''}</span>`,
       }[sit] || sit);
     const vencDias = diasAteData(t.proximoVencimento);
     const vencTxt = t.proximoVencimento
@@ -1842,6 +1855,11 @@ async function openTenantModal(tenantId) {
     $('tenant-valor').value = t.valorMensalidade ?? '';
     $('tenant-proximo-venc').value = t.proximoVencimento || '';
     $('tenant-trial-expira').value = t.trialExpira || '';
+    $('tenant-isento').checked = !!t.isencao;
+    $('tenant-isento-ate').value = t.isencao?.ate || '';
+    $('tenant-isento-sempre').checked = !!t.isencao && !t.isencao.ate;
+    $('tenant-isento-motivo').value = t.isencao?.motivo || '';
+    onIsencaoChange();
     $('tenant-ativo').value = String(t.ativo !== false);
     $('tenant-notas').value = t.notas || '';
 
@@ -2152,6 +2170,47 @@ window.saveNovoCliente = saveNovoCliente;
 window.setTipoNovoCliente = setTipoNovoCliente;
 window.onPlanoNovoCliente = onPlanoNovoCliente;
 
+function onIsencaoChange() {
+  const on = $('tenant-isento').checked;
+  $('tenant-isencao-campos').style.display = on ? 'block' : 'none';
+  $('tenant-isento-ate').disabled = $('tenant-isento-sempre').checked;
+}
+function isencaoMeses(n) {
+  const base = $('tenant-isento-ate').value ? new Date($('tenant-isento-ate').value + 'T12:00:00') : new Date();
+  base.setMonth(base.getMonth() + n);
+  $('tenant-isento-ate').value = base.toISOString().slice(0, 10);
+  $('tenant-isento-sempre').checked = false;
+  onIsencaoChange();
+}
+window.onIsencaoChange = onIsencaoChange;
+window.isencaoMeses = isencaoMeses;
+
+// 1º vencimento depois do fim da isenção, mantendo o dia do mês que o cliente já pagava (padrão: dia 10)
+function proximoVencimentoAposIsencao(ateYMD, vencAnterior) {
+  const dia = vencAnterior ? Math.min(28, Number(String(vencAnterior).slice(8, 10)) || 10) : 10;
+  const fim = new Date(ateYMD + 'T12:00:00');
+  const d = new Date(fim.getFullYear(), fim.getMonth(), dia, 12);
+  if (d <= fim) d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Com assinatura no Asaas: empurra a próxima cobrança para depois da isenção. Devolve um aviso (ou '').
+async function ajustarAsaasPelaIsencao(tenantId, antes, isencao, proximoVenc) {
+  const sub = antes.asaas?.subscriptionId;
+  if (!sub || !isencao) return '';
+  if (!isencao.ate) {
+    return '🎁 Isenção sem data final salva.\n\n⚠️ Este cliente tem assinatura recorrente no Asaas, que continua gerando cobranças. Para parar, use "Cancelar assinatura" no bloco do Asaas (dá para criar outra quando a isenção acabar).';
+  }
+  try {
+    await chamarAsaas('PUT', `/subscriptions/${sub}`, { nextDueDate: proximoVenc });
+    await db.collection('tenants').doc(tenantId).update({ 'asaas.nextDueDate': proximoVenc });
+    logAuditoria('asaas_subscription_update', 'tenant', tenantId, { nextDueDate: proximoVenc, motivo: 'isencao' });
+    return `🎁 Isenção salva.\n\n✅ Asaas: a próxima cobrança passou para ${fmtDataBR(proximoVenc)}.\nCobranças já geradas e não pagas continuam lá — confira em "Ver pagamentos" e cancele no Asaas se precisar.`;
+  } catch (e) {
+    return `🎁 Isenção salva no Rently, mas o Asaas NÃO foi ajustado (${e.message}).\nAjuste a data da próxima cobrança direto no painel do Asaas para ${fmtDataBR(proximoVenc)}.`;
+  }
+}
+
 async function saveTenantManagement() {
   const tenantId = $('tenant-id').value;
   if (!tenantId) return;
@@ -2181,10 +2240,31 @@ async function saveTenantManagement() {
     modulosHabilitados,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  // 🎁 Isenção
+  let isencaoNova = null;
+  if ($('tenant-isento').checked) {
+    const sempre = $('tenant-isento-sempre').checked;
+    const ate = sempre ? null : ($('tenant-isento-ate').value || '');
+    if (!sempre && !ate) { showAlert('tenant-alert', 'Escolha até quando vai a isenção (ou marque "Sem data final").'); return; }
+    isencaoNova = { ate, motivo: $('tenant-isento-motivo').value.trim() || null, em: new Date().toISOString(), por: State.user.uid };
+  }
+  data.isencao = isencaoNova;
+
   const btn = $('btn-save-tenant');
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
+    const antes = (await db.collection('tenants').doc(tenantId).get()).data() || {};
+    const mudouIsencao = JSON.stringify(antes.isencao?.ate ?? 'x') !== JSON.stringify(isencaoNova?.ate ?? 'x') || !!antes.isencao !== !!isencaoNova;
+    // Isento até X: o vencimento passa a ser o 1º depois da isenção (mesmo dia do mês de antes)
+    if (isencaoNova && isencaoNova.ate && mudouIsencao) {
+      data.proximoVencimento = proximoVencimentoAposIsencao(isencaoNova.ate, data.proximoVencimento || antes.proximoVencimento);
+    }
     await db.collection('tenants').doc(tenantId).update(data);
+    if (mudouIsencao) {
+      logAuditoria('isencao_mensalidade', 'tenant', tenantId, { ate: isencaoNova ? (isencaoNova.ate || 'sem data final') : 'retirada', motivo: isencaoNova?.motivo || null });
+      const avisoAsaas = await ajustarAsaasPelaIsencao(tenantId, antes, isencaoNova, data.proximoVencimento);
+      if (avisoAsaas) alert(avisoAsaas);
+    }
     closeTenantModal();
     showAlert('login-alert', '', 'success'); // limpa
     loadTenantsTable();
