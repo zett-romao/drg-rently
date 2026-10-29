@@ -809,6 +809,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   como as fotos); `uploadImovelDocs` trava o botão e devolve true/false. Quadro da IA: atalhos 📷 Fotos ↓ / 📎 Documentos ↓
   e, no resumo, **📎 Guardar no imóvel** para os documentos/prints do material (PDF/imagem original; print colado
   "image.png" ganha nome único para não sobrescrever no Storage).
+- **2026-10-28**: ✉️ **Trocar e-mail (login) do corretor** — Worker Asaas `/usuarios/trocar-email` (service account, escopo
+  identitytoolkit): só admin do tenant (corretor/operador) ou equipe DRG. Troca o Auth + `users` + `corretores`, **anula a senha**
+  (aleatória) e devolve link PASSWORD_RESET → app manda boas-vindas com "🔑 Criar minha senha". E-mail já usado: diz de quem é;
+  login sem `users` ou de tenant excluído = "solto" → oferece liberar (apaga Auth + users órfão). Caso real: Dayane tinha feito
+  "Criar conta" em 13/05 (virou admin de tenant depois excluído).
+  🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
+  volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
+  é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
 - **2026-10-19**: 📣 **Divulgar imóvel** (`divulgar.js`; dono: *"compartilhar imóvel… whats, e-mail, link… gerador de anúncios para status de WhatsApp, reels, story"*).
   Botão na lista e no cadastro. Compartilhar: link do Worker do feed (prévia com foto), WhatsApp, e-mail, Facebook, X, Telegram, LinkedIn, copiar, navigator.share.
   Peças em canvas: Story/Status 9:16, Feed 1:1 e 4:5 (modelos Foto inteira e Mosaico) e vídeo 9:16 (MediaRecorder, MP4 no Chrome, WebM de reserva),
