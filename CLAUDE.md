@@ -836,6 +836,9 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   ✅ **Esqueci minha senha** também resolvido: Worker Asaas `/usuarios/esqueci-senha` (pública, só origens do sistema,
   sempre responde ok, 1/min por e-mail em `resetSenha/{sha256}`) gera o link p/ acao.html e manda pelo worker Resend de
   **no-reply@drglobalimoveis.com.br** (pt-BR). `enviarResetSenha` usa o Worker e cai no Firebase se ele falhar.
+  🔎 Lição: Worker chamando outro Worker da MESMA conta por *.workers.dev é bloqueado pela Cloudflare (erro 1042) —
+  o e-mail não saía. Usar **service binding** (`[[services]] binding="RESEND"` no wrangler-asaas.toml → `env.RESEND.fetch`).
+  Resultado do último envio fica em `resetSenha/{sha256(email)}.ultimoResultado`.
   (Não foi preciso mudar a URL de ação do Firebase; `scripts/firebase-auth-emails.mjs` fica de reserva.)
 - **2026-10-29 (2)**: 🏷 **Tipos de corretor** (`TIPOS_CORRETOR` no rede.js): parceiro, associado (Lei 13.097), equipe,
   estagiário/trainee (tudo 🕓), captador (só imóveis/proprietários, sem fichas da rede, sem leads, sem "Meus leads").
