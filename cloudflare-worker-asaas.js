@@ -535,12 +535,16 @@ async function esqueciSenha(request, env, origin) {
     <p style="font-size:12px;color:#666;">O link vale por 1 hora e só pode ser usado uma vez. Se não foi você que pediu, ignore este e-mail — sua senha atual continua valendo.</p>
     <p style="font-size:12px;color:#666;">Este é um e-mail automático, não responda.</p>
   </body></html>`;
+  // Ligação interna (env.RESEND): Worker → Worker pelo *.workers.dev da mesma conta é bloqueado (erro 1042).
+  const envio = { from: RESET_REMETENTE, fromName: 'DRG-Rently', to: email, subject: 'Criar nova senha — DRG-Rently', html };
+  let resultado = '';
   try {
-    await fetch(RESEND_WORKER, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: RESET_REMETENTE, fromName: 'DRG-Rently', to: email, subject: 'Criar nova senha — DRG-Rently', html }),
-    });
-  } catch (_) { /* resposta igual: não revela nada */ }
+    const req = new Request(RESEND_WORKER, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envio) });
+    const r = env.RESEND ? await env.RESEND.fetch(req) : await fetch(req);
+    resultado = r.ok ? 'enviado' : `falhou ${r.status}: ${(await r.text()).slice(0, 200)}`;
+  } catch (e) { resultado = 'falhou: ' + e.message; }
+  // Registro para diagnóstico (não volta para quem pediu: a resposta é sempre igual)
+  await firestoreAdminMerge(env, `resetSenha/${chave}`, { ultimoResultado: resultado, viaBinding: !!env.RESEND }).catch(() => {});
   return ok();
 }
 

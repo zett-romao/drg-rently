@@ -21,3 +21,9 @@ compatibility_date = "2024-09-01"
 
 # Preserva variáveis cadastradas no painel da Cloudflare a cada deploy automático
 keep_vars = true
+
+# Ligação interna com o Worker de e-mail (29/10/2026): a Cloudflare bloqueia um Worker chamar
+# outro da mesma conta pelo endereço *.workers.dev (erro 1042). O "Esqueci minha senha" usa env.RESEND.
+[[services]]
+binding = "RESEND"
+service = "drg-rently-resend"
