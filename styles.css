@@ -4416,3 +4416,4 @@ details.card > summary:hover {
 .auth-cadastro-ico { font-size: 22px; line-height: 1; }
 .auth-cadastro-nota { font-size: 11.5px; color: var(--text-muted, #64748b); margin: 12px 0 0; line-height: 1.5; }
 @media (max-width: 420px) { .auth-cadastro-opcoes { grid-template-columns: 1fr; } }
+.auth-cadastro-parceiro { grid-column: 1 / -1; text-decoration: none; }
