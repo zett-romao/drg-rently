@@ -138,6 +138,8 @@ async function preencherImovelComIA() {
           method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             modo: 'imovel', texto,
+            // ✅ a IA marca características escolhendo DESTA lista (padrão + as criadas pela imobiliária)
+            catalogoCaracteristicas: typeof catalogoCaracParaIA === 'function' ? catalogoCaracParaIA() : [],
             arquivos: _iaImovel.itens.map((i) => (i.mimeType === 'text/plain'
               ? { nome: i.nome, mimeType: 'text/plain', texto: i.texto }
               : { nome: i.nome, mimeType: i.mimeType, data: i.data })),
@@ -236,6 +238,10 @@ async function aplicarResultadoIA(r, substituir) {
   por('imovel-estado', c.estadoConservacao, 'estadoConservacao');
   por('imovel-ano-construcao', c.anoConstrucao, 'anoConstrucao');
   por('imovel-empreendimento', c.empreendimento, 'empreendimento');
+  if (typeof marcarCaracPorNome === 'function' && Array.isArray(c.caracteristicas)) {
+    const nCar = marcarCaracPorNome(c.caracteristicas);
+    if (nCar) rel.preenchidos.push(`Características (+${nCar})`);
+  }
   por('imovel-mobiliado', c.mobiliado, 'mobiliado');
   por('imovel-valor-venda', c.valorVenda, 'valorVenda');
   por('imovel-aluguel-sugerido', c.aluguelSugerido, 'aluguelSugerido');

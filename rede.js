@@ -245,6 +245,7 @@ function montarDadosRede(im, campos, ctx) {
     andar: im.andar || null, mobiliado: im.mobiliado || null,
     vagasCobertas: im.vagasCobertas ?? null, vagasDescobertas: im.vagasDescobertas ?? null,
     padrao: im.padrao || null, estadoConservacao: im.estadoConservacao || null, anoConstrucao: im.anoConstrucao ?? null,
+    caracteristicas: Array.isArray(im.caracteristicas) ? im.caracteristicas.slice(0, 300) : [],
   });
   if (tem('descricao')) Object.assign(f, { descricaoLonga: im.descricaoLonga || null, tags: im.tags || [] });
   if (tem('condicoes')) Object.assign(f, {
@@ -388,7 +389,9 @@ function montarDadosVitrine(im, ctx) {
   // 📐 29/10/2026: padrão, estado, ano e empreendimento — dizem o que é o imóvel, não onde fica (o nome do
   // condomínio só vai a público com o bairro liberado, para não entregar o endereço por outro caminho)
   Object.assign(v, { padrao: im.padrao || null, estadoConservacao: im.estadoConservacao || null, anoConstrucao: im.anoConstrucao ?? null,
-    empreendimento: mostrarBairro ? (im.empreendimento || null) : null });
+    empreendimento: mostrarBairro ? (im.empreendimento || null) : null,
+    // ✅ características marcadas (piscina, portaria 24h…): o que o imóvel tem, nada que localize
+    caracteristicas: Array.isArray(im.caracteristicas) ? im.caracteristicas.slice(0, 300) : [] });
   return v;
 }
 
@@ -1243,6 +1246,7 @@ async function abrirFichaRede(id) {
       ${linha('Cômodos', f.quartos !== undefined ? `${f.quartos} quarto(s) · ${f.banheiros || 0} banheiro(s) · ${f.vagas || 0} vaga(s)${f.vagasCobertas != null || f.vagasDescobertas != null ? ` (${f.vagasCobertas || 0} coberta(s), ${f.vagasDescobertas || 0} descoberta(s))` : ''}` : '')}
       ${linha('Padrão / estado', [typeof PADRAO_LABEL !== 'undefined' ? PADRAO_LABEL[f.padrao] : '', typeof ESTADO_LABEL !== 'undefined' ? ESTADO_LABEL[f.estadoConservacao] : '', f.anoConstrucao ? `construído em ${f.anoConstrucao}` : ''].filter(Boolean).map(escapeHtml).join(' · '))}
       ${linha('Andar', escapeHtml(f.andar || ''))}
+      ${linha('Características', Array.isArray(f.caracteristicas) && f.caracteristicas.length ? f.caracteristicas.map((c) => escapeHtml(String(c).split(' › ').pop())).join(' · ') : '')}
       ${linha('Permuta', f.aceitaPermuta === 'sim' ? `Aceita${f.permutaObs ? ' — ' + escapeHtml(f.permutaObs) : ''}` : '')}
       ${linha('Financiamento / FGTS', [f.aceitaFinanciamento, f.permiteFGTS].some(Boolean) ? `${escapeHtml(f.aceitaFinanciamento || '—')} / ${escapeHtml(f.permiteFGTS || '—')}` : '')}
       ${linha('Matrícula', escapeHtml(f.matricula || ''))}

@@ -403,18 +403,30 @@ function renderImovel(im, tenant, fotos) {
   }
 
   const featuresEl = $$('features-grid');
-  if (features.length === 0) {
+  // 🔒 29/10/2026: texto digitado (condomínio, medidas, permuta) vai ESCAPADO para a página pública
+  const escP = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const caracs = Array.isArray(im.caracteristicas) ? im.caracteristicas : [];
+  if (features.length === 0 && !caracs.length) {
     featuresEl.innerHTML = '<p class="muted">Informações detalhadas sob consulta.</p>';
   } else {
     featuresEl.innerHTML = features.map(f => `
       <div class="feature-card">
         <span class="ft-ico">${f.ico}</span>
         <div>
-          <div class="ft-label">${f.label}</div>
-          <div class="ft-value">${f.val}</div>
+          <div class="ft-label">${escP(f.label)}</div>
+          <div class="ft-value">${escP(f.val)}</div>
         </div>
       </div>
     `).join('');
+  }
+  // ✅ Características marcadas, por grupo (Lazer, Serviços…)
+  if (caracs.length) {
+    const grupos = {};
+    caracs.forEach((id) => { const i = String(id).indexOf(' › '); const g = i < 0 ? 'Outras' : String(id).slice(0, i); const n = i < 0 ? String(id) : String(id).slice(i + 3); (grupos[g] = grupos[g] || []).push(n); });
+    const box = document.createElement('div');
+    box.className = 'carac-publica';
+    box.innerHTML = Object.entries(grupos).map(([g, l]) => `<div class="carac-pub-grupo"><h4>${escP(g)}</h4><ul>${l.map((n) => `<li>✓ ${escP(n)}</li>`).join('')}</ul></div>`).join('');
+    featuresEl.insertAdjacentElement('afterend', box);
   }
 
   // Endereço resumido (sem número exato; bairro condicional)

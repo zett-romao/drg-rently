@@ -11144,6 +11144,7 @@ async function openImovelModal(id) {
         $('imovel-estado').value = im.estadoConservacao || '';
         $('imovel-ano-construcao').value = im.anoConstrucao ?? '';
         $('imovel-empreendimento').value = im.empreendimento || '';
+        if (typeof renderCaracImovel === 'function') renderCaracImovel(im.caracteristicas || []);
         setTimeout(calcPrecoM2Imovel, 0);   // depois que os valores (moeda) forem preenchidos
         $('imovel-multiplas-unidades').checked = !!im.multiplasUnidades;
 
@@ -11209,6 +11210,7 @@ async function openImovelModal(id) {
     travarMarcaDaguaDoCorretor();
   } else {
     await populateLocadorSelect($('imovel-locador'), null);
+    if (typeof renderCaracImovel === 'function') renderCaracImovel([]);
     // Em modo CRIAÇÃO mantemos a seção de fotos VISÍVEL (cria rascunho on-demand
     // quando user faz primeiro upload). Docs e publicação ficam ocultos porque
     // não fazem sentido antes do save completo.
@@ -11351,6 +11353,8 @@ async function saveImovel(opts) {
     anoConstrucao: (() => { const a = parseInt($('imovel-ano-construcao').value, 10); return a >= 1800 && a <= new Date().getFullYear() + 10 ? a : null; })(),
     empreendimento: $('imovel-empreendimento').value.trim() || null,
     ...precoM2DoImovel(),
+    // ✅ 29/10/2026: características marcadas ("Grupo › Item")
+    ...(typeof lerCaracImovel === 'function' && $('imovel-carac-box') && $('imovel-carac-box').querySelector('.carac-chk') ? { caracteristicas: lerCaracImovel() } : {}),
     multiplasUnidades: $('imovel-multiplas-unidades').checked,
     matricula: $('imovel-matricula').value.trim() || null,
     ...(typeof lerMatriculaConferida === 'function' ? lerMatriculaConferida() : {}),

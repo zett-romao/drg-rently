@@ -678,6 +678,7 @@ Responda APENAS com JSON válido, sem markdown:
     "padrao": "economico"|"medio"|"medio_alto"|"alto"|"luxo"|null,
     "estadoConservacao": "na_planta"|"em_construcao"|"novo"|"otimo"|"bom"|"regular"|"reformado"|"precisa_reforma"|null,
     "anoConstrucao": int|null, "empreendimento": string|null (nome do condomínio/empreendimento/edifício),
+    "caracteristicas": [string] (SÓ itens copiados exatamente da LISTA DE CARACTERÍSTICAS enviada, no formato "Grupo › Item"; marque apenas o que o material mostra ou diz),
     "valorVenda": number|null, "aluguelSugerido": number|null, "valorCondominio": number|null, "valorIPTU": number|null,
     "aceitaFinanciamento": string|null, "permiteFGTS": string|null, "aceitaPermuta": string|null, "permutaObs": string|null,
     "matricula": string|null, "iptu": string|null, "videoUrl": string|null, "tourUrl": string|null, "obs": string|null
@@ -699,6 +700,9 @@ async function cadastrarImovel(payload, env, origin) {
 
   let total = 0;
   const parts = [{ text: PROMPT_IMOVEL }];
+  // ✅ 29/10/2026: catálogo de características do cadastro (padrão + criadas pela imobiliária)
+  const catalogo = Array.isArray(payload.catalogoCaracteristicas) ? payload.catalogoCaracteristicas.filter((x) => typeof x === 'string').slice(0, 600) : [];
+  if (catalogo.length) parts.push({ text: `LISTA DE CARACTERÍSTICAS (use exatamente estes textos em "caracteristicas"):\n${catalogo.map((x) => x.slice(0, 80)).join('\n')}` });
   if (texto.trim()) parts.push({ text: `TEXTO COLADO PELA IMOBILIÁRIA:\n${texto}` });
   arquivos.forEach((a, i) => {
     if (!a || typeof a.mimeType !== 'string') return;

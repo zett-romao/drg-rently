@@ -4432,3 +4432,26 @@ details.card > summary:hover {
 /* 🔒 29/10/2026 — botão sem permissão: fica à vista, com cadeado; o clique explica quem libera */
 .btn-sem-permissao{opacity:.62;filter:grayscale(.5);cursor:help}
 .btn-sem-permissao::before{content:'🔒 '}
+
+/* ✅ 29/10/2026 — características do imóvel (caracteristicas.js) */
+.carac-box{border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#fff;margin-bottom:16px}
+.carac-topo{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.carac-topo input{flex:1;min-width:200px}
+.carac-conta{font-size:13px;font-weight:700;color:#334155}
+.carac-grupo{border-top:1px solid #eef2f7}
+.carac-grupo summary{cursor:pointer;padding:10px 4px;font-weight:700;color:#1e293b;display:flex;justify-content:space-between;align-items:center;list-style:none}
+.carac-grupo summary::-webkit-details-marker{display:none}
+.carac-grupo summary::after{content:'▸';color:#64748b;margin-left:8px}
+.carac-grupo[open] summary::after{content:'▾'}
+.carac-n{color:#16a34a;font-weight:600;margin-left:auto}
+.carac-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:4px 12px;padding:2px 4px 12px}
+label.carac-item{display:flex;align-items:center;gap:8px;margin:0;padding:6px 6px;border-radius:8px;font-weight:500;font-size:14px;color:#334155;cursor:pointer;min-height:36px}
+label.carac-item:hover{background:#f1f5f9}
+label.carac-item input{width:18px;height:18px;flex:none;margin:0;accent-color:#475569}
+label.carac-item:has(input:checked){background:#eef6ff;color:#0f172a;font-weight:600}
+.carac-del{margin-left:auto;border:0;background:none;color:#94a3b8;cursor:pointer;font-size:12px;padding:2px 6px}
+.carac-del:hover{color:#dc2626}
+.carac-nova{border-top:1px solid #eef2f7;padding-top:10px;margin-top:4px}
+.carac-nova-linha{display:grid;grid-template-columns:2fr 1fr auto;gap:8px;margin-top:6px}
+@media (max-width:600px){.carac-nova-linha{grid-template-columns:1fr}.carac-grade{grid-template-columns:1fr 1fr}}
+.carac-topo input{padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:15px;min-height:42px}
