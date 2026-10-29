@@ -3257,7 +3257,8 @@ function instalarAtalhosGlobais() {
       // Modal de confirmação tem seu próprio Esc, então só os outros
       const modais = document.querySelectorAll('.modal-overlay');
       for (const m of modais) {
-        if (m.style.display !== 'none' && m.id !== 'modal-confirmar') {
+        // 🔒 janela obrigatória (data-obrigatorio, ex.: "Complete seu cadastro") não fecha no Esc
+        if (m.style.display !== 'none' && m.id !== 'modal-confirmar' && m.dataset.obrigatorio !== '1') {
           // Tenta achar botão de fechar (×)
           const btnFechar = m.querySelector('.modal-close, [onclick*="close"], [onclick*="fechar"]');
           if (btnFechar) btnFechar.click();

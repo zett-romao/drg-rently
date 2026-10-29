@@ -2020,6 +2020,9 @@ async function verificarCadastroCorretor() {
   if (!m) {
     m = document.createElement('div');
     m.className = 'modal-overlay'; m.id = 'modal-meu-cadastro';
+    // 🔒 29/10/2026: janela OBRIGATÓRIA ("modal até preencher", regra de 28/10). O Esc global fechava
+    // e o corretor seguia sem completar. Sem X de propósito; a saída é "Sair do sistema".
+    m.dataset.obrigatorio = '1';
     m.innerHTML = `<div class="modal">
       <div class="modal-header"><h3>📋 Complete seu cadastro</h3></div>
       <div class="modal-body">
@@ -2031,7 +2034,7 @@ async function verificarCadastroCorretor() {
         </div>
         <div data-endereco="meucad-end"></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-primary" id="btn-meucad" onclick="salvarMeuCadastroCorretor()">💾 Salvar</button></div>
+      <div class="modal-footer"><button class="btn btn-secondary" type="button" onclick="doLogout()" title="Completar depois — o sistema pede de novo no próximo acesso">🚪 Sair do sistema</button><button class="btn btn-primary" id="btn-meucad" onclick="salvarMeuCadastroCorretor()">💾 Salvar</button></div>
     </div>`;
     document.body.appendChild(m);
     montarCamposEndereco(m);
@@ -2047,16 +2050,24 @@ async function salvarMeuCadastroCorretor() {
   const documento = fmtCpfCnpj($('meucad-documento').value);
   const endereco = lerEndereco('meucad-end');
   const faltam = faltaNoCadastroCorretor({ telefone, documento, endereco });
-  if (faltam.length) { showAlert('meucad-alert', 'Preencha: ' + faltam.join('; ') + '.'); return; }
+  // CPF/CNPJ digitado mas errado não é "preencha": é "confira"
+  const docDigitado = $('meucad-documento').value.replace(/\D/g, '').length > 0;
+  const msgs = faltam.map((f) => (f === 'CPF/CNPJ' && docDigitado ? 'CPF/CNPJ inválido — confira os números' : f));
+  if (faltam.length) { showAlert('meucad-alert', (msgs.length === 1 && docDigitado && faltam[0] === 'CPF/CNPJ') ? msgs[0] + '.' : 'Preencha: ' + msgs.join('; ') + '.'); return; }
   const btn = $('btn-meucad');
-  btn.disabled = true; btn.textContent = '⏳ Salvando…';
+  btn.disabled = true; btn.textContent = '⏳ Salvando… aguarde';
+  let ok = false;
   try {
     await tenantPath().collection('corretores').doc(State.user.uid).update({
       telefone, documento, endereco, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    $('modal-meu-cadastro').style.display = 'none';
+    // Regra nº 1: o sucesso aparece antes de a janela sair
+    ok = true;
+    btn.textContent = '✓ Salvo';
+    showAlert('meucad-alert', '✓ Cadastro completo — obrigado! Já pode usar o sistema.', 'success');
+    setTimeout(() => { $('modal-meu-cadastro').style.display = 'none'; btn.disabled = false; btn.textContent = '💾 Salvar'; }, 1400);
   } catch (err) {
     showAlert('meucad-alert', 'Erro: ' + err.message);
-  } finally { btn.disabled = false; btn.textContent = '💾 Salvar'; }
+  } finally { if (!ok) { btn.disabled = false; btn.textContent = '💾 Salvar'; } }
 }
 window.salvarMeuCadastroCorretor = salvarMeuCadastroCorretor;

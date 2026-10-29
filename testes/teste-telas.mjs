@@ -35,7 +35,9 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await S(['users', contas.op0], { nome: 'Operador Sem Perfil', email: 'op0@teste.local', role: 'operador', tenantId: T, ativo: true });
   await S(['users', contas.op1], { nome: 'Operador Restrito', email: 'op1@teste.local', role: 'operador', tenantId: T, ativo: true, perfilId: 'restrito' });
   await S(['users', contas.cor], { nome: 'Corretor Teste', email: 'cor@teste.local', role: 'corretor', tenantId: T, ativo: true, status: 'ativo' });
-  await S(['tenants', T, 'corretores', contas.cor], { nome: 'Corretor Teste', status: 'ativo', tipo: 'equipe' });
+  await S(['tenants', T, 'corretores', contas.cor], { nome: 'Corretor Teste', status: 'ativo', tipo: 'equipe',
+    // cadastro completo (regra de 28/10): sem isto o login abre "Complete seu cadastro" por cima de tudo
+    telefone: '5515991859779', documento: '529.982.247-25', endereco: { cep: '18010000', logradouro: 'Rua Teste', numero: '10', complemento: null, bairro: 'Centro', cidade: 'Sorocaba', uf: 'SP' } });
   const tudo = { ver: true, criar: 'sim', editar: 'sim', excluir: 'sim' };
   await S(['tenants', T, 'perfis', 'restrito'], { nome: 'Restrito', permissoes: {
     dashboard: { ver: true }, imoveis: { ver: true, criar: 'sim', editar: 'aprovacao', excluir: 'nao' },
