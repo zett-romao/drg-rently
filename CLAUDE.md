@@ -385,6 +385,10 @@ com `role: 'corretor'`, cadastram os imóveis que captam e veem os dos outros s�
 
 **Fonte da verdade das regras:** `firestore.rules` e `storage.rules` na raiz do repo
 (os blocos de regras mais acima neste arquivo são históricos — **não** colar esses).
+**Deploy das regras (desde 29/10/2026):** Firebase CLI logado como zett.romao no notebook (`npm i -g firebase-tools@13`;
+login feito numa janela PowerShell aberta via `Start-Process` — o CLI recusa login sem terminal). Com `firebase.json`/`.firebaserc`
+no repo: `firebase deploy --only firestore:rules --project drg-rently` (rodar a suíte do emulador antes; nesta máquina porta 8181).
+O dono autorizou publicar direto — não precisa mais colar no Console.
 
 **Modelo (por tenant):**
 - `users/{uid}` com `role: 'corretor'`, `ativo`, `status` ('ativo'|'pendente'|'suspenso').
