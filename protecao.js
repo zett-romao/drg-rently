@@ -311,14 +311,23 @@ async function espelharContratoNoCorretor(corretorUid, assinaturaId, status) {
   } catch (e) { console.warn('Contrato no cartão do corretor não atualizado:', e); }
 }
 
-// Tela Corretores: confere o status das assinaturas pendentes (quem assina pelo Sign
-// muda o status lá; o espelho no cartão acompanha quando a equipe abre a tela)
+// Tela Corretores: confere o status das assinaturas pendentes. 🔒 Pergunta ao PRÓPRIO
+// Sign: o registro local só mudava com a tela do Sign aberta (aviso por postMessage) ou
+// com "Atualizar status" em Assinaturas — contrato assinado ficava "⏳ enviado" aqui.
 async function sincronizarContratosParceria(lista) {
   const pend = (lista || []).filter((c) => c.contratoParceria?.assinaturaId && c.contratoParceria.status === 'pending');
+  let cfg = null;
   for (const c of pend) {
     try {
-      const a = (await tenantPath().collection('assinaturas').doc(c.contratoParceria.assinaturaId).get()).data();
-      const st = a?.assinatura?.status;
+      const ref = tenantPath().collection('assinaturas').doc(c.contratoParceria.assinaturaId);
+      const a = (await ref.get()).data();
+      let st = a?.assinatura?.status;
+      if (st === 'pending' && a.assinatura.provedor === 'drg-sign' && a.assinatura.openId) {
+        cfg = cfg || await _cfgSite();
+        const data = await _signConsultar(cfg, a.assinatura);
+        if (data.status !== 'pending') await ref.update({ 'assinatura.status': data.status, 'assinatura.signers': data.signers || [] });
+        st = data.status;
+      }
       if (st && st !== 'pending') {
         await tenantPath().collection('corretores').doc(c.uid).update({ 'contratoParceria.status': st });
         c.contratoParceria.status = st;
