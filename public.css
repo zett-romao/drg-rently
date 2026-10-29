@@ -1043,3 +1043,18 @@ body.menu-publico-aberto { overflow: hidden; }
 .faixa-previa{position:sticky;top:0;z-index:2000;background:#7c2d12;color:#fff;padding:10px 16px;font-size:14px;line-height:1.4;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;text-align:center}
 .faixa-previa button{background:#fff;color:#7c2d12;border:0;border-radius:6px;padding:8px 14px;font-weight:600;cursor:pointer;min-height:40px}
 .faixa-previa button:active{transform:scale(.98);filter:brightness(.92)}
+
+/* Cabeçalho das páginas públicas 30% maior (dono, 29/10/2026): logo 56→73px, nome 20→26px, frase 12→15.6px.
+   O selo "digital" acompanha o nome (tamanho em em). No celular, ~15% maior para caber na linha. */
+.public-header { padding: 22px 0; }
+.public-header-inner { gap: 18px; }
+.public-logo { width: 73px; height: 73px; flex: none; }
+.public-header-text h2 { font-size: 26px; }
+.public-header-text p { font-size: 15.6px; margin-top: 4px; }
+@media (max-width: 640px) {
+  .public-header { padding: 16px 0; }
+  .public-header-inner { gap: 12px; }
+  .public-logo { width: 62px; height: 62px; }
+  .public-header-text h2 { font-size: 22px; }
+  .public-header-text p { font-size: 13.5px; }
+}
