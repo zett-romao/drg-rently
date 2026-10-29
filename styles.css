@@ -4428,3 +4428,7 @@ details.card > summary:hover {
 .prop-novo-acoes .btn{min-height:40px}
 #btn-prop-novo{margin-top:6px}
 @media (max-width:600px){.prop-novo-topo{flex-wrap:wrap}.prop-novo-topo .muted{flex-basis:100%;order:3}}
+
+/* 🔒 29/10/2026 — botão sem permissão: fica à vista, com cadeado; o clique explica quem libera */
+.btn-sem-permissao{opacity:.62;filter:grayscale(.5);cursor:help}
+.btn-sem-permissao::before{content:'🔒 '}

@@ -377,6 +377,17 @@ function renderImovel(im, tenant, fotos) {
   const features = [];
   if (mostrarArea && im.areaUtil)   features.push({ ico: '📐', label: 'Área útil',  val: im.areaUtil + ' m²' });
   if (mostrarArea && im.areaTotal)  features.push({ ico: '📏', label: 'Área total', val: im.areaTotal + ' m²' });
+  // 📐 29/10/2026: terreno, preço do m², garagem coberta/descoberta, padrão, estado, ano, empreendimento
+  if (mostrarArea && im.areaTerreno) features.push({ ico: '🌳', label: 'Terreno', val: im.areaTerreno + ' m²' + (im.medidasTerreno ? ' · ' + im.medidasTerreno : '') });
+  else if (mostrarArea && im.medidasTerreno) features.push({ ico: '🌳', label: 'Terreno', val: im.medidasTerreno });
+  if (mostrarArea && im.precoM2) features.push({ ico: '💲', label: 'Preço do m²', val: 'R$ ' + Number(im.precoM2).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) });
+  if (mostrarComodos && (im.vagasCobertas || im.vagasDescobertas)) features.push({ ico: '🅿️', label: 'Garagem', val: [im.vagasCobertas ? im.vagasCobertas + ' coberta(s)' : '', im.vagasDescobertas ? im.vagasDescobertas + ' descoberta(s)' : ''].filter(Boolean).join(' · ') });
+  const PADRAO_PUB = { economico: 'Econômico', medio: 'Médio', medio_alto: 'Médio-alto', alto: 'Alto padrão', luxo: 'Luxo' };
+  const ESTADO_PUB = { na_planta: 'Na planta', em_construcao: 'Em construção', novo: 'Novo', otimo: 'Ótimo estado', bom: 'Bom estado', regular: 'Regular', reformado: 'Reformado', precisa_reforma: 'Precisa de reforma' };
+  if (PADRAO_PUB[im.padrao]) features.push({ ico: '⭐', label: 'Padrão', val: PADRAO_PUB[im.padrao] });
+  if (ESTADO_PUB[im.estadoConservacao]) features.push({ ico: '🛠', label: 'Estado', val: ESTADO_PUB[im.estadoConservacao] });
+  if (im.anoConstrucao) features.push({ ico: '📅', label: 'Construído em', val: im.anoConstrucao });
+  if (im.empreendimento) features.push({ ico: '🏘', label: 'Condomínio', val: im.empreendimento });
   if (mostrarComodos && im.quartos)   features.push({ ico: '🛏', label: 'Quartos',    val: im.quartos });
   if (mostrarComodos && im.banheiros) features.push({ ico: '🚿', label: 'Banheiros',  val: im.banheiros });
   if (mostrarComodos && im.vagas)     features.push({ ico: '🚗', label: 'Vagas',      val: im.vagas });

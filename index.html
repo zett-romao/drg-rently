@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261029c-proprietario">
+  <link rel="stylesheet" href="styles.css?v=20261029d-campos">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -4946,11 +4946,11 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <div class="form-row">
           <div class="form-group">
             <label>Área útil (m²)</label>
-            <input type="number" id="imovel-area-util" min="0" step="0.01">
+            <input type="number" id="imovel-area-util" min="0" step="0.01" oninput="calcPrecoM2Imovel()">
           </div>
           <div class="form-group">
             <label>Área total (m²)</label>
-            <input type="number" id="imovel-area-total" min="0" step="0.01">
+            <input type="number" id="imovel-area-total" min="0" step="0.01" oninput="calcPrecoM2Imovel()">
           </div>
           <div class="form-group">
             <label>Andar</label>
@@ -4968,7 +4968,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <input type="number" id="imovel-banheiros" min="0" step="1" value="0">
           </div>
           <div class="form-group">
-            <label>Vagas de garagem</label>
+            <label>Vagas de garagem <small class="muted">(total)</small></label>
             <input type="number" id="imovel-vagas" min="0" step="1" value="0">
           </div>
           <div class="form-group">
@@ -4978,6 +4978,71 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
               <option value="parcial">Parcialmente</option>
               <option value="sim">Sim</option>
             </select>
+          </div>
+        </div>
+
+        <!-- 📐 29/10/2026 (pedido da equipe, o dono: "faça o que ela pediu"): terreno, garagem coberta/descoberta,
+             padrão, estado, ano, condomínio/empreendimento e preço do m² (calculado). -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="imovel-vagas-cobertas">Garagem coberta <small class="muted">(vagas)</small></label>
+            <input type="number" id="imovel-vagas-cobertas" min="0" step="1" oninput="somarVagasImovel()">
+          </div>
+          <div class="form-group">
+            <label for="imovel-vagas-descobertas">Garagem descoberta <small class="muted">(vagas)</small></label>
+            <input type="number" id="imovel-vagas-descobertas" min="0" step="1" oninput="somarVagasImovel()">
+          </div>
+          <div class="form-group">
+            <label for="imovel-area-terreno">Área total do terreno (m²)</label>
+            <input type="number" id="imovel-area-terreno" min="0" step="0.01" oninput="calcPrecoM2Imovel()">
+          </div>
+          <div class="form-group">
+            <label for="imovel-medidas-terreno">Medidas do terreno</label>
+            <input type="text" id="imovel-medidas-terreno" maxlength="60" placeholder="Ex.: 10 × 30 m (frente × fundo)">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="imovel-padrao">Padrão</label>
+            <select id="imovel-padrao">
+              <option value="">—</option>
+              <option value="economico">Econômico / popular</option>
+              <option value="medio">Médio</option>
+              <option value="medio_alto">Médio-alto</option>
+              <option value="alto">Alto padrão</option>
+              <option value="luxo">Luxo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="imovel-estado">Estado atual</label>
+            <select id="imovel-estado">
+              <option value="">—</option>
+              <option value="na_planta">Na planta / lançamento</option>
+              <option value="em_construcao">Em construção</option>
+              <option value="novo">Novo (nunca habitado)</option>
+              <option value="otimo">Ótimo estado</option>
+              <option value="bom">Bom estado</option>
+              <option value="regular">Regular</option>
+              <option value="reformado">Reformado</option>
+              <option value="precisa_reforma">Precisa de reforma</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="imovel-ano-construcao">Ano de construção</label>
+            <input type="number" id="imovel-ano-construcao" min="1800" max="2100" step="1" placeholder="Ex.: 2015" inputmode="numeric">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex:2;">
+            <label for="imovel-empreendimento">Condomínio / Empreendimento</label>
+            <input type="text" id="imovel-empreendimento" maxlength="120" placeholder="Ex.: Residencial Solar do Lago, Alphaville 2">
+          </div>
+          <div class="form-group">
+            <label for="imovel-preco-m2">Preço do m² <small class="muted">(calculado)</small></label>
+            <input type="text" id="imovel-preco-m2" readonly tabindex="-1" placeholder="valor ÷ área" style="background:#F1F5F9;">
+            <small class="muted" id="imovel-preco-m2-base" style="font-size:11px;"></small>
           </div>
         </div>
 
@@ -6189,14 +6254,14 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261029m-proprietarios"></script>
+  <script src="app.js?v=20261029n-campos"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
-  <script src="rede.js?v=20261029h-meucad"></script>
+  <script src="rede.js?v=20261029i-campos"></script>
   <script src="protecao.js?v=20261029a-contrato-sign"></script>
   <script src="carteira.js?v=20261029e-salvo"></script>
   <script src="conversao.js?v=20261029c-conversao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
-  <script src="ia-imovel.js?v=20261021h-fotos"></script>
+  <script src="ia-imovel.js?v=20261029-campos"></script>
   <script src="imediacoes.js?v=20261021f-mapas"></script>
   <script src="divulgar.js?v=20261021k-publicar-fim"></script>
   <script src="assinaturas.js?v=20261017j-protecao"></script>

@@ -1031,7 +1031,7 @@ async function resolverPerfilUsuario() {
   }
   // Nível 3 — normalizarPerfil(null) deriva do role
   const norm = normalizarPerfil(doc, role);
-  State.perfilResolvido = { ...norm, origem };
+  State.perfilResolvido = { ...norm, origem, nome: (doc && doc.nome) || null };
   return State.perfilResolvido;
 }
 
@@ -1046,6 +1046,23 @@ async function resolverPerfilUsuario() {
 function perfilAtual() {
   return State.perfilResolvido || normalizarPerfil(null, State.userDoc?.role || 'operador');
 }
+
+// 🔒 Explica o botão com cadeado: o que falta, em qual perfil, e quem libera
+function avisoSemPermissao(mod, op) {
+  const modulo = (MODULOS_DISPONIVEIS.find(m => m.id === mod) || {}).label || mod;
+  const acao = { criar: 'cadastrar', editar: 'alterar', excluir: 'excluir' }[op] || op;
+  const opNome = { criar: 'Criar', editar: 'Editar', excluir: 'Excluir' }[op] || op;
+  const nomePerfil = (State.perfilResolvido && State.perfilResolvido.nome) ? 'perfil “' + State.perfilResolvido.nome + '”' : 'o seu perfil';
+  confirmar({
+    titulo: 'Seu perfil não permite',
+    mensagem: `Você não pode <strong>${acao}</strong> em <strong>${escapeHtml(modulo)}</strong>.`,
+    detalhe: `Quem libera é o gestor da imobiliária: <strong>Equipe e permissões</strong> → ${escapeHtml(nomePerfil)} → <strong>${escapeHtml(modulo)}</strong> → <strong>${opNome}</strong>: "✅ Pode" ou "🕓 Com aprovação".`,
+    confirmar: 'Entendi',
+    cancelar: 'Fechar',
+    icone: '🔒',
+  });
+}
+window.avisoSemPermissao = avisoSemPermissao;
 
 function nivelPermissao(chave, op) {
   if (State.userDoc?.role === 'super_admin') return 'sim'; // piso anti-lockout
@@ -1167,9 +1184,25 @@ async function renderApp() {
   });
   // Perfis 3.0: botões marcados com data-perm="modulo:op" somem quando é "⛔ Não pode"
   // ("🕓 Com aprovação" continua visível: a gravação vai para a fila)
+  // 🔒 29/10/2026 (sugestão aceita pelo dono): o botão NÃO some calado — sem permissão ele fica à vista,
+  // com cadeado, e o clique explica por quê e quem libera. Sumir fazia parecer defeito
+  // ("agora ele não permite colocar proprietário").
   document.querySelectorAll('[data-perm]').forEach(el => {
     const [mod, op] = el.dataset.perm.split(':');
-    el.style.display = nivelPermissao(mod, op) === 'nao' ? 'none' : '';
+    const bloqueado = nivelPermissao(mod, op) === 'nao';
+    el.style.display = '';
+    if (bloqueado && el.dataset.permBloqueado !== '1') {
+      el.dataset.permBloqueado = '1';
+      el.dataset.onclickOriginal = el.getAttribute('onclick') || '';
+      el.setAttribute('onclick', `avisoSemPermissao('${mod}', '${op}')`);
+      el.classList.add('btn-sem-permissao');
+      el.title = '🔒 Seu perfil não permite — clique para saber quem libera';
+    } else if (!bloqueado && el.dataset.permBloqueado === '1') {
+      el.dataset.permBloqueado = '';
+      el.setAttribute('onclick', el.dataset.onclickOriginal || '');
+      el.classList.remove('btn-sem-permissao');
+      el.title = '';
+    }
   });
   // Esconde grupos do menu que ficaram sem nenhum item visível (ex.: corretor)
   document.querySelectorAll('.nav-group').forEach(g => {
@@ -11023,6 +11056,8 @@ const IMOVEL_CAMPOS_AUTOSAVE = [
   'imovel-area-util', 'imovel-area-total', 'imovel-andar',
   'imovel-matricula', 'imovel-iptu',
   'imovel-quartos', 'imovel-banheiros', 'imovel-vagas', 'imovel-mobiliado',
+  'imovel-vagas-cobertas', 'imovel-vagas-descobertas', 'imovel-area-terreno', 'imovel-medidas-terreno',
+  'imovel-padrao', 'imovel-estado', 'imovel-ano-construcao', 'imovel-empreendimento',
   'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
   'imovel-valor-condominio', 'imovel-valor-iptu',
   'imovel-aceita-financiamento', 'imovel-permite-fgts', 'imovel-aceita-permuta', 'imovel-permuta-obs',
@@ -11044,9 +11079,12 @@ async function openImovelModal(id) {
    'imovel-matricula', 'imovel-iptu',
    'imovel-valor-mercado', 'imovel-aluguel-sugerido', 'imovel-valor-venda',
    'imovel-valor-condominio', 'imovel-valor-iptu',
-   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url', 'imovel-permuta-obs'].forEach(f => {
+   'imovel-obs', 'imovel-descricao-longa', 'imovel-video-url', 'imovel-tour-url', 'imovel-permuta-obs',
+   'imovel-vagas-cobertas', 'imovel-vagas-descobertas', 'imovel-area-terreno', 'imovel-medidas-terreno',
+   'imovel-padrao', 'imovel-estado', 'imovel-ano-construcao', 'imovel-empreendimento', 'imovel-preco-m2'].forEach(f => {
      const el = $(f); if (el) el.value = '';
    });
+  if ($('imovel-preco-m2-base')) $('imovel-preco-m2-base').textContent = '';
   // Toggle do feed XML (default ON)
   const vfeedDefault = $('imovel-vitrine-feed'); if (vfeedDefault) vfeedDefault.checked = true;
   $('imovel-status').value = 'disponivel';
@@ -11098,6 +11136,15 @@ async function openImovelModal(id) {
         $('imovel-banheiros').value = im.banheiros ?? 0;
         $('imovel-vagas').value = im.vagas ?? 0;
         $('imovel-mobiliado').value = im.mobiliado || 'nao';
+        $('imovel-vagas-cobertas').value = im.vagasCobertas ?? '';
+        $('imovel-vagas-descobertas').value = im.vagasDescobertas ?? '';
+        $('imovel-area-terreno').value = im.areaTerreno ?? '';
+        $('imovel-medidas-terreno').value = im.medidasTerreno || '';
+        $('imovel-padrao').value = im.padrao || '';
+        $('imovel-estado').value = im.estadoConservacao || '';
+        $('imovel-ano-construcao').value = im.anoConstrucao ?? '';
+        $('imovel-empreendimento').value = im.empreendimento || '';
+        setTimeout(calcPrecoM2Imovel, 0);   // depois que os valores (moeda) forem preenchidos
         $('imovel-multiplas-unidades').checked = !!im.multiplasUnidades;
 
         $('imovel-matricula').value = im.matricula || '';
@@ -11294,6 +11341,16 @@ async function saveImovel(opts) {
     banheiros: parseInt($('imovel-banheiros').value, 10) || 0,
     vagas: parseInt($('imovel-vagas').value, 10) || 0,
     mobiliado: $('imovel-mobiliado').value,
+    // 📐 29/10/2026: terreno, garagem coberta/descoberta, padrão, estado, ano, empreendimento, preço do m²
+    vagasCobertas: $('imovel-vagas-cobertas').value === '' ? null : (parseInt($('imovel-vagas-cobertas').value, 10) || 0),
+    vagasDescobertas: $('imovel-vagas-descobertas').value === '' ? null : (parseInt($('imovel-vagas-descobertas').value, 10) || 0),
+    areaTerreno: parseFloat($('imovel-area-terreno').value) || null,
+    medidasTerreno: $('imovel-medidas-terreno').value.trim() || null,
+    padrao: $('imovel-padrao').value || null,
+    estadoConservacao: $('imovel-estado').value || null,
+    anoConstrucao: (() => { const a = parseInt($('imovel-ano-construcao').value, 10); return a >= 1800 && a <= new Date().getFullYear() + 10 ? a : null; })(),
+    empreendimento: $('imovel-empreendimento').value.trim() || null,
+    ...precoM2DoImovel(),
     multiplasUnidades: $('imovel-multiplas-unidades').checked,
     matricula: $('imovel-matricula').value.trim() || null,
     ...(typeof lerMatriculaConferida === 'function' ? lerMatriculaConferida() : {}),
@@ -11424,6 +11481,37 @@ async function saveImovel(opts) {
     }
   }
 }
+// 🚗 Garagem: coberta + descoberta = total (quem preenche o detalhe não precisa somar)
+function somarVagasImovel() {
+  const c = $('imovel-vagas-cobertas').value, d = $('imovel-vagas-descobertas').value;
+  if (c === '' && d === '') return;
+  $('imovel-vagas').value = (parseInt(c, 10) || 0) + (parseInt(d, 10) || 0);
+}
+// 💲 Preço do m²: valor de venda (ou, só locação, o aluguel) ÷ área útil — sem área útil, a área
+// total; terreno usa a área do terreno. Calculado, não digitado: muda sozinho com valor e área.
+const PADRAO_LABEL = { economico: 'Econômico / popular', medio: 'Médio', medio_alto: 'Médio-alto', alto: 'Alto padrão', luxo: 'Luxo' };
+const ESTADO_LABEL = { na_planta: 'Na planta / lançamento', em_construcao: 'Em construção', novo: 'Novo (nunca habitado)', otimo: 'Ótimo estado',
+  bom: 'Bom estado', regular: 'Regular', reformado: 'Reformado', precisa_reforma: 'Precisa de reforma' };
+function precoM2DoImovel() {
+  const num = (id) => parseFloat(($(id) || {}).value) || 0;
+  const venda = num('imovel-valor-venda'), aluguel = num('imovel-aluguel-sugerido');
+  const ehTerreno = /terreno|lote/i.test(($('imovel-subtipo')?.value || '') + ' ' + ($('imovel-tipo')?.value || ''));
+  const util = num('imovel-area-util'), total = num('imovel-area-total'), terreno = num('imovel-area-terreno');
+  const area = ehTerreno ? (terreno || total || util) : (util || total || terreno);
+  const nomeArea = area === util && util ? 'área útil' : area === total && total ? 'área total' : 'área do terreno';
+  const valor = venda || aluguel;
+  if (!valor || !area) return { precoM2: null, precoM2Base: null };
+  return { precoM2: Math.round((valor / area) * 100) / 100, precoM2Base: `${venda ? 'venda' : 'aluguel'} ÷ ${nomeArea}` };
+}
+function calcPrecoM2Imovel() {
+  const el = $('imovel-preco-m2'); if (!el) return;
+  const r = precoM2DoImovel();
+  el.value = r.precoM2 ? 'R$ ' + r.precoM2.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '/m²' : '';
+  const b = $('imovel-preco-m2-base'); if (b) b.textContent = r.precoM2Base ? '(' + r.precoM2Base + ')' : '';
+}
+document.addEventListener('input', (e) => { if (['imovel-valor-venda', 'imovel-aluguel-sugerido'].includes(e.target && e.target.id)) calcPrecoM2Imovel(); });
+document.addEventListener('change', (e) => { if (['imovel-valor-venda', 'imovel-aluguel-sugerido', 'imovel-subtipo', 'imovel-tipo', 'imovel-finalidade'].includes(e.target && e.target.id)) calcPrecoM2Imovel(); });
+
 // O botão "📝 Salvar rascunho": só em imóvel novo ou que ainda é rascunho
 function botaoRascunhoImovel(mostrar) {
   const b = $('btn-rascunho-imovel');

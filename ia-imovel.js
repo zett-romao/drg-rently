@@ -227,6 +227,15 @@ async function aplicarResultadoIA(r, substituir) {
   por('imovel-quartos', c.quartos, 'quartos');
   por('imovel-banheiros', c.banheiros, 'banheiros');
   por('imovel-vagas', c.vagas, 'vagas');
+  // 📐 29/10/2026: campos novos do cadastro
+  por('imovel-vagas-cobertas', c.vagasCobertas, 'vagasCobertas');
+  por('imovel-vagas-descobertas', c.vagasDescobertas, 'vagasDescobertas');
+  por('imovel-area-terreno', c.areaTerreno, 'areaTerreno');
+  por('imovel-medidas-terreno', c.medidasTerreno, 'medidasTerreno');
+  por('imovel-padrao', c.padrao, 'padrao');
+  por('imovel-estado', c.estadoConservacao, 'estadoConservacao');
+  por('imovel-ano-construcao', c.anoConstrucao, 'anoConstrucao');
+  por('imovel-empreendimento', c.empreendimento, 'empreendimento');
   por('imovel-mobiliado', c.mobiliado, 'mobiliado');
   por('imovel-valor-venda', c.valorVenda, 'valorVenda');
   por('imovel-aluguel-sugerido', c.aluguelSugerido, 'aluguelSugerido');

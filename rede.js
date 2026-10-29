@@ -238,10 +238,13 @@ function montarDadosRede(im, campos, ctx) {
       numero: end.numero || null, complemento: end.complemento || null, cep: end.cep || null,
     });
   }
-  if (tem('metragem')) Object.assign(f, { areaUtil: im.areaUtil ?? null, areaTotal: im.areaTotal ?? null });
+  if (tem('metragem')) Object.assign(f, { areaUtil: im.areaUtil ?? null, areaTotal: im.areaTotal ?? null,
+    areaTerreno: im.areaTerreno ?? null, medidasTerreno: im.medidasTerreno || null });
   if (tem('comodos')) Object.assign(f, {
     quartos: im.quartos ?? 0, banheiros: im.banheiros ?? 0, vagas: im.vagas ?? 0,
     andar: im.andar || null, mobiliado: im.mobiliado || null,
+    vagasCobertas: im.vagasCobertas ?? null, vagasDescobertas: im.vagasDescobertas ?? null,
+    padrao: im.padrao || null, estadoConservacao: im.estadoConservacao || null, anoConstrucao: im.anoConstrucao ?? null,
   });
   if (tem('descricao')) Object.assign(f, { descricaoLonga: im.descricaoLonga || null, tags: im.tags || [] });
   if (tem('condicoes')) Object.assign(f, {
@@ -374,11 +377,18 @@ function montarDadosVitrine(im, ctx) {
     aluguelSugerido: im.aluguelSugerido ?? null, valorVenda: im.valorVenda ?? null,
     valorCondominio: im.valorCondominio ?? null, valorIPTU: im.valorIPTU ?? null,
   });
-  if (pub.mostrarArea !== false) Object.assign(v, { areaUtil: im.areaUtil ?? null, areaTotal: im.areaTotal ?? null });
+  if (pub.mostrarArea !== false) Object.assign(v, { areaUtil: im.areaUtil ?? null, areaTotal: im.areaTotal ?? null,
+    areaTerreno: im.areaTerreno ?? null, medidasTerreno: im.medidasTerreno || null,
+    precoM2: pub.mostrarValor !== false ? (im.precoM2 ?? null) : null });
   if (pub.mostrarComodos !== false) Object.assign(v, {
     quartos: im.quartos ?? 0, banheiros: im.banheiros ?? 0, vagas: im.vagas ?? 0,
     andar: im.andar || null, mobiliado: im.mobiliado || null,
+    vagasCobertas: im.vagasCobertas ?? null, vagasDescobertas: im.vagasDescobertas ?? null,
   });
+  // 📐 29/10/2026: padrão, estado, ano e empreendimento — dizem o que é o imóvel, não onde fica (o nome do
+  // condomínio só vai a público com o bairro liberado, para não entregar o endereço por outro caminho)
+  Object.assign(v, { padrao: im.padrao || null, estadoConservacao: im.estadoConservacao || null, anoConstrucao: im.anoConstrucao ?? null,
+    empreendimento: mostrarBairro ? (im.empreendimento || null) : null });
   return v;
 }
 
@@ -1229,8 +1239,9 @@ async function abrirFichaRede(id) {
       ${linha('Endereço', escapeHtml(endTxt))}
       ${linha('Localização', escapeHtml(local))}
       ${linha('CEP', escapeHtml(end.cep || ''))}
-      ${linha('Área', [f.areaUtil ? `${f.areaUtil} m² útil` : '', f.areaTotal ? `${f.areaTotal} m² total` : ''].filter(Boolean).join(' · '))}
-      ${linha('Cômodos', f.quartos !== undefined ? `${f.quartos} quarto(s) · ${f.banheiros || 0} banheiro(s) · ${f.vagas || 0} vaga(s)` : '')}
+      ${linha('Área', [f.areaUtil ? `${f.areaUtil} m² útil` : '', f.areaTotal ? `${f.areaTotal} m² total` : '', f.areaTerreno ? `terreno ${f.areaTerreno} m²` : '', f.medidasTerreno ? escapeHtml(f.medidasTerreno) : ''].filter(Boolean).join(' · '))}
+      ${linha('Cômodos', f.quartos !== undefined ? `${f.quartos} quarto(s) · ${f.banheiros || 0} banheiro(s) · ${f.vagas || 0} vaga(s)${f.vagasCobertas != null || f.vagasDescobertas != null ? ` (${f.vagasCobertas || 0} coberta(s), ${f.vagasDescobertas || 0} descoberta(s))` : ''}` : '')}
+      ${linha('Padrão / estado', [typeof PADRAO_LABEL !== 'undefined' ? PADRAO_LABEL[f.padrao] : '', typeof ESTADO_LABEL !== 'undefined' ? ESTADO_LABEL[f.estadoConservacao] : '', f.anoConstrucao ? `construído em ${f.anoConstrucao}` : ''].filter(Boolean).map(escapeHtml).join(' · '))}
       ${linha('Andar', escapeHtml(f.andar || ''))}
       ${linha('Permuta', f.aceitaPermuta === 'sim' ? `Aceita${f.permutaObs ? ' — ' + escapeHtml(f.permutaObs) : ''}` : '')}
       ${linha('Financiamento / FGTS', [f.aceitaFinanciamento, f.permiteFGTS].some(Boolean) ? `${escapeHtml(f.aceitaFinanciamento || '—')} / ${escapeHtml(f.permiteFGTS || '—')}` : '')}

@@ -383,7 +383,8 @@ function gerarZapXml(tenant, imoveis) {
         <PropertyType>${esc(propertyType)}</PropertyType>
         <Description>${cdata(im._descricao)}</Description>
         <LivingArea unit="square metres">${im.areaUtil || 0}</LivingArea>
-        <LotArea unit="square metres">${im.areaTotal || 0}</LotArea>
+        <LotArea unit="square metres">${im.areaTerreno || im.areaTotal || 0}</LotArea>
+        ${im.anoConstrucao ? `<YearBuilt>${im.anoConstrucao}</YearBuilt>` : ''}
         <Bedrooms>${im.quartos || 0}</Bedrooms>
         <Bathrooms>${im.banheiros || 0}</Bathrooms>
         <Garage type="Parking Space">${im.vagas || 0}</Garage>

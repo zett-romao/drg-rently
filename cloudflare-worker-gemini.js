@@ -673,6 +673,11 @@ Responda APENAS com JSON válido, sem markdown:
     "endereco": { "cep": string|null, "logradouro": string|null, "numero": string|null, "complemento": string|null, "bairro": string|null, "cidade": string|null, "uf": string|null },
     "areaUtil": number|null, "areaTotal": number|null, "andar": string|null,
     "quartos": int|null, "suites": int|null, "banheiros": int|null, "vagas": int|null, "mobiliado": string|null,
+    "vagasCobertas": int|null, "vagasDescobertas": int|null,
+    "areaTerreno": number|null (m² do TERRENO/lote, não da construção), "medidasTerreno": string|null (ex.: "10 x 30 m"),
+    "padrao": "economico"|"medio"|"medio_alto"|"alto"|"luxo"|null,
+    "estadoConservacao": "na_planta"|"em_construcao"|"novo"|"otimo"|"bom"|"regular"|"reformado"|"precisa_reforma"|null,
+    "anoConstrucao": int|null, "empreendimento": string|null (nome do condomínio/empreendimento/edifício),
     "valorVenda": number|null, "aluguelSugerido": number|null, "valorCondominio": number|null, "valorIPTU": number|null,
     "aceitaFinanciamento": string|null, "permiteFGTS": string|null, "aceitaPermuta": string|null, "permutaObs": string|null,
     "matricula": string|null, "iptu": string|null, "videoUrl": string|null, "tourUrl": string|null, "obs": string|null
