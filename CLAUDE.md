@@ -824,6 +824,12 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
   volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
   é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
+- **2026-10-29**: 🔄 **Converter tipo de conta** (Super Admin, `conversao.js`; dono: "a Dayane é parceira D.R. Global…").
+  Busca por e-mail; mesmo uid/login. (A) admin/equipe de um tenant → corretor **parceiro** de outro (padrão D.R. Global
+  `K52yZ4nqu7Z7DJfVegYo`), já ativo, cartão com telefone/CPF/endereço da conta antiga; arquiva a antiga se ele era o único usuário.
+  (B) parceiro → **conta própria** (tenant novo em trial, ele admin; CPF em `config/cadastro`); cartão antigo fica suspenso,
+  imóveis ficam com a imobiliária (🔁 Carteira antes). Nenhuma regra nova (186/186). Login ganhou 3 portas: imobiliária,
+  corretor autônomo (ambos alugam o CRM) e "Sou corretor parceiro da D.R. Global" (`parceiro.html?t=drglobal`, com aprovação).
 - **2026-10-28 (noite)**: pacote "Univen" (dono: *"faça todas as melhoras… deixe um aviso de como funciona"*):
   🔒 **CPF da imobiliária PF** saiu do doc público `tenants/{id}` → `config/cadastro.cpf`; `carregarCadastroPrivadoTenant()`
   (no `renderApp`) devolve ao `State.tenant.cpf` e migra/apaga o público (admin ou Super Admin; a lista do Super Admin migra em lote).

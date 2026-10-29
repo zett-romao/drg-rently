@@ -300,6 +300,29 @@ await caso('carteira: novo dono (cor2) lê o imóvel', true, () => getDoc(R(db('
 await caso('carteira: antigo dono (cor1) lê o imóvel BLOQUEIA', false, () => getDoc(R(db('cor1'), 'imoveis', 'im1')));
 await caso('carteira: corretor se apropria de imóvel alheio BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'imoveis', 'im1'), { criadoPor: 'cor1' }));
 
+// ---------- 29/10/2026: converter tipo de conta (Super Admin) ----------
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  await setDoc(doc(d, 'tenants', 'tErrado'), { nome: 'Conta errada', tipoPessoa: 'PF', criadoPor: 'dona' });
+  await setDoc(doc(d, 'users', 'dona'), { role: 'admin', tenantId: 'tErrado', nome: 'Dona', email: 'dona@x.com' });
+});
+const conv = (uid) => { const d = db(uid); const b = writeBatch(d);
+  b.set(doc(d, 'tenants', T, 'corretores', 'dona'), { uid: 'dona', nome: 'Dona', tipo: 'parceiro', status: 'ativo', origem: 'conversao' }, { merge: true });
+  b.update(doc(d, 'users', 'dona'), { role: 'corretor', tenantId: T, ativo: true, status: 'ativo', perfilId: null });
+  b.update(doc(d, 'tenants', 'tErrado'), { arquivado: true, ativo: false });
+  return b.commit(); };
+await caso('conversão: admin de outra imobiliária converte BLOQUEIA', false, () => conv('admin1'));
+await caso('conversão: a própria pessoa se converte em parceiro BLOQUEIA', false, () => conv('dona'));
+await caso('conversão: Super Admin converte conta própria → parceiro', true, () => conv('super'));
+await caso('conversão: convertida lê o próprio cartão de parceiro', true, () => getDoc(R(db('dona'), 'corretores', 'dona')));
+await caso('conversão: Super Admin dá conta própria ao parceiro', true, () => { const d = db('super'); const b = writeBatch(d);
+  b.set(doc(d, 'tenants', 'tNovo'), { nome: 'Conta nova', tipoPessoa: 'PF', plano: 'trial', ativo: true, criadoPor: 'super' });
+  b.update(doc(d, 'users', 'dona'), { role: 'admin', tenantId: 'tNovo', ativo: true, status: 'ativo', perfilId: null });
+  b.update(doc(d, 'tenants', T, 'corretores', 'dona'), { status: 'suspenso', convertidoPara: 'tNovo' });
+  return b.commit(); });
+await caso('conversão: Super Admin grava o cadastro privado da conta nova', true, () => setDoc(doc(db('super'), 'tenants', 'tNovo', 'config', 'cadastro'), { cpf: '529.982.247-25' }));
+await caso('conversão: ex-parceiro (agora admin da conta nova) lê imóveis da antiga BLOQUEIA', false, () => getDoc(R(db('dona'), 'imoveis', 'im2')));
+
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
 process.exit(falhas ? 1 : 0);
