@@ -4417,3 +4417,14 @@ details.card > summary:hover {
 .auth-cadastro-nota { font-size: 11.5px; color: var(--text-muted, #64748b); margin: 12px 0 0; line-height: 1.5; }
 @media (max-width: 420px) { .auth-cadastro-opcoes { grid-template-columns: 1fr; } }
 .auth-cadastro-parceiro { grid-column: 1 / -1; text-decoration: none; }
+
+/* ➕ 29/10/2026 — "Novo proprietário" dentro do cadastro do imóvel */
+.prop-novo-box{border:1.5px solid #cbd5e1;border-left:4px solid #475569;border-radius:12px;background:#f8fafc;padding:14px 16px 12px;margin:4px 0 18px}
+.prop-novo-topo{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;line-height:1.4}
+.prop-novo-topo strong{white-space:nowrap}
+.prop-novo-topo .muted{flex:1;font-size:12.5px}
+.prop-novo-topo .modal-close{position:static;margin-left:auto;flex:none;width:32px;height:32px;line-height:28px}
+.prop-novo-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:4px}
+.prop-novo-acoes .btn{min-height:40px}
+#btn-prop-novo{margin-top:6px}
+@media (max-width:600px){.prop-novo-topo{flex-wrap:wrap}.prop-novo-topo .muted{flex-basis:100%;order:3}}

@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261029b-parceiro">
+  <link rel="stylesheet" href="styles.css?v=20261029c-proprietario">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -260,7 +260,7 @@
         <div class="nav-group" data-nav-group="cadastros">
           <div class="nav-group-title">Cadastros</div>
           <div class="drag-hint">↕ arraste para reordenar</div>
-          <a class="nav-link" data-section="locadores" title="Locadores (para aluguel) e Vendedores (para venda) — cadastro unificado de proprietários"><span class="nav-ico">🏠</span><span>Locadores / Vendedores</span></a>
+          <a class="nav-link" data-section="locadores" title="Proprietários — o mesmo cadastro serve para aluguel e para venda"><span class="nav-ico">🏠</span><span>Proprietários</span></a>
           <a class="nav-link" data-section="locatarios"><span class="nav-ico">👤</span><span>Locatários</span></a>
           <a class="nav-link" data-section="compradores"><span class="nav-ico">🔑</span><span>Compradores</span></a>
           <a class="nav-link" data-section="garantias"><span class="nav-ico">🛡</span><span>Garantias</span></a>
@@ -458,12 +458,12 @@
           <div class="card">
             <div class="section-header">
               <div>
-                <h3>Locadores / Vendedores</h3>
-                <p class="muted">Cadastro unificado de proprietários — atuam como <strong>locadores</strong> em aluguéis e como <strong>vendedores</strong> em negociações de venda.</p>
+                <h3>Proprietários</h3>
+                <p class="muted">Cadastro unificado dos proprietários — o mesmo cadastro serve para <strong>aluguel</strong> e para <strong>venda</strong>.</p>
               </div>
               <div style="display:flex; gap:8px; flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" onclick="exportarLocadores()" title="Baixar CSV com todos os cadastros desta lista">📥 Exportar CSV</button>
-                <button class="btn btn-primary" data-perm="locadores:criar" onclick="openLocadorModal()">+ Novo Locador/Vendedor</button>
+                <button class="btn btn-primary" data-perm="locadores:criar" onclick="openLocadorModal()">+ Novo Proprietário</button>
               </div>
             </div>
 
@@ -726,7 +726,7 @@
                     <th>Apelido</th>
                     <th>Tipo</th>
                     <th>Finalidade</th>
-                    <th>Locador / Vendedor</th>
+                    <th>Proprietário</th>
                     <th>Valor</th>
                     <th>Status</th>
                     <th>Ações</th>
@@ -1419,7 +1419,7 @@
                 <label class="import-tipo-card" data-tipo="locadores">
                   <input type="radio" name="import-tipo-radio" value="locadores" checked onchange="onImportTipoChange()">
                   <div class="import-tipo-emoji">🏠</div>
-                  <div class="import-tipo-titulo">Locadores / Vendedores</div>
+                  <div class="import-tipo-titulo">Proprietários</div>
                   <div class="import-tipo-desc">Proprietários — nome, CPF/CNPJ, contato, endereço, dados bancários</div>
                 </label>
                 <label class="import-tipo-card" data-tipo="locatarios">
@@ -3339,7 +3339,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
 
           <div class="resumo-pix-aviso" id="resumo-pix-aviso" style="display:none;">
-            ⚠ Locador sem chave Pix cadastrada. Cadastre em <strong>🏠 Locadores</strong> para habilitar este atalho.
+            ⚠ Proprietário sem chave Pix cadastrada. Cadastre em <strong>🏠 Proprietários</strong> para habilitar este atalho.
           </div>
 
           <!-- G4: Asaas — cobrar locatário + pagar locador -->
@@ -4291,7 +4291,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <span id="negociacao-imovel-info" class="input-status muted" style="display:none;"></span>
           </div>
           <div class="form-group">
-            <label class="required">Vendedor (proprietário)</label>
+            <label class="required">Proprietário (vendedor)</label>
             <select id="negociacao-vendedor">
               <option value="">Carregando…</option>
             </select>
@@ -4874,11 +4874,31 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             </select>
           </div>
           <div class="form-group">
-            <label class="required">Locador (proprietário)</label>
+            <label class="required">Proprietário</label>
             <select id="imovel-locador">
               <option value="">Carregando…</option>
             </select>
+            <!-- ➕ 29/10/2026 (o dono: "nesta tela opção de já cadastrar o proprietário, juntamente com o cadastro do anúncio") -->
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-prop-novo" data-perm="locadores:criar" style="margin-top:6px;" onclick="abrirProprietarioNoImovel()">➕ Cadastrar novo proprietário aqui</button>
           </div>
+        </div>
+
+        <div id="imovel-prop-novo" class="prop-novo-box" style="display:none;">
+          <div class="prop-novo-topo"><strong>🏠 Novo proprietário</strong> <span class="muted">— o essencial agora; o restante (documentos, Pix, endereço) dá para completar depois em 🏠 Proprietários.</span>
+            <button type="button" class="modal-close" title="Fechar" onclick="fecharProprietarioNoImovel()">×</button></div>
+          <div class="form-row">
+            <div class="form-group"><label class="required" for="imovel-prop-nome">Nome / Razão social</label><input type="text" id="imovel-prop-nome" autocomplete="off"></div>
+            <div class="form-group"><label for="imovel-prop-doc">CPF / CNPJ <small class="muted">(pode ficar para depois)</small></label><input type="text" id="imovel-prop-doc" inputmode="numeric" maxlength="18" oninput="this.value = maskCPFCNPJ(this.value)"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label for="imovel-prop-tel">Telefone / WhatsApp</label><input type="tel" id="imovel-prop-tel" inputmode="tel" maxlength="16" oninput="this.value = maskTelefone(this.value)"></div>
+            <div class="form-group"><label for="imovel-prop-email">E-mail</label><input type="email" id="imovel-prop-email" autocomplete="off"></div>
+          </div>
+          <div class="prop-novo-acoes">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-prop-salvar" onclick="cadastrarProprietarioNoImovel()">✓ Cadastrar e usar neste imóvel</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="cadastroCompletoProprietarioNoImovel()">📝 Abrir o cadastro completo</button>
+          </div>
+          <div id="imovel-prop-status" class="status-inline" style="display:none;"></div>
         </div>
 
         <h4 class="form-section-title">Endereço</h4>
@@ -5276,6 +5296,9 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeImovelModal()">Cancelar</button>
         <button class="btn btn-danger" id="btn-delete-imovel" onclick="deleteImovel()" style="display:none;">Excluir</button>
+        <!-- 📝 29/10/2026 (o dono: "precisa existir a opção de salvar rascunho"). Só para imóvel novo ou ainda em rascunho:
+             num anúncio pronto, "rascunho" o tiraria da vitrine. -->
+        <button class="btn btn-secondary" id="btn-rascunho-imovel" onclick="saveImovel({ rascunho: true })" title="Guarda o que já foi preenchido, sem exigir os campos obrigatórios e sem publicar">📝 Salvar rascunho</button>
         <button class="btn btn-primary" id="btn-save-imovel" onclick="saveImovel()">Salvar</button>
       </div>
     </div>
@@ -6166,7 +6189,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261029j-inicio-corretor"></script>
+  <script src="app.js?v=20261029k-proprietario"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
   <script src="rede.js?v=20261029g-reenviar"></script>
   <script src="protecao.js?v=20261029a-contrato-sign"></script>

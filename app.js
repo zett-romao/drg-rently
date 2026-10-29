@@ -1256,7 +1256,7 @@ function showSection(name, _opts = {}) {
     corretores: 'Corretores',
     alertas: 'Alertas',
     relatorios: 'Relatórios',
-    locadores: 'Locadores / Vendedores',
+    locadores: 'Proprietários',
     locatarios: 'Locatários',
     compradores: 'Compradores',
     garantias: 'Garantias',
@@ -4133,7 +4133,7 @@ async function loadLocadores() {
   try {
     const snap = await queryDoUsuario('locadores', 'nome');
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum cadastro ainda. Clique em "Novo Locador/Vendedor" para começar.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum cadastro ainda. Clique em "Novo Proprietário" para começar.</td></tr>`;
       _locadoresCarregados = [];
       return;
     }
@@ -4911,7 +4911,7 @@ async function saveLocador() {
       btn.textContent = 'Salvar';
       invalidateLocadoresCache();
       await openLocadorModal(docRef.id);
-      showAlert('locador-alert', 'Locador criado. Agora você pode anexar documentos.', 'success');
+      showAlert('locador-alert', 'Proprietário criado. Agora você pode anexar documentos.', 'success');
       loadLocadores();
       return;
     }
@@ -10826,7 +10826,7 @@ async function populateLocadorSelect(selectEl, selectedId) {
   try {
     const locs = await ensureLocadoresCache();
     if (locs.length === 0) {
-      selectEl.innerHTML = '<option value="">— Nenhum locador cadastrado —</option>';
+      selectEl.innerHTML = '<option value="">— Nenhum proprietário cadastrado —</option>';
       return;
     }
     const options = ['<option value="">— Selecione —</option>'];
@@ -11030,6 +11030,8 @@ const IMOVEL_CAMPOS_AUTOSAVE = [
 
 async function openImovelModal(id) {
   clearAlert('imovel-alert');
+  fecharProprietarioNoImovel();
+  botaoRascunhoImovel(!id);   // imóvel novo: rascunho liberado; existente: decide quando ler o registro
 
   $('imovel-id').value = id || '';
   $('modal-imovel-title').textContent = id ? 'Editar Imóvel' : 'Novo Imóvel';
@@ -11143,6 +11145,7 @@ async function openImovelModal(id) {
       const docSnap = await tenantPath().collection('imoveis').doc(id).get();
       const linkAtivo = !!(docSnap.data() || {}).linkPublico;
       estadoPublicarImovel(!(docSnap.data() || {}).rascunho);
+      botaoRascunhoImovel(!!(docSnap.data() || {}).rascunho);
       $('imovel-link-publico').checked = linkAtivo;
       updateLinkPublicoUI(linkAtivo, id);
     } catch (_) {}
@@ -11218,13 +11221,31 @@ function closeImovelModal() {
   if (id) sincronizarFichaRede(id).catch(e => console.warn('Ficha da rede não sincronizada:', e));
 }
 
-async function saveImovel() {
+async function saveImovel(opts) {
   clearAlert('imovel-alert');
   clearInlineStatus('imovel-acoes-status');
+  // 📝 29/10/2026 (o dono: "precisa existir a opção de salvar rascunho"): o rascunho guarda o que já
+  // foi preenchido SEM exigir o obrigatório, não ganha código de anúncio, não vai à rede nem ao site
+  // (vitrine, rede e portais já ignoram `rascunho: true`). O "Salvar" completo encerra o rascunho.
+  const rascunho = !!(opts && opts.rascunho === true);
 
   const id = $('imovel-id').value;
-  const apelido = $('imovel-apelido').value.trim();
+  let apelido = $('imovel-apelido').value.trim();
+  // ➕ Proprietário digitado na caixa "Cadastrar novo proprietário aqui" e ainda não gravado: grava agora
+  if (!$('imovel-locador').value && $('imovel-prop-novo').style.display !== 'none' && $('imovel-prop-nome').value.trim()) {
+    const novoId = await cadastrarProprietarioNoImovel({ doSalvar: true });
+    if (!novoId && !rascunho) {
+      showInlineStatus('imovel-acoes-status', '⚠️ O proprietário não foi cadastrado — veja o aviso na caixa do proprietário.', 'error');
+      return;
+    }
+  }
   const locadorId = $('imovel-locador').value;
+  if (rascunho && !apelido) {
+    const tipoTxt = $('imovel-subtipo')?.selectedOptions?.[0]?.text || 'Imóvel';
+    const onde = $('imovel-bairro').value.trim() || $('imovel-cidade').value.trim();
+    apelido = `${tipoTxt && tipoTxt !== '—' ? tipoTxt : 'Imóvel'}${onde ? ' — ' + onde : ''} (rascunho ${new Date().toLocaleDateString('pt-BR')})`;
+    $('imovel-apelido').value = apelido;
+  }
 
   // Validações com foco automático no campo + scroll suave
   if (!apelido) {
@@ -11238,8 +11259,8 @@ async function saveImovel() {
     }
     return;
   }
-  if (!locadorId) {
-    showInlineStatus('imovel-acoes-status', '⚠️ Selecione o <strong>locador (proprietário)</strong> do imóvel.', 'error');
+  if (!locadorId && !rascunho) {
+    showInlineStatus('imovel-acoes-status', '⚠️ Selecione o <strong>proprietário</strong> do imóvel — ou cadastre um novo no botão "➕ Cadastrar novo proprietário aqui".', 'error');
     const sel = $('imovel-locador');
     if (sel) {
       sel.focus({ preventScroll: false });
@@ -11255,7 +11276,7 @@ async function saveImovel() {
     status: $('imovel-status').value,
     tipo: $('imovel-tipo').value,
     subtipo: $('imovel-subtipo').value || null,
-    locadorId,
+    locadorId: locadorId || null,
     endereco: {
       cep: $('imovel-cep').value.replace(/\D/g, '') || null,
       logradouro: $('imovel-logradouro').value.trim() || null,
@@ -11307,7 +11328,7 @@ async function saveImovel() {
     ...lerAnuncioDoModalImovel(),
     // Salvar completo encerra o rascunho criado no 1º envio de foto/documento (garantirRascunhoImovel);
     // sem isso o imóvel ficava sem Divulgar e fora da vitrine mesmo publicado.
-    rascunho: false,
+    rascunho,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
 
@@ -11318,9 +11339,13 @@ async function saveImovel() {
     return;
   }
 
-  const btn = $('btn-save-imovel');
+  const btn = $(rascunho ? 'btn-rascunho-imovel' : 'btn-save-imovel');
+  const textoBtn = btn.textContent;
+  const outro = $(rascunho ? 'btn-save-imovel' : 'btn-rascunho-imovel');
   btn.disabled = true;
-  btn.textContent = '⏳ Salvando… aguarde';
+  if (outro) outro.disabled = true;
+  btn.textContent = rascunho ? '⏳ Salvando rascunho… aguarde' : '⏳ Salvando… aguarde';
+  let rascunhoOk = false;
 
   try {
     if (!id) {
@@ -11328,6 +11353,33 @@ async function saveImovel() {
       data.criadoPor = State.user.uid;
     }
     const antes = await lerAntes('imoveis', id);
+    // 🔒 Rascunho nunca rebaixa um anúncio pronto (o botão só aparece em novo/rascunho; o servidor da tela confere de novo)
+    if (rascunho && antes && antes.rascunho === false) {
+      showInlineStatus('imovel-acoes-status', '⚠️ Este imóvel já está salvo por completo — use "Salvar". Rascunho é só para cadastro ainda não concluído.', 'error');
+      return;
+    }
+    if (rascunho) {
+      const r = await gravar({ modulo: 'imoveis', colecao: 'imoveis', op: id ? 'editar' : 'criar', id: id || null,
+        dados: data, antes, titulo: `Imóvel ${data.apelido} (rascunho)` });
+      if (r.pendente) {
+        modalAutoSaveClear('imovel');
+        showInlineStatus('imovel-acoes-status', msgGravacao(r), 'success');
+        rascunhoOk = true;
+        setTimeout(() => { closeImovelModal(); botoesImovelDestravar(); }, 1800);
+        return;
+      }
+      const novoId = id || r.id;
+      $('imovel-id').value = novoId;
+      logAuditoria(id ? 'update' : 'create', 'imovel-rascunho', novoId, { apelido: data.apelido });
+      invalidateImoveisCache();
+      modalAutoSaveClear('imovel');
+      loadImoveis();
+      rascunhoOk = true;
+      btn.textContent = '✓ Rascunho salvo';
+      showInlineStatus('imovel-acoes-status', '📝 <strong>Rascunho salvo.</strong> Ele aparece em Imóveis com a etiqueta "rascunho" e não vai para o site nem para a rede. Para concluir, abra e clique em "Salvar".', 'success');
+      setTimeout(() => { closeImovelModal(); botoesImovelDestravar(); }, 2200);
+      return;
+    }
     // Código do anúncio: uma vez dado, nunca muda
     if (!(antes && antes.codigoAnuncio)) {
       const codigo = await reservarCodigoAnuncioSeguro();
@@ -11364,9 +11416,138 @@ async function saveImovel() {
     console.error('Erro ao salvar:', err);
     showInlineStatus('imovel-acoes-status', `❌ Erro ao salvar: ${err.message}`, 'error');
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Salvar';
+    if (!rascunhoOk) {
+      btn.disabled = false;
+      btn.textContent = rascunho ? textoBtn : 'Salvar';
+      if (outro) outro.disabled = false;
+    }
   }
+}
+// O botão "📝 Salvar rascunho": só em imóvel novo ou que ainda é rascunho
+function botaoRascunhoImovel(mostrar) {
+  const b = $('btn-rascunho-imovel');
+  if (b) b.style.display = mostrar ? '' : 'none';
+}
+function botoesImovelDestravar() {
+  const a = $('btn-save-imovel'), b = $('btn-rascunho-imovel');
+  if (a) { a.disabled = false; a.textContent = 'Salvar'; }
+  if (b) { b.disabled = false; b.textContent = '📝 Salvar rascunho'; }
+}
+
+// =============================================================
+// ➕ PROPRIETÁRIO NO PRÓPRIO CADASTRO DO IMÓVEL (29/10/2026, o dono: "nesta tela opção de já
+// cadastrar o proprietário, juntamente com o cadastro do anúncio"). O essencial (nome, CPF/CNPJ
+// opcional, telefone, e-mail) grava pelo gravar() — o perfil decide: grava, manda para aprovação
+// ou recusa. 🔓 CPF/CNPJ pode ficar pendente (regra de 21/10); preenchido, é validado.
+// Quem já está cadastrado (mesmo documento, telefone, e-mail ou nome) é SELECIONADO, não duplicado.
+// =============================================================
+function abrirProprietarioNoImovel() {
+  const box = $('imovel-prop-novo');
+  if (!box) return;
+  box.style.display = 'block';
+  clearInlineStatus('imovel-prop-status');
+  try { box.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+  setTimeout(() => $('imovel-prop-nome').focus(), 250);
+}
+function fecharProprietarioNoImovel() {
+  const box = $('imovel-prop-novo');
+  if (!box) return;
+  box.style.display = 'none';
+  ['imovel-prop-nome', 'imovel-prop-doc', 'imovel-prop-tel', 'imovel-prop-email'].forEach((i) => { const el = $(i); if (el) el.value = ''; });
+  clearInlineStatus('imovel-prop-status');
+}
+async function cadastrarProprietarioNoImovel(opts) {
+  const st = 'imovel-prop-status';
+  const nome = $('imovel-prop-nome').value.trim();
+  const doc = $('imovel-prop-doc').value.replace(/\D/g, '');
+  const tel = $('imovel-prop-tel').value.replace(/\D/g, '');
+  const email = $('imovel-prop-email').value.trim().toLowerCase();
+  const erro = (msg, campo) => {
+    showInlineStatus(st, msg, 'error');
+    const el = $(campo); if (el) { el.focus(); el.classList.add('input-erro-pulse'); setTimeout(() => el.classList.remove('input-erro-pulse'), 2000); }
+    return null;
+  };
+  if (!nome) return erro('⚠️ Informe o <strong>nome</strong> do proprietário.', 'imovel-prop-nome');
+  if (doc && !(doc.length === 11 ? isCPFValid(doc) : doc.length === 14 ? isCNPJValid(doc) : false)) return erro('⚠️ CPF/CNPJ inválido — confira ou deixe em branco para completar depois.', 'imovel-prop-doc');
+  if (tel && tel.length < 10) return erro('⚠️ Telefone incompleto — use DDD + número.', 'imovel-prop-tel');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erro('⚠️ E-mail inválido.', 'imovel-prop-email');
+
+  const btn = $('btn-prop-salvar');
+  btn.disabled = true;
+  btn.textContent = '⏳ Cadastrando… aguarde';
+  const sel = $('imovel-locador');
+  let ok = false;
+  try {
+    let locs = [];
+    try { locs = await ensureLocadoresCache(); } catch (_) {}
+    const dig = (s) => String(s || '').replace(/\D/g, '');
+    const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const achado = locs.find((l) => (doc && dig(l.documento) === doc)
+      || (tel.length >= 10 && dig(l.telefone).length >= 10 && dig(l.telefone).slice(-9) === tel.slice(-9))
+      || (email && String(l.email || '').toLowerCase() === email)
+      || norm(l.nome) === norm(nome));
+    if (achado) {
+      await populateLocadorSelect(sel, achado.id);
+      sel.value = achado.id; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      showInlineStatus(st, `✓ <strong>${escapeHtml(achado.nome)}</strong> já estava cadastrado — foi selecionado neste imóvel (não duplicamos).`, 'success');
+      ok = true;
+      setTimeout(fecharProprietarioNoImovel, 2200);
+      return achado.id;
+    }
+    const fin = $('imovel-finalidade')?.value;
+    const papeis = fin === 'venda' ? { locador: false, vendedor: true } : fin === 'locacao' ? { locador: true, vendedor: false } : { locador: true, vendedor: true };
+    const tipo = doc.length === 14 ? 'PJ' : 'PF';
+    const agora = firebase.firestore.FieldValue.serverTimestamp();
+    const dados = {
+      tipo, nome, papeis,
+      documento: doc || null, documentoPendente: !doc,
+      rg: null, nascimento: null, estadoCivil: null, profissao: null, nacionalidade: tipo === 'PF' ? 'Brasileira' : null,
+      email: email || null, telefone: tel || null,
+      endereco: { cep: null, logradouro: null, numero: null, complemento: null, bairro: null, cidade: null, uf: null },
+      pix: null, banco: null, dadosBancarios: null,
+      obs: `Cadastrado junto com o imóvel "${$('imovel-apelido').value.trim() || 'novo'}" — completar documentos, endereço e Pix.`,
+      administradoTerceiros: false, representante: null,
+      origem: 'cadastro-imovel', criadoEm: agora, criadoPor: State.user.uid, atualizadoEm: agora,
+    };
+    const r = await gravar({ modulo: 'locadores', colecao: 'locadores', op: 'criar', dados, titulo: `Proprietário ${nome}` });
+    invalidateLocadoresCache();
+    if (r.pendente) {
+      showInlineStatus(st, `${msgGravacao(r)} Enquanto não for aprovado, ele não aparece na lista — salve o imóvel como <strong>rascunho</strong> e escolha o proprietário depois.`, 'success');
+      ok = true;
+      return null;
+    }
+    logAuditoria('create', 'locador', r.id, { nome, origem: 'cadastro-imovel', semDocumento: !doc });
+    await populateLocadorSelect(sel, r.id);
+    sel.value = r.id; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    showInlineStatus(st, `✓ Proprietário <strong>${escapeHtml(nome)}</strong> cadastrado e selecionado${doc ? '' : ' — o CPF/CNPJ fica <strong>pendente</strong> (o contrato não sai sem ele)'}.`, 'success');
+    ok = true;
+    if (!(opts && opts.doSalvar)) setTimeout(fecharProprietarioNoImovel, 2400);
+    else fecharProprietarioNoImovel();
+    return r.id;
+  } catch (err) {
+    console.error('Proprietário no imóvel:', err);
+    showInlineStatus(st, '❌ Não consegui cadastrar: ' + escapeHtml(err.message), 'error');
+    return null;
+  } finally {
+    // erro: destrava já; sucesso: destrava quando a caixa fecha
+    setTimeout(() => { btn.disabled = false; btn.textContent = '✓ Cadastrar e usar neste imóvel'; }, ok ? 2400 : 0);
+  }
+}
+// Cadastro completo por cima do imóvel, já com o que foi digitado; ao fechar, a lista se atualiza
+async function cadastroCompletoProprietarioNoImovel() {
+  const v = { nome: $('imovel-prop-nome').value.trim(), doc: $('imovel-prop-doc').value.trim(), tel: $('imovel-prop-tel').value.trim(), email: $('imovel-prop-email').value.trim() };
+  const pre = (id, val) => { const el = $(id); if (el && val) { el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+  if (typeof _locadorPorCimaIA !== 'function') { await openLocadorModal(); return; }
+  await _locadorPorCimaIA(async () => {
+    await openLocadorModal();
+    pre('locador-nome', v.nome); pre('locador-documento', v.doc); pre('locador-telefone', v.tel); pre('locador-email', v.email);
+  }, async () => {
+    // o novo entra na lista; se veio com nome, já seleciona
+    const locs = await ensureLocadoresCache().catch(() => []);
+    const n = (s) => String(s || '').trim().toLowerCase();
+    const achado = v.nome && locs.find((l) => n(l.nome) === n(v.nome));
+    if (achado) { const sel = $('imovel-locador'); await populateLocadorSelect(sel, achado.id); sel.value = achado.id; fecharProprietarioNoImovel(); }
+  });
 }
 
 async function deleteImovel() {
