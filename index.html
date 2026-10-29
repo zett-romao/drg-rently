@@ -1721,6 +1721,34 @@
               <button class="btn btn-secondary btn-sm" onclick="loadEquipe()">🔄 Recarregar</button>
             </div>
             <div id="equipe-alert" class="alert alert-error" style="display:none;"></div>
+            <h4 class="form-section-title">🗺 Quem acessa o quê</h4>
+            <p class="muted" style="font-size:12px; margin-bottom:8px;">
+              Todos os usuários da imobiliária (equipe e corretores) e o que cada um alcança nos dados mais sensíveis.
+              <strong>🔐 Permissões</strong> abre o que a pessoa pode fazer, para ver, editar ou excluir.
+            </p>
+            <div style="font-size:12px; background:#F8FAFC; border:1px solid var(--border,#e2e8f0); border-radius:8px; padding:10px 12px; margin-bottom:10px; line-height:1.6;">
+              🔒 <strong>Corretor</strong>: travado no servidor — só lê os imóveis e proprietários que <strong>ele captou</strong>, as fichas da rede (sem contato de ninguém) e os leads repassados a ele <strong>sem telefone/e-mail do cliente</strong>. Nenhum perfil libera mais que isso.<br>
+              👥 <strong>Equipe interna</strong> (administrador/operador): “Ver” esconde o módulo das telas e o servidor barra gravar sem “✅ Pode”, mas a <strong>leitura</strong> dos dados da imobiliária é liberada para toda a equipe. Só dê login de equipe a quem é de confiança — parceiro externo entra sempre como <strong>corretor</strong>.
+            </div>
+            <div class="table-wrap" style="margin-bottom:18px;">
+              <table class="table" style="font-size:12.5px;">
+                <thead>
+                  <tr>
+                    <th>Usuário</th>
+                    <th>Imóveis</th>
+                    <th>Proprietários</th>
+                    <th>Leads (contato do cliente)</th>
+                    <th>Contratos / Financeiro</th>
+                    <th>Ações delicadas</th>
+                    <th>Perfil</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-mapa-acessos">
+                  <tr><td colspan="8" class="empty">Carregando…</td></tr>
+                </tbody>
+              </table>
+            </div>
             <h4 class="form-section-title">👥 Usuários e perfis da imobiliária</h4>
             <div style="background:linear-gradient(135deg, #eef2ff, #e0e7ff); border:1px solid #c7d2fe; border-radius:8px; padding:14px; margin-bottom:16px;">
               <p style="margin:0 0 8px; color:var(--primary-dark); font-size:13px;">
@@ -3501,6 +3529,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <input type="text" id="perfil-nome" placeholder="Ex: Captador, Financeiro, Atendente">
         </div>
 
+        <p id="perfil-individual-aviso" style="display:none; font-size:12.5px; background:#EFF6FF; color:#1E3A8A; border-left:3px solid #2563EB; padding:8px 10px; margin-bottom:12px;"></p>
         <p id="perfil-travado-aviso" style="display:none; font-size:12.5px; background:#FEF2F2; color:#991B1B; border-left:3px solid #DC2626; padding:8px 10px; margin-bottom:12px;"></p>
 
         <div class="form-group">
@@ -6056,8 +6085,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261022f-auditoria-ceo"></script>
-  <script src="rede.js?v=20261028d-email-corretor"></script>
+  <script src="app.js?v=20261028e-permissoes"></script>
+  <script src="rede.js?v=20261028e-permissoes"></script>
   <script src="protecao.js?v=20261017j-protecao"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
   <script src="ia-imovel.js?v=20261021h-fotos"></script>

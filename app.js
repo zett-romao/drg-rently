@@ -14801,7 +14801,77 @@ async function carregarPerfisCache() {
 async function loadEquipe() {
   await loadPerfis();
   await loadUsuariosTenant();
+  await loadMapaAcessos();
 }
+
+// 🗺 Quem acessa o quê — visão por usuário do que ele alcança nos dados sensíveis.
+// Corretor: o alcance vem das regras do servidor (só o que captou; lead sem contato).
+async function loadMapaAcessos() {
+  const tbody = $('tbody-mapa-acessos');
+  if (!tbody || !State.tenant) return;
+  try {
+    const snap = await db.collection('users').where('tenantId', '==', State.tenant.id).get();
+    const gerencia = pode('gerenciarUsuariosPerfis');
+    const ordemRole = { admin: 0, operador: 1, corretor: 2 };
+    const docs = snap.docs.slice().sort((a, b) => {
+      const ua = a.data(), ub = b.data();
+      return (ordemRole[ua.role] ?? 1) - (ordemRole[ub.role] ?? 1) || String(ua.nome || '').localeCompare(String(ub.nome || ''));
+    });
+    if (!docs.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Nenhum usuário.</td></tr>'; return; }
+    const verde = (t) => `<span style="color:#047857;">${t}</span>`;
+    const laranja = (t) => `<span style="color:#b45309; font-weight:600;">${t}</span>`;
+    const cinza = (t) => `<span class="muted">${t}</span>`;
+    const ops = (p) => OPS_MODULO.filter(op => p[op] !== 'nao').map(op => OP_LABEL[op].toLowerCase() + (p[op] === 'aprovacao' ? ' 🕓' : '')).join(', ');
+    tbody.innerHTML = docs.map(d => {
+      const u = d.data();
+      const role = u.role || 'operador';
+      const ativo = u.ativo !== false && u.status !== 'suspenso';
+      const pendente = u.status === 'pendente';
+      const tipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+      const norm = perfilEfetivoDe(u);
+      const P = norm.permissoes;
+      const c = u.perfilId && _perfisCache[u.perfilId];
+      const nomePerfil = c ? (c.doc.individualUid ? '🔐 Individual' : escapeHtml(c.doc.nome || u.perfilId)) : `Padrão ${tipo}`;
+      const corretor = role === 'corretor';
+      let imoveis, locadores, leads, contratos;
+      if (!ativo || pendente) {
+        imoveis = locadores = leads = contratos = cinza(pendente ? 'aguardando aprovação — sem acesso' : 'suspenso/desativado — sem acesso');
+      } else if (corretor) {
+        imoveis = P.imoveis.ver ? verde('só os que captou') + `<br><span class="muted" style="font-size:11px;">${ops(P.imoveis) || 'só ver'} · rede: ficha sem contato</span>` : cinza('não vê');
+        locadores = P.locadores.ver ? verde('só os que ele cadastrou') : cinza('não vê');
+        leads = verde('só os repassados a ele, sem telefone/e-mail');
+        contratos = cinza('não vê');
+      } else {
+        imoveis = P.imoveis.ver ? laranja('todos') + `<br><span class="muted" style="font-size:11px;">${ops(P.imoveis) || 'só ver'}</span>` : cinza('módulo oculto');
+        locadores = P.locadores.ver ? laranja('todos (CPF, Pix)') : cinza('módulo oculto');
+        leads = P.leads.ver ? laranja('todos, com telefone/e-mail') : cinza('módulo oculto');
+        const fin = ['contratos', 'balancetes', 'caixa'].filter(m => P[m] && P[m].ver).map(m => ({ contratos: 'contratos', balancetes: 'balancetes', caixa: 'livro caixa' }[m]));
+        contratos = fin.length ? laranja(fin.join(', ')) : cinza('módulo oculto');
+      }
+      const delicadas = ACOES_SENSIVEIS.filter(a => norm.acoes[a.id] === 'sim');
+      const comApr = ACOES_SENSIVEIS.filter(a => norm.acoes[a.id] === 'aprovacao');
+      const acoesTxt = (!ativo || pendente) ? cinza('—')
+        : (delicadas.length ? `<span title="${escapeHtml(delicadas.map(a => a.label).join('\n'))}" style="cursor:help; color:#b45309; font-weight:600;">${delicadas.length} ✅</span>` : cinza('nenhuma'))
+          + (comApr.length ? ` <span title="${escapeHtml(comApr.map(a => a.label).join('\n'))}" style="cursor:help;" class="muted">· ${comApr.length} 🕓</span>` : '');
+      const isSelf = d.id === State.user.uid;
+      const btn = (!gerencia || isSelf || role === 'admin') ? ''
+        : `<button class="btn btn-sm btn-secondary" onclick="openPermissoesUsuario('${d.id}')">🔐 Permissões</button>`;
+      return `<tr>
+        <td><strong>${escapeHtml(u.nome || '—')}</strong>${isSelf ? ' <span class="muted" style="font-size:11px;">(você)</span>' : ''}<br><span class="muted" style="font-size:11px;">${tipo} · ${escapeHtml(u.email || '')}</span></td>
+        <td>${role === 'admin' && ativo ? laranja('tudo (dono)') : imoveis}</td>
+        <td>${role === 'admin' && ativo ? laranja('tudo') : locadores}</td>
+        <td>${role === 'admin' && ativo ? laranja('tudo') : leads}</td>
+        <td>${role === 'admin' && ativo ? laranja('tudo') : contratos}</td>
+        <td>${role === 'admin' && ativo ? laranja('todas') : acoesTxt}</td>
+        <td style="font-size:11.5px;">${role === 'admin' ? 'Administrador' : nomePerfil}</td>
+        <td>${btn}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--danger);">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+window.loadMapaAcessos = loadMapaAcessos;
 
 async function loadPerfis() {
   const tbody = $('tbody-perfis');
@@ -15014,6 +15084,8 @@ function lerPerfilDoEditor() {
 
 async function openPerfilModal(id) {
   clearAlert('perfil-alert');
+  _perfilIndividual = null;
+  $('perfil-individual-aviso').style.display = 'none';
   $('perfil-id').value = id || '';
   $('modal-perfil-title').textContent = id ? 'Perfil de permissões' : 'Novo perfil';
   $('perfil-nome').value = '';
@@ -15050,7 +15122,50 @@ async function openPerfilModal(id) {
   $('modal-perfil').style.display = 'flex';
 }
 
-function closePerfilModal() { $('modal-perfil').style.display = 'none'; }
+function closePerfilModal() { $('modal-perfil').style.display = 'none'; _perfilIndividual = null; }
+
+// Permissões de UM usuário (botão 🔐 Permissões em Corretores e no mapa de acessos).
+// Perfil individual = doc em perfis/ com individualUid; mexer nele não afeta mais ninguém.
+// Sem individual, o editor abre com o que ele tem hoje e o Salvar cria o individual e já atribui.
+let _perfilIndividual = null;   // { uid, nome, role, perfilAnterior }
+
+async function openPermissoesUsuario(uid) {
+  if (!pode('gerenciarUsuariosPerfis')) {
+    await confirmar({ titulo: 'Sem permissão', mensagem: 'Seu perfil não tem "👥 Gerenciar usuários e perfis".', confirmar: 'OK' });
+    return;
+  }
+  const snap = await db.collection('users').doc(uid).get();
+  if (!snap.exists) { await confirmar({ titulo: 'Sem acesso ao sistema', mensagem: 'Este usuário ainda não tem login — crie o acesso primeiro.', confirmar: 'OK' }); return; }
+  const u = snap.data();
+  await carregarPerfisCache();
+  const atual = u.perfilId && _perfisCache[u.perfilId];
+  const role = u.role || 'operador';
+  const nomeTipo = { admin: 'Administrador', corretor: 'Corretor' }[role] || 'Operador';
+  const titulo = `🔐 Permissões de ${u.nome || 'usuário'}`;
+  const avisoCorretor = role === 'corretor'
+    ? '<br>🔒 Independente do que estiver marcado, corretor <strong>nunca</strong> vê imóveis/proprietários captados por outros, nem telefone/e-mail de lead — isso é travado no servidor.'
+    : '';
+  if (atual && atual.doc.individualUid === uid) {
+    await openPerfilModal(u.perfilId);
+    _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId };
+    $('modal-perfil-title').textContent = titulo;
+    $('perfil-individual-aviso').innerHTML = `Perfil <strong>só deste usuário</strong> — mudar aqui não afeta mais ninguém. `
+      + `<strong>Excluir</strong> apaga essas permissões e ele volta para o padrão do tipo ${nomeTipo}.` + avisoCorretor;
+    $('perfil-individual-aviso').style.display = 'block';
+    return;
+  }
+  await openPerfilModal(null);
+  _perfilIndividual = { uid, nome: u.nome || '', role, perfilAnterior: u.perfilId || null };
+  const nomeAtual = atual ? (atual.doc.nome || u.perfilId) : `padrão do tipo ${nomeTipo}`;
+  $('modal-perfil-title').textContent = titulo;
+  $('perfil-nome').value = `Individual — ${u.nome || uid}`;
+  renderPerfilEditor(perfilEfetivoDe(u), false);
+  $('perfil-individual-aviso').innerHTML = `Hoje ele usa o perfil <strong>${escapeHtml(nomeAtual)}</strong> (abaixo, o que isso permite). `
+    + `Ao <strong>Salvar</strong>, essas permissões viram um perfil <strong>só dele</strong> — os outros que usam “${escapeHtml(nomeAtual)}” não mudam.` + avisoCorretor;
+  $('perfil-individual-aviso').style.display = 'block';
+  $('modal-perfil').style.display = 'flex';
+}
+window.openPermissoesUsuario = openPermissoesUsuario;
 
 async function savePerfil() {
   clearAlert('perfil-alert');
@@ -15084,16 +15199,22 @@ async function savePerfil() {
         await tenantPath().collection('perfis').doc(id).update(payload);
         logAuditoria('update', 'config', 'perfil:' + id, { nome });
       } else {
+        const ind = _perfilIndividual;
         const ref = await tenantPath().collection('perfis').add({
           ...payload, nome, sistema: false,
+          ...(ind ? { individualUid: ind.uid, seedRole: ind.role } : {}),
           criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
         });
         logAuditoria('create', 'config', 'perfil:' + ref.id, { nome });
+        if (ind) {
+          await db.collection('users').doc(ind.uid).update({ perfilId: ref.id });
+          logAuditoria('update', 'usuario', ind.uid, { perfilId: ref.id, perfilAnterior: ind.perfilAnterior });
+        }
       }
     });
     if (rPerfil === DRG_IGNORADO) return;
     $('btn-save-perfil').innerHTML = '✓ Salvo';
-    showAlert('perfil-alert', '✓ Perfil salvo. Vale no próximo acesso de quem usa este perfil.', 'success');
+    showAlert('perfil-alert', _perfilIndividual ? `✓ Permissões de ${_perfilIndividual.nome} salvas. Valem no próximo acesso dele.` : '✓ Perfil salvo. Vale no próximo acesso de quem usa este perfil.', 'success');
     loadEquipe();
     setTimeout(() => { closePerfilModal(); $('btn-save-perfil').disabled = false; $('btn-save-perfil').innerHTML = 'Salvar'; }, 900);
   } catch (err) {
@@ -15111,11 +15232,17 @@ async function deletePerfil() {
       return;
     }
   } catch (_) {}
-  if (!(await confirmar({ titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Operador, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true }))) return;
+  const ind = _perfilIndividual;
+  const nomeTipoInd = ind ? ({ admin: 'Administrador', corretor: 'Corretor' }[ind.role] || 'Operador') : '';
+  const conf = ind
+    ? { titulo: `Excluir as permissões de ${ind.nome}?`, mensagem: 'Apaga o perfil individual dele.', detalhe: `Ele volta para o padrão do tipo ${nomeTipoInd}. Você pode personalizar de novo depois.`, confirmar: '🗑 Excluir', perigo: true }
+    : { titulo: 'Excluir perfil?', mensagem: 'Remover este perfil de permissões.', detalhe: 'Quem estiver neste perfil passa para o perfil-base do seu tipo (Operador, Corretor…). Você pode reatribuir depois.', confirmar: '🗑 Excluir', perigo: true };
+  if (!(await confirmar(conf))) return;
   try {
     const rDel = await drgSubmit($('btn-delete-perfil'), '⏳ Excluindo... aguarde', async () => {
+      if (ind) await db.collection('users').doc(ind.uid).update({ perfilId: null });
       await tenantPath().collection('perfis').doc(id).delete();
-      logAuditoria('delete', 'config', 'perfil:' + id);
+      logAuditoria('delete', 'config', 'perfil:' + id, ind ? { individualDe: ind.uid } : undefined);
     }, { destravar: true });
     if (rDel === DRG_IGNORADO) return;
     closePerfilModal();
@@ -15132,7 +15259,7 @@ function opcoesPerfilUsuario(role, selecionado) {
   const base = _perfisCache['seed_' + role];
   let html = `<option value="">— Padrão do tipo ${nomeTipo}${base ? '' : ' (sem perfil-base criado)'}</option>`;
   Object.entries(_perfisCache)
-    .filter(([pid]) => !pid.startsWith('seed_'))
+    .filter(([pid, c]) => !pid.startsWith('seed_') && (!c.doc.individualUid || pid === selecionado))
     .sort((a, b) => String(a[1].doc.nome).localeCompare(String(b[1].doc.nome)))
     .forEach(([pid, c]) => {
       const acima = c.acima;
@@ -15191,6 +15318,7 @@ async function loadUsuariosTenant() {
           <td>
             ${bloqueado ? `<span class="muted" style="font-size:11px;">${escapeHtml(motivo || '—')}</span>` : `
               <button class="btn btn-sm ${ativo ? 'btn-danger' : 'btn-primary'}" onclick="toggleUsuarioAtivo('${doc.id}', ${!ativo})">${ativo ? 'Desativar' : 'Reativar'}</button>
+              ${u.role === 'admin' ? '' : `<button class="btn btn-sm btn-secondary" onclick="openPermissoesUsuario('${doc.id}')">🔐 Permissões</button>`}
             `}
           </td>
         </tr>

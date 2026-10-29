@@ -556,6 +556,7 @@ async function loadCorretores() {
       if (c.status === 'ativo') acoes.push(`<button class="btn btn-sm btn-danger" onclick="definirStatusCorretor('${c.uid}','suspenso')">Suspender</button>`);
       if (c.status === 'suspenso') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">Reativar</button>`);
       acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openCorretorModal('${c.uid}')">Editar</button>`);
+      if (typeof pode === 'function' && pode('gerenciarUsuariosPerfis')) acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openPermissoesUsuario('${c.uid}')" title="Ver, editar ou excluir o que este corretor pode fazer">🔐 Permissões</button>`);
       if (typeof botoesProtecaoCorretor === 'function' && c.status !== 'pendente') acoes.push(botoesProtecaoCorretor(c));
       return `
         <tr>
