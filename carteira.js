@@ -118,12 +118,17 @@ async function salvarDistribuicao() {
   try {
     await _distRef().set(dados, { merge: true });
     logAuditoria('update', 'config', 'distribuicaoLeads', { ativo, regra: dados.regra, reserva: dados.reserva, retornoSemanas: dados.retornoSemanas });
-    showInlineStatus('dist-status', ativo ? '✓ Distribuição automática ligada.' : '✓ Salvo — distribuição desligada.', 'success', 5000);
-    renderCardDistribuicao();
+    // redesenha ANTES da mensagem (o redesenho recria o #dist-status e apagava o "✓ salvo")
+    await renderCardDistribuicao();
+    showInlineStatus('dist-status', (ativo ? '✅ Salvo — distribuição automática ligada.' : '✅ Salvo — distribuição desligada.')
+      + ' (' + new Date().toLocaleTimeString('pt-BR') + ')', 'success', 8000);
     if (ativo) distribuirLeadsPendentes();
   } catch (err) {
-    showInlineStatus('dist-status', `❌ ${escapeHtml(err.message)}`, 'error');
-  } finally { btn.disabled = false; btn.textContent = '💾 Salvar distribuição'; }
+    showInlineStatus('dist-status', `❌ Não salvou: ${escapeHtml(err.message)}`, 'error');
+  } finally {
+    const b = $('btn-dist-salvar') || btn;   // após o redesenho o botão é outro
+    b.disabled = false; b.textContent = '💾 Salvar distribuição';
+  }
 }
 
 // =============================================================
