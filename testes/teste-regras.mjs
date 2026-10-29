@@ -252,6 +252,54 @@ await caso('proteção: corretor edita o próprio telefone (continua)', true, ()
 await caso('proteção: equipe registra CRECI conferido', true, () => updateDoc(R(db('op0'), 'corretores', 'cor2'), { creciConferido: { em: 'x', por: 'op0' } }));
 await caso('proteção: corretor marca cliente identificado na cópia BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'leadsCorretor', 'L2'), { clienteIdentificado: true, historico: hist }));
 
+// ---------- 28/10/2026: leitura por módulo, exceção de contato, cadastro, carteira ----------
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const d = ctx.firestore();
+  await setDoc(doc(d, 'users', 'cor3'), { role: 'corretor', tenantId: T, ativo: true });
+  await setDoc(doc(d, 'tenants', T, 'corretores', 'cor3'), { nome: 'Cor 3', status: 'ativo', tipo: 'equipe', verContatoProprietario: true });
+  await setDoc(doc(d, 'tenants', T, 'imoveisRede', 'fx'), { apelido: 'Ficha visível', visivel: true, captadorUid: 'cor2', compartilhadoCom: [] });
+  await setDoc(doc(d, 'tenants', T, 'imoveisRede', 'fx', 'contato', 'proprietario'), { nome: 'Dono', telefone: '11999990000' });
+  await setDoc(doc(d, 'tenants', T, 'imoveisRede', 'fy'), { apelido: 'Ficha privada', visivel: false, captadorUid: 'cor2', compartilhadoCom: [] });
+  await setDoc(doc(d, 'tenants', T, 'imoveisRede', 'fy', 'contato', 'proprietario'), { nome: 'Dono 2', telefone: '11999991111' });
+  await setDoc(doc(d, 'tenants', T, 'caixaPool', 'cx1'), { valor: 100, tipo: 'entrada' });
+  await setDoc(doc(d, 'tenants', T, 'config', 'cadastro'), { cpf: '529.982.247-25', endereco: { cidade: 'Sorocaba', uf: 'SP' } });
+});
+await caso('leitura: operador SEM Leads no perfil lê um lead BLOQUEIA', false, () => getDoc(R(db('op4'), 'leadsImoveis', 'L1')));
+await caso('leitura: operador SEM Leads lista os leads BLOQUEIA', false, () => getDocs(collection(db('op4'), 'tenants', T, 'leadsImoveis')));
+await caso('leitura: operador SEM Leads lê cópia do corretor BLOQUEIA', false, () => getDoc(R(db('op4'), 'leadsCorretor', 'L2')));
+await caso('leitura: operador COM Leads lê leads', true, () => getDocs(collection(db('op1'), 'tenants', T, 'leadsImoveis')));
+await caso('leitura: operador sem perfil (padrão) lê leads', true, () => getDoc(R(db('op0'), 'leadsImoveis', 'L1')));
+await caso('leitura: admin lê leads', true, () => getDoc(R(db('admin1'), 'leadsImoveis', 'L1')));
+await caso('leitura: operador SEM Livro Caixa lê caixaPool BLOQUEIA', false, () => getDoc(R(db('op1'), 'caixaPool', 'cx1')));
+await caso('leitura: admin lê caixaPool', true, () => getDoc(R(db('admin1'), 'caixaPool', 'cx1')));
+await caso('leitura: operador sem Leads continua lendo contratos', true, () => getDoc(R(db('op4'), 'contratos', 'c1')));
+await caso('leitura: operador sem Leads continua lendo imóveis', true, () => getDoc(R(db('op4'), 'imoveis', 'im2')));
+
+await caso('exceção: corretor SEM liberação lê contato do proprietário BLOQUEIA', false, () => getDoc(R(db('cor1'), 'imoveisRede', 'fx', 'contato', 'proprietario')));
+await caso('exceção: corretor LIBERADO lê contato do proprietário (ficha visível)', true, () => getDoc(R(db('cor3'), 'imoveisRede', 'fx', 'contato', 'proprietario')));
+await caso('exceção: corretor liberado lê contato de ficha PRIVADA BLOQUEIA', false, () => getDoc(R(db('cor3'), 'imoveisRede', 'fy', 'contato', 'proprietario')));
+await caso('exceção: corretor liberado grava contato BLOQUEIA', false, () => setDoc(R(db('cor3'), 'imoveisRede', 'fx', 'contato', 'proprietario'), { nome: 'x' }));
+await caso('exceção: corretor se libera sozinho BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { verContatoProprietario: true }));
+await caso('exceção: equipe grava o contato da ficha', true, () => setDoc(R(db('op0'), 'imoveisRede', 'fx', 'contato', 'proprietario'), { nome: 'Dono', telefone: '11999990000' }));
+await caso('exceção: equipe libera o corretor', true, () => updateDoc(R(db('op0'), 'corretores', 'cor1'), { verContatoProprietario: false }));
+await caso('exceção: visitante lê contato BLOQUEIA', false, () => getDoc(R(db(null), 'imoveisRede', 'fx', 'contato', 'proprietario')));
+
+await caso('cadastro: corretor completa CPF e endereço no próprio cartão', true, () => updateDoc(R(db('cor1'), 'corretores', 'cor1'), { documento: '529.982.247-25', endereco: { cep: '18010-000', cidade: 'Sorocaba', uf: 'SP' }, telefone: '11911112222' }));
+await caso('cadastro: corretor lê o cadastro privado da imobiliária BLOQUEIA', false, () => getDoc(R(db('cor1'), 'config', 'cadastro')));
+await caso('cadastro: visitante lê o cadastro privado (CPF) BLOQUEIA', false, () => getDoc(R(db(null), 'config', 'cadastro')));
+await caso('cadastro: equipe lê o cadastro privado', true, () => getDoc(R(db('op0'), 'config', 'cadastro')));
+await caso('cadastro: admin tira o CPF do doc público', true, () => updateDoc(doc(db('admin1'), 'tenants', T), { cidade: 'Sorocaba', uf: 'SP' }));
+
+await caso('distribuição: quem edita Leads atribui automático', true, () => updateDoc(R(db('op1'), 'leadsImoveis', 'L1'), { corretorUid: 'cor2', corretorNome: 'Cor 2', atribuidoPor: 'auto', distribuicaoAuto: { motivo: 'rodizio' } }));
+await caso('distribuição: grava a cópia sem contato do corretor', true, () => setDoc(R(db('op1'), 'leadsCorretor', 'L1'), { corretorUid: 'cor2', primeiroNome: 'x', status: 'novo', historico: [] }));
+await caso('distribuição: quem NÃO edita Leads atribui BLOQUEIA', false, () => updateDoc(R(db('op4'), 'leadsImoveis', 'L1'), { corretorUid: 'cor1' }));
+await caso('distribuição: grava o ponteiro do rodízio', true, () => setDoc(R(db('op0'), 'config', 'distribuicaoLeads'), { rodizioUltimoUid: 'cor2' }, { merge: true }));
+
+await caso('carteira: equipe passa o imóvel para outro corretor', true, () => updateDoc(R(db('admin1'), 'imoveis', 'im1'), { criadoPor: 'cor2', carteiraAnterior: { uid: 'cor1' } }));
+await caso('carteira: novo dono (cor2) lê o imóvel', true, () => getDoc(R(db('cor2'), 'imoveis', 'im1')));
+await caso('carteira: antigo dono (cor1) lê o imóvel BLOQUEIA', false, () => getDoc(R(db('cor1'), 'imoveis', 'im1')));
+await caso('carteira: corretor se apropria de imóvel alheio BLOQUEIA', false, () => updateDoc(R(db('cor1'), 'imoveis', 'im1'), { criadoPor: 'cor1' }));
+
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();
 process.exit(falhas ? 1 : 0);

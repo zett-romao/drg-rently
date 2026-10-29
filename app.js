@@ -832,11 +832,7 @@ async function doSignupTenant() {
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       criadoPor: createdUid,
     };
-    if (tipoPessoa === 'PF') {
-      tenantData.cpf = docFormatado;
-    } else {
-      tenantData.cnpj = docFormatado;
-    }
+    if (tipoPessoa !== 'PF') tenantData.cnpj = docFormatado;   // CPF vai no config/cadastro (privado)
 
     const batch = db.batch();
     batch.set(tenantRef, tenantData);
@@ -850,7 +846,7 @@ async function doSignupTenant() {
 
     await batch.commit();
     // Endereço completo no doc privado (só depois do batch: a regra exige o usuário já criado)
-    try { await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').set({ endereco: signupEndereco }); }
+    try { await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').set({ endereco: signupEndereco, ...(tipoPessoa === 'PF' ? { cpf: docFormatado } : {}) }); }
     catch (e) { console.warn('Endereço da sede não gravado (completar em Configurações):', e); }
 
     State.signingUp = false;
@@ -1127,7 +1123,33 @@ function aplicarMarcaContexto() {
   }
 }
 
+// 🔒 CPF da imobiliária pessoa física (28/10/2026): o doc tenants/{id} é de leitura PÚBLICA (site,
+// vitrine), então o CPF mora em tenants/{id}/config/cadastro (só a equipe lê). Aqui ele volta
+// para o State (o resto do app continua usando State.tenant.cpf) e, se ainda estiver no doc
+// público, é migrado e apagado de lá (admin do tenant ou Super Admin).
+const _cadastroPrivadoLido = new WeakSet();
+async function carregarCadastroPrivadoTenant() {
+  const t = State.tenant;
+  if (!t || _cadastroPrivadoLido.has(t)) return;
+  _cadastroPrivadoLido.add(t);
+  if (typeof isCorretor === 'function' && isCorretor()) return;   // corretor não lê config/
+  try {
+    const ref = tenantPath().collection('config').doc('cadastro');
+    const s = await ref.get();
+    const cad = s.exists ? s.data() : {};
+    const cpfPublico = t.cpf || null;
+    if (cad.cpf) t.cpf = cad.cpf;
+    if (cad.endereco) t.enderecoSede = cad.endereco;
+    const podeMigrar = State.isSuperAdmin || State.userDoc?.role === 'admin';
+    if (cpfPublico && podeMigrar) {
+      if (!cad.cpf) await ref.set({ cpf: cpfPublico }, { merge: true });
+      await tenantPath().update({ cpf: firebase.firestore.FieldValue.delete() });
+    }
+  } catch (e) { console.warn('Cadastro privado do tenant não carregado:', e); }
+}
+
 async function renderApp() {
+  await carregarCadastroPrivadoTenant();
   aplicarMarcaContexto();
   $('user-name').textContent = State.userDoc?.nome || State.user?.email || '—';
   $('footer-version').textContent = `v${APP_VERSION}`;
@@ -1161,6 +1183,7 @@ async function renderApp() {
   if (State.tenant && isCorretor()) atualizarBadgeMeusLeads();
   if (State.tenant && isCorretor() && typeof verificarContratoCorretor === 'function') verificarContratoCorretor();
   if (State.tenant && isCorretor() && typeof verificarCadastroCorretor === 'function') verificarCadastroCorretor();
+  if (State.tenant && !isCorretor() && typeof iniciarDistribuicaoLeads === 'function') iniciarDistribuicaoLeads();
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
@@ -1493,6 +1516,18 @@ async function loadTenantsTable() {
       return;
     }
     _tenantsCarregados = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // CPF de PF fica no doc privado: busca (e migra o que ainda estiver no público)
+    await Promise.all(_tenantsCarregados.filter(t => t.tipoPessoa === 'PF' || t.cpf).map(async (t) => {
+      try {
+        const ref = db.collection('tenants').doc(t.id).collection('config').doc('cadastro');
+        const cad = (await ref.get()).data() || {};
+        if (t.cpf) {
+          if (!cad.cpf) await ref.set({ cpf: t.cpf }, { merge: true });
+          await db.collection('tenants').doc(t.id).update({ cpf: firebase.firestore.FieldValue.delete() });
+        }
+        t.cpf = cad.cpf || t.cpf || null;
+      } catch (e) { console.warn('CPF privado do tenant', t.id, e); }
+    }));
     renderSuperAdminKpis(_tenantsCarregados);
     renderTenantsTable();
   } catch (err) {
@@ -1781,6 +1816,9 @@ async function openTenantModal(tenantId) {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     if (!tSnap.exists) { showAlert('tenant-alert', 'Tenant não encontrado.'); return; }
     const t = tSnap.data();
+    if (!t.cpf && t.tipoPessoa === 'PF') {
+      try { t.cpf = (await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').get()).data()?.cpf || null; } catch (_) {}
+    }
 
     const tipoPessoa = t.tipoPessoa || (t.cpf ? 'PF' : 'PJ');
     const tipoLabel = tipoPessoa === 'PF' ? '👤 Corretor Autônomo (PF)' : '🏢 Imobiliária (PJ)';
@@ -2062,7 +2100,7 @@ async function saveNovoCliente() {
       criadoPor: State.user.uid,
       cadastradoPeloSuperAdmin: true,
     };
-    if (pf) tenantData.cpf = formataCPF(docDigits); else tenantData.cnpj = formataCNPJ(docDigits);
+    if (!pf) tenantData.cnpj = formataCNPJ(docDigits);   // CPF vai no config/cadastro (privado)
     if (ilimitado) { tenantData.pacote = 'ilimitado'; tenantData.modulosHabilitados = null; }
 
     const batch = db.batch();
@@ -2072,7 +2110,7 @@ async function saveNovoCliente() {
       criadoEm: agora, criadoPor: State.user.uid,
     });
     await batch.commit();
-    await tenantRef.collection('config').doc('cadastro').set({ endereco: lerEndereco('nc-end') });
+    await tenantRef.collection('config').doc('cadastro').set({ endereco: lerEndereco('nc-end'), ...(pf ? { cpf: formataCPF(docDigits) } : {}) });
 
     logAuditoria('create', 'tenant', tenantRef.id, { nome, tipoPessoa: _tipoNovoCliente, plano, admin: email });
     closeNovoClienteModal();
@@ -16293,6 +16331,9 @@ async function criarCustomerAsaas(tenantId) {
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     const t = tSnap.data();
+    if (!t.cnpj && !t.cpf) {
+      try { t.cpf = (await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').get()).data()?.cpf || null; } catch (_) {}
+    }
     const cpfCnpj = (t.cnpj || t.cpf || '').replace(/\D/g, '');
     if (!cpfCnpj) throw new Error('Tenant não tem CPF nem CNPJ cadastrado.');
 

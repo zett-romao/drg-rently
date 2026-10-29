@@ -586,6 +586,13 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   6. **Marca d'água obrigatória** nas fotos do corretor, com a **logo da imobiliária** (Configurações;
      reserva: logo do sistema). Sem logo aplicada, a foto do corretor não sobe. Nome do arquivo neutro.
   7. Página pública: "💬 Fale com a imobiliária".
+- 🔓 **ALTERADA 28/10/2026** (o dono, sobre trazer do Univen a "exceção individual para contato do proprietário":
+  *"faça todas as melhoras, inclusive a automação de carteira"*):
+  1. **Exceção por corretor**: `corretores/{uid}.verContatoProprietario` (chave no Editar corretor, só a equipe liga;
+     regra barra o corretor de se ligar). Padrão continua **desligado** = contato sempre da imobiliária.
+  2. O contato fica em `imoveisRede/{id}/contato/proprietario` (nome/telefone/e-mail), gravado **só pela equipe** em
+     `sincronizarFichaRede`; lê só o corretor liberado e só de ficha que ele enxerga. Fichas antigas: "Reaplicar a todos".
+  3. Lead continua **sem** contato do cliente para o corretor (não mudou).
 - **Fichas antigas** ainda guardam o contato do captador/proprietário até alguém clicar
   **Corretores → Visibilidade da rede → Reaplicar a todos** (uma vez por cliente, depois do deploy).
 - Testes: `testes/teste-regras.mjs` (132 casos, seção "Blindagem").
@@ -817,6 +824,18 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
   volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
   é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
+- **2026-10-28 (noite)**: pacote "Univen" (dono: *"faça todas as melhoras… deixe um aviso de como funciona"*):
+  🔒 **CPF da imobiliária PF** saiu do doc público `tenants/{id}` → `config/cadastro.cpf`; `carregarCadastroPrivadoTenant()`
+  (no `renderApp`) devolve ao `State.tenant.cpf` e migra/apaga o público (admin ou Super Admin; a lista do Super Admin migra em lote).
+  🎯 **Distribuição automática de leads** (`carteira.js`, `config/distribuicaoLeads`): cliente que volta em N semanas → mesmo
+  corretor; captador do imóvel; reserva rodízio (ponteiro `rodizioUltimoUid`, em transação) / sorteio / manual; só leads depois
+  de `ativadoEm`; marca `distribuicaoAuto` + `atribuidoPor:'auto'` (selo 🤖 na tela Leads). ⚠️ Roda no navegador de quem é
+  equipe com Leads ✅ editar (a cada 2 min) — não há servidor de madrugada; o card explica isso ao cliente.
+  🔁 **Transferir carteira** (botão no corretor e oferta ao suspender): `imoveis.criadoPor` + `locadores.criadoPor` +
+  leads abertos (e cópia `leadsCorretor`) → outro corretor ou a imobiliária; refaz a ficha; `carteiraAnterior` guardado.
+  🔒 **Leitura por módulo da equipe** (regras): `leadsImoveis`/`leadsCorretor` exigem ver Leads; `caixaPool*` exigem ver
+  Livro Caixa. Demais cadastros seguem livres para a equipe (telas cruzam dados). Testes: 179/179 (`teste-regras.mjs`;
+  nesta máquina a porta 8080 é ocupada por outro servidor — rodar o emulador em 8181).
 - **2026-10-28**: 📋 **Cadastro obrigatório de corretor e imobiliária** (dono: *"deve ser obrigatório eles informarem seus endereços
   e telefones e cpf/cnpj"*). `cadastro-comum.js` (index + parceiro.html): `<div data-endereco="prefixo">` vira campos com ViaCEP,
   `lerEndereco/preencherEndereco/faltaNoEndereco/fmtEndereco`, `cpfCnpjValido`, `faltaNoCadastroCorretor`.

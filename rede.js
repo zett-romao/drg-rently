@@ -260,6 +260,22 @@ async function sincronizarFichaRede(imovelId) {
     ...montarDadosRede(im, REDE_TODOS_CAMPOS, ctx),
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   });
+  // 🔓 Exceção (28/10/2026): contato do proprietário num doc à parte, que o servidor só deixa
+  // ler o corretor marcado "ver contato dos proprietários". Só a equipe grava (o corretor não lê
+  // proprietário alheio para copiar). Sem a regra colada no Console, falha calado.
+  if (!isCorretor()) {
+    try {
+      const contatoRef = fichaRef.collection('contato').doc('proprietario');
+      const loc = im.locadorId ? await tenantPath().collection('locadores').doc(im.locadorId).get() : null;
+      if (loc && loc.exists) {
+        const l = loc.data();
+        await contatoRef.set({ nome: l.nome || null, telefone: l.telefone || null, email: l.email || null,
+          atualizadoEm: firebase.firestore.FieldValue.serverTimestamp() });
+      } else {
+        await contatoRef.delete().catch(() => {});
+      }
+    } catch (e) { console.warn('Contato do proprietário (exceção) não gravado:', e.code || e.message); }
+  }
 
   await sincronizarVitrine(imovelId, im, ctx);
 }
@@ -534,6 +550,7 @@ async function loadCorretores() {
       .sort((a, b) => (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9) || String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR'));
     if (typeof sincronizarContratosParceria === 'function') await sincronizarContratosParceria(lista);
     if (typeof renderCardProtecao === 'function' && $('card-protecao-rede') && !$('card-protecao-rede').innerHTML.trim()) renderCardProtecao();
+    if (typeof renderCardDistribuicao === 'function' && $('card-distribuicao-leads') && !$('card-distribuicao-leads').innerHTML.trim()) renderCardDistribuicao();
     tbody.innerHTML = lista.map(c => {
       const acoes = [];
       // Pré-cadastro da IA (ia-imovel.js): ficha sem login — Aprovar/Editar mexeriam em users/{uid}, que não existe
@@ -556,6 +573,8 @@ async function loadCorretores() {
       if (c.status === 'ativo') acoes.push(`<button class="btn btn-sm btn-danger" onclick="definirStatusCorretor('${c.uid}','suspenso')">Suspender</button>`);
       if (c.status === 'suspenso') acoes.push(`<button class="btn btn-sm btn-primary" onclick="definirStatusCorretor('${c.uid}','ativo')">Reativar</button>`);
       acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openCorretorModal('${c.uid}')">Editar</button>`);
+      if (typeof openTransferirCarteira === 'function' && typeof nivelPermissao === 'function' && nivelPermissao('corretores', 'editar') === 'sim')
+        acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openTransferirCarteira('${c.uid}')" title="Passar imóveis, proprietários e leads deste corretor para outro">🔁 Carteira</button>`);
       if (typeof pode === 'function' && pode('gerenciarUsuariosPerfis')) acoes.push(`<button class="btn btn-sm btn-secondary" onclick="openPermissoesUsuario('${c.uid}')" title="Ver, editar ou excluir o que este corretor pode fazer">🔐 Permissões</button>`);
       if (typeof botoesProtecaoCorretor === 'function' && c.status !== 'pendente') acoes.push(botoesProtecaoCorretor(c));
       return `
@@ -601,6 +620,7 @@ async function openCorretorModal(uid) {
   $('corretor-documento').value = c.documento ? fmtCpfCnpj(c.documento) : '';
   preencherEndereco('corretor-end', c.endereco);
   $('corretor-tipo').value = c.tipo || 'parceiro';
+  $('corretor-ver-contato-prop').checked = !!c.verContatoProprietario;
   $('corretor-email').dataset.original = c.email || '';
   $('corretor-email').dataset.semConta = c.semConta ? '1' : '';
   $('corretor-senha').value = gerarSenhaAleatoria(10);
@@ -696,10 +716,11 @@ async function saveCorretor() {
       }
       await tenantPath().collection('corretores').doc(uidExistente).update({
         nome, telefone, creci, tipo, documento, endereco,
+        verContatoProprietario: $('corretor-ver-contato-prop').checked,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
       await db.collection('users').doc(uidExistente).update({ nome });
-      logAuditoria('update', 'corretor', uidExistente, { nome, tipo });
+      logAuditoria('update', 'corretor', uidExistente, { nome, tipo, verContatoProprietario: $('corretor-ver-contato-prop').checked });
       closeCorretorModal();
       if (avisoEmailTrocado) showInlineStatus('corretores-status', avisoEmailTrocado, avisoEmailTrocado.startsWith('✅') ? 'success' : 'error');
       loadCorretores();
@@ -723,6 +744,7 @@ async function saveCorretor() {
       });
       await tenantPath().collection('corretores').doc(uid).set({
         uid, nome, email, telefone, creci, tipo, documento, endereco, status: 'ativo',
+        verContatoProprietario: $('corretor-ver-contato-prop').checked,
         origem: 'admin', criadoEm: agora, criadoPor: State.user.uid,
       });
     } catch (e) {
@@ -894,6 +916,10 @@ async function definirStatusCorretor(uid, status) {
     logAuditoria('status', 'corretor', uid, { status, creciConferido: !!creciConferido });
     _corretoresAtivosCache = null;
     loadCorretores();
+    if (status === 'suspenso' && typeof openTransferirCarteira === 'function'
+        && await confirmar({ titulo: '🔁 Transferir a carteira?', mensagem: 'O corretor foi suspenso. Quer passar agora os imóveis, proprietários e leads dele para outro corretor?', confirmar: '🔁 Transferir agora', cancelar: 'Depois' })) {
+      openTransferirCarteira(uid);
+    }
     if (status === 'ativo' && creciConferido && typeof enviarContratoParceria === 'function'
         && await confirmar({ titulo: '📝 Contrato de parceria', mensagem: 'Mandar agora o contrato de parceria para o corretor assinar?', detalhe: 'O modelo fica em Corretores → 🛡 Proteção da rede.', confirmar: '📝 Enviar contrato', cancelar: 'Depois' })) {
       enviarContratoParceria(uid, null);
@@ -1016,6 +1042,15 @@ function renderRede() {
   }).join('');
 }
 
+// Corretor marcado como exceção (corretores/{uid}.verContatoProprietario) — lido uma vez por sessão
+let _veContatoProprietario = null;
+async function corretorVeContatoProprietario() {
+  if (_veContatoProprietario !== null) return _veContatoProprietario;
+  try { _veContatoProprietario = !!(await tenantPath().collection('corretores').doc(State.user.uid).get()).data()?.verContatoProprietario; }
+  catch (_) { _veContatoProprietario = false; }
+  return _veContatoProprietario;
+}
+
 async function abrirFichaRede(id) {
   const resumo = _redeCarregada.find(f => f._id === id);
   if (!resumo) return;
@@ -1028,6 +1063,13 @@ async function abrirFichaRede(id) {
     } catch (e) { console.warn('Ficha completa indisponível, mostrando ficha da rede:', e); }
   }
 
+  let proprietarioLiberado = null;
+  if (isCorretor() && await corretorVeContatoProprietario()) {
+    try {
+      const s = await tenantPath().collection('imoveisRede').doc(id).collection('contato').doc('proprietario').get();
+      if (s.exists) proprietarioLiberado = s.data();
+    } catch (_) {}
+  }
   const linha = (rotulo, valor) => (valor === null || valor === undefined || valor === '') ? ''
     : `<tr><td class="muted" style="padding:4px 10px 4px 0; white-space:nowrap;">${rotulo}</td><td style="padding:4px 0;">${valor}</td></tr>`;
   const end = f.endereco || {};
@@ -1055,6 +1097,7 @@ async function abrirFichaRede(id) {
       ${linha('Matrícula', escapeHtml(f.matricula || ''))}
       ${linha('IPTU', escapeHtml(f.iptu || ''))}
       ${linha('Contato para negociar', contato(contatoImobiliaria()) + ' <span class="muted" style="font-size:11px;">(sempre a imobiliária)</span>')}
+      ${proprietarioLiberado ? linha('Proprietário', contato(proprietarioLiberado) + ' <span class="muted" style="font-size:11px;">(liberado pela imobiliária só para você — uso restrito a esta negociação)</span>') : ''}
       ${!isCorretor() && f._captadorNome ? linha('Captador', escapeHtml(f._captadorNome)) : ''}
       ${linha('Vídeo', urlSegura(f.videoUrl) ? `<a href="${urlSegura(f.videoUrl)}" target="_blank" rel="noopener">abrir</a>` : '')}
       ${linha('Tour virtual', urlSegura(f.tourUrl) ? `<a href="${urlSegura(f.tourUrl)}" target="_blank" rel="noopener">abrir</a>` : '')}
@@ -1426,6 +1469,7 @@ function celulaCorretorLead(l) {
   const dias = diasDesde(l.atribuidoEm);
   const parado = (l.status || 'novo') === 'novo' && dias !== null && dias >= 2;
   return `<strong style="font-size:12px;">${escapeHtml(l.corretorNome || 'Corretor')}</strong>`
+    + (l.atribuidoPor === 'auto' ? ` <span class="papel-chip" title="${escapeHtml(l.notaRepasse || 'Distribuído automaticamente')}">🤖 automático</span>` : '')
     + (dias !== null ? `<br><span style="font-size:11px; ${parado ? 'color:#B91C1C; font-weight:600;' : 'color:var(--text-muted);'}">${parado ? '⚠️ sem contato há ' : 'há '}${dias} dia(s)</span>` : '');
 }
 

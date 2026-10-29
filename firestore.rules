@@ -298,9 +298,14 @@ service cloud.firestore {
       // Gravação conferida pelo perfil (fase 4); leitura continua livre para a equipe.
       // Auditoria (17/10/2026): IMUTÁVEL — ninguém altera nem apaga, e cada um só registra em
       // nome próprio, com a hora do servidor. Lê quem enxerga o módulo Auditoria.
+      // 🔒 Leitura por módulo (28/10/2026): leads (contato do cliente) e Livro Caixa só para quem
+      // VÊ o módulo no perfil — antes o "Ver" só escondia a tela. Demais cadastros seguem livres
+      // para a equipe (uma tela lê dados de outras: contrato lê proprietário, imóvel etc.).
       match /{collection}/{docId} {
         allow read: if isEquipeTenant(tenantId)
-                    && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'));
+                    && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'))
+                    && (!(collection in ['leadsImoveis', 'leadsCorretor']) || veModulo(tenantId, 'leads'))
+                    && (!(collection in ['caixaPool', 'caixaPoolFechamento']) || veModulo(tenantId, 'caixa'));
         allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
                       && (collection != 'auditoria' || registroDeAuditoriaValido())
                       && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
@@ -380,10 +385,10 @@ service cloud.firestore {
         // corretor edita o próprio cartão, sem mexer em status/tipo/comissão
         allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria']);
+                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria', 'verContatoProprietario']);
         // autocadastro: cria o próprio cartão pendente (programa ligado)
         allow create: if isSignedIn() && request.auth.uid == corretorId
-                      && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria'])
+                      && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria', 'verContatoProprietario'])
                       && request.resource.data.status == 'pendente'
                       && request.resource.data.tipo == 'parceiro'
                       && programaParceirosAtivo(tenantId);
@@ -595,6 +600,18 @@ service cloud.firestore {
                       && fichaSemContato(request.resource.data);
         allow delete: if isCorretorOf(tenantId)
                       && resource.data.captadorUid == request.auth.uid;
+
+        // 🔓 Contato do proprietário (exceção, 28/10/2026): só a equipe grava; lê só o corretor
+        // marcado pela imobiliária (corretores/{uid}.verContatoProprietario) e só de ficha que ele enxerga.
+        match /contato/{docId} {
+          allow read, write: if isEquipeTenant(tenantId);
+          allow read, write: if isDRGTeam();
+          allow read: if isCorretorOf(tenantId)
+                      && get(/databases/$(database)/documents/tenants/$(tenantId)/corretores/$(request.auth.uid)).data.get('verContatoProprietario', false) == true
+                      && (get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('visivel', false) == true
+                          || get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.captadorUid == request.auth.uid
+                          || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', []));
+        }
 
         // Ficha COMPLETA: só captador e corretores liberados
         match /completo/{docId} {
