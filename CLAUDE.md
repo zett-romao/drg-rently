@@ -828,6 +828,14 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
   volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
   é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
+- **2026-10-29 (3)**: 🔑 **Criar senha quebrado** ("Requests from referer https://drg-rently.firebaseapp.com/ are blocked"):
+  a chave do navegador (Google Cloud, "Browser key (auto created by Firebase)") só aceita rently.dev.br, github.io,
+  drglobalimoveis e localhost — a página padrão do Firebase (`drg-rently.firebaseapp.com/__/auth/action`) é barrada.
+  Conserto: **`acao.html`** (rently.dev.br, verifyPasswordResetCode/confirmPasswordReset); Worker Asaas monta o link
+  `https://rently.dev.br/acao.html?mode=resetPassword&oobCode=…`. Botão **🔑 Reenviar acesso** no corretor.
+  ⚠️ Pendente (precisa do dono — o auto mode barrou): Authentication → Modelos → "URL de ação personalizada" =
+  `https://rently.dev.br/acao.html` + idioma pt-BR (hoje callbackUri padrão e e-mails em inglês) — senão o
+  "Esqueci minha senha" continua caindo na página barrada.
 - **2026-10-29 (2)**: 🏷 **Tipos de corretor** (`TIPOS_CORRETOR` no rede.js): parceiro, associado (Lei 13.097), equipe,
   estagiário/trainee (tudo 🕓), captador (só imóveis/proprietários, sem fichas da rede, sem leads, sem "Meus leads").
   Cada tipo ganha perfil-base `perfis/tipo_<tipo>` (sistema, criado no 1º uso por `aplicarPerfilDoTipo`, editável);
