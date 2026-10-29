@@ -817,6 +817,16 @@ texto original fica, e a regra nova entra à vista com 🔓 ALTERADA + data.
   🔐 **Permissões por usuário**: botão no corretor e na lista de usuários → perfil individual (`perfis.individualUid`), excluir =
   volta ao padrão do tipo. 🗺 **Quem acessa o quê** em Equipe e permissões. ⚠️ Lacuna conhecida: para a **equipe interna** o "Ver"
   é só de tela (regra genérica deixa ler tudo); corretor é travado no servidor. Fechar a leitura por módulo = mudar `firestore.rules`.
+- **2026-10-28**: 📋 **Cadastro obrigatório de corretor e imobiliária** (dono: *"deve ser obrigatório eles informarem seus endereços
+  e telefones e cpf/cnpj"*). `cadastro-comum.js` (index + parceiro.html): `<div data-endereco="prefixo">` vira campos com ViaCEP,
+  `lerEndereco/preencherEndereco/faltaNoEndereco/fmtEndereco`, `cpfCnpjValido`, `faltaNoCadastroCorretor`.
+  Corretor: `corretores.{documento, endereco, telefone}` exigidos no modal da equipe, no autocadastro e — p/ quem já existia —
+  no login (`verificarCadastroCorretor`, modal até preencher). Lista mostra "⚠️ cadastro incompleto".
+  Imobiliária: endereço completo em **`config/cadastro`** (privado — o doc `tenants/{id}` é público); no tenant só `cidade`/`uf`.
+  Exigido no Criar conta, no + Novo cliente e avisado em Configurações (`faltaNoCadastroImobiliaria`).
+  ⚖️ **Contrato de parceria**: qualificação completa das duas partes; **foro = sempre a cidade da sede, com renúncia expressa a
+  qualquer outro** (`CLAUSULA_FORO`, forçada por `_ajustarModelo` mesmo em modelo editado; campo "cidade do foro" saiu).
+  Não gera com cadastro incompleto (`faltasParaContrato`).
 - **2026-10-19**: 📣 **Divulgar imóvel** (`divulgar.js`; dono: *"compartilhar imóvel… whats, e-mail, link… gerador de anúncios para status de WhatsApp, reels, story"*).
   Botão na lista e no cadastro. Compartilhar: link do Worker do feed (prévia com foto), WhatsApp, e-mail, Facebook, X, Telegram, LinkedIn, copiar, navigator.share.
   Peças em canvas: Story/Status 9:16, Feed 1:1 e 4:5 (modelos Foto inteira e Mosaico) e vídeo 9:16 (MediaRecorder, MP4 no Chrome, WebM de reserva),

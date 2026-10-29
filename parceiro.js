@@ -156,6 +156,11 @@ async function enviarCadastroParceiro() {
   if (nome.split(/\s+/).length < 2) return showFormAlert('Informe o nome completo.');
   if (programa.exigeCreci !== false && !creci) return showFormAlert('Informe seu CRECI.');
   if (telefone.length < 10) return showFormAlert('Telefone inválido (com DDD).');
+  const documento = fmtCpfCnpj($$('f-documento').value);
+  if (!cpfCnpjValido(documento)) return showFormAlert('CPF/CNPJ inválido — confira os números.');
+  const endereco = lerEndereco('f-end');
+  const faltaEnd = faltaNoEndereco(endereco);
+  if (faltaEnd.length) return showFormAlert('Complete o endereço: ' + faltaEnd.join(', ') + '.');
   if (senha.length < 6) return showFormAlert('A senha precisa ter pelo menos 6 caracteres.');
   if (senha !== senha2) return showFormAlert('As senhas não coincidem.');
   if (!$$('f-aceite').checked) return showFormAlert('É preciso aceitar as condições do programa.');
@@ -176,7 +181,7 @@ async function enviarCadastroParceiro() {
       origem: 'autocadastro', criadoEm: agora,
     });
     batch.set(db.collection('tenants').doc(tenantId).collection('corretores').doc(user.uid), {
-      uid: user.uid, nome, email, telefone, creci: creci || null,
+      uid: user.uid, nome, email, telefone, creci: creci || null, documento, endereco,
       tipo: 'parceiro', status: 'pendente',
       origem: 'autocadastro', aceiteTermosEm: agora, criadoEm: agora,
     });

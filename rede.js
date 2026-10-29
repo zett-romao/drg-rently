@@ -560,7 +560,7 @@ async function loadCorretores() {
       if (typeof botoesProtecaoCorretor === 'function' && c.status !== 'pendente') acoes.push(botoesProtecaoCorretor(c));
       return `
         <tr>
-          <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}</span></td>
+          <td><strong>${escapeHtml(c.nome || '—')}</strong><br><span class="muted" style="font-size:11px;">${escapeHtml(c.email || '')}</span>${(() => { const f = faltaNoCadastroCorretor(c); return f.length ? `<br><span style="font-size:11px;color:#b45309;font-weight:600;" title="Falta: ${escapeHtml(f.join('; '))}">⚠️ cadastro incompleto</span>` : ''; })()}</td>
           <td>${escapeHtml(c.creci || '—')}</td>
           <td>${c.telefone ? escapeHtml(maskTelefone(c.telefone)) : '—'}</td>
           <td>${CORRETOR_TIPO_LABEL[c.tipo] || '—'}</td>
@@ -598,6 +598,8 @@ async function openCorretorModal(uid) {
   $('corretor-email').value = c.email || '';
   $('corretor-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
   $('corretor-creci').value = c.creci || '';
+  $('corretor-documento').value = c.documento ? fmtCpfCnpj(c.documento) : '';
+  preencherEndereco('corretor-end', c.endereco);
   $('corretor-tipo').value = c.tipo || 'parceiro';
   $('corretor-email').dataset.original = c.email || '';
   $('corretor-email').dataset.semConta = c.semConta ? '1' : '';
@@ -621,6 +623,8 @@ async function criarAcessoCorretorPre(preId) {
   $('corretor-email').value = c.email || '';
   $('corretor-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
   $('corretor-creci').value = c.creci || '';
+  $('corretor-documento').value = c.documento ? fmtCpfCnpj(c.documento) : '';
+  preencherEndereco('corretor-end', c.endereco);
   $('corretor-tipo').value = c.tipo || 'parceiro';
   if (!c.email) showAlert('corretor-alert', 'O material não trazia e-mail: digite o e-mail do corretor para criar o acesso.', 'info');
 }
@@ -655,6 +659,15 @@ async function saveCorretor() {
   const creci = $('corretor-creci').value.trim() || null;
   const tipo = $('corretor-tipo').value;
   if (!nome) { showAlert('corretor-alert', 'Nome é obrigatório.'); return; }
+  // Obrigatórios (28/10/2026): telefone, CPF/CNPJ e endereço — vão para o contrato de parceria
+  const documento = fmtCpfCnpj($('corretor-documento').value);
+  const endereco = lerEndereco('corretor-end');
+  const faltam = faltaNoCadastroCorretor({ telefone, documento, endereco });
+  if (faltam.length) {
+    showAlert('corretor-alert', 'Preencha: ' + faltam.join('; ') + '.' + (faltam.includes('CPF/CNPJ') && $('corretor-documento').value.trim() ? ' (CPF/CNPJ inválido — confira os números)' : ''));
+    $('corretor-alert').scrollIntoView({ block: 'start' });
+    return;
+  }
 
   const btn = $('btn-save-corretor');
   btn.disabled = true;
@@ -682,7 +695,7 @@ async function saveCorretor() {
         $('corretor-email').dataset.original = email;
       }
       await tenantPath().collection('corretores').doc(uidExistente).update({
-        nome, telefone, creci, tipo,
+        nome, telefone, creci, tipo, documento, endereco,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
       await db.collection('users').doc(uidExistente).update({ nome });
@@ -709,7 +722,7 @@ async function saveCorretor() {
         criadoEm: agora, criadoPor: State.user.uid,
       });
       await tenantPath().collection('corretores').doc(uid).set({
-        uid, nome, email, telefone, creci, tipo, status: 'ativo',
+        uid, nome, email, telefone, creci, tipo, documento, endereco, status: 'ativo',
         origem: 'admin', criadoEm: agora, criadoPor: State.user.uid,
       });
     } catch (e) {
@@ -1805,3 +1818,57 @@ window.loadMeusLeads = loadMeusLeads;
 window.atualizarMeuLead = atualizarMeuLead;
 window.anotarMeuLead = anotarMeuLead;
 window.devolverMeuLead = devolverMeuLead;
+
+// =============================================================
+// Corretor completa o próprio cadastro (28/10/2026): telefone, CPF/CNPJ e endereço são
+// obrigatórios. Quem entrou antes da regra é cobrado no login, até preencher.
+// (firestore.rules já deixa o corretor editar o próprio cartão, menos status/tipo/comissão)
+// =============================================================
+async function verificarCadastroCorretor() {
+  let c = {};
+  try { const s = await tenantPath().collection('corretores').doc(State.user.uid).get(); if (!s.exists) return; c = s.data(); } catch (_) { return; }
+  if (!faltaNoCadastroCorretor(c).length) return;
+  let m = $('modal-meu-cadastro');
+  if (!m) {
+    m = document.createElement('div');
+    m.className = 'modal-overlay'; m.id = 'modal-meu-cadastro';
+    m.innerHTML = `<div class="modal">
+      <div class="modal-header"><h3>📋 Complete seu cadastro</h3></div>
+      <div class="modal-body">
+        <p class="muted" style="font-size:13px;">A imobiliária precisa do seu telefone, CPF/CNPJ e endereço — eles vão no contrato de parceria. Leva 1 minuto.</p>
+        <div id="meucad-alert" class="alert alert-error" style="display:none;"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="required">Telefone / WhatsApp</label><input type="tel" id="meucad-telefone"></div>
+          <div class="form-group"><label class="required">CPF / CNPJ</label><input type="text" id="meucad-documento" inputmode="numeric" maxlength="18" oninput="mascaraCpfCnpj(this)"></div>
+        </div>
+        <div data-endereco="meucad-end"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" id="btn-meucad" onclick="salvarMeuCadastroCorretor()">💾 Salvar</button></div>
+    </div>`;
+    document.body.appendChild(m);
+    montarCamposEndereco(m);
+  }
+  $('meucad-telefone').value = c.telefone ? maskTelefone(c.telefone) : '';
+  $('meucad-documento').value = c.documento ? fmtCpfCnpj(c.documento) : '';
+  preencherEndereco('meucad-end', c.endereco);
+  m.style.display = 'flex';
+}
+
+async function salvarMeuCadastroCorretor() {
+  const telefone = $('meucad-telefone').value.replace(/\D/g, '');
+  const documento = fmtCpfCnpj($('meucad-documento').value);
+  const endereco = lerEndereco('meucad-end');
+  const faltam = faltaNoCadastroCorretor({ telefone, documento, endereco });
+  if (faltam.length) { showAlert('meucad-alert', 'Preencha: ' + faltam.join('; ') + '.'); return; }
+  const btn = $('btn-meucad');
+  btn.disabled = true; btn.textContent = '⏳ Salvando…';
+  try {
+    await tenantPath().collection('corretores').doc(State.user.uid).update({
+      telefone, documento, endereco, atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    $('modal-meu-cadastro').style.display = 'none';
+  } catch (err) {
+    showAlert('meucad-alert', 'Erro: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = '💾 Salvar'; }
+}
+window.salvarMeuCadastroCorretor = salvarMeuCadastroCorretor;

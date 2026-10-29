@@ -167,6 +167,11 @@
           <input type="text" id="signup-creci">
         </div>
       </div>
+      <div class="form-group">
+        <label for="signup-telefone" class="required">Telefone / WhatsApp</label>
+        <input type="tel" id="signup-telefone" placeholder="(00) 00000-0000">
+      </div>
+      <div data-endereco="signup-end"></div>
 
       <div class="card" style="background:var(--primary-light); border:none; padding:14px; margin: 20px 0 18px;">
         <strong style="color:var(--primary-dark); font-size:13px;">Administrador da conta</strong>
@@ -1928,11 +1933,16 @@
               </div>
             </div>
 
+            <h4 class="form-section-title">Endereço da sede (obrigatório)</h4>
+            <p class="muted" style="font-size:11.5px; margin:-4px 0 8px;">Vai nos contratos (qualificação da imobiliária) e a cidade fixa o <strong>foro</strong> dos contratos de parceria. Não aparece no site.</p>
+            <div id="cfg-cadastro-aviso" style="display:none; font-size:12.5px; background:#FFFBEB; color:#92400E; border-left:3px solid #F59E0B; padding:8px 10px; margin-bottom:10px;"></div>
+            <div data-endereco="cfg-end" data-oninput="saveConfigImobiliaria()"></div>
+
             <h4 class="form-section-title">Contato público (aparece nos links e na vitrine)</h4>
 
             <div class="form-row">
               <div class="form-group">
-                <label>Telefone / WhatsApp</label>
+                <label class="required">Telefone / WhatsApp</label>
                 <input type="text" id="cfg-telefone" placeholder="(00) 00000-0000" oninput="saveConfigImobiliaria()">
                 <span class="muted" style="font-size:11px;">Usado nos botões 💬 WhatsApp e 📞 Ligar</span>
               </div>
@@ -5906,7 +5916,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           <div class="form-group"><label class="required" id="nc-label-doc">CNPJ</label><input type="text" id="nc-doc" inputmode="numeric"></div>
           <div class="form-group"><label>CRECI</label><input type="text" id="nc-creci"></div>
         </div>
-        <div class="form-group"><label>Telefone / WhatsApp</label><input type="tel" id="nc-telefone"></div>
+        <div class="form-group"><label class="required">Telefone / WhatsApp</label><input type="tel" id="nc-telefone"></div>
+        <div data-endereco="nc-end"></div>
 
         <h4 class="form-section-title">Acesso do responsável (administrador)</h4>
         <div class="form-group"><label class="required">Nome do responsável</label><input type="text" id="nc-admin-nome"></div>
@@ -6037,8 +6048,13 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
         <input type="hidden" id="corretor-uid">
         <div class="form-group"><label class="required">Nome completo</label><input type="text" id="corretor-nome"></div>
         <div class="form-group"><label class="required">E-mail (será o login)</label><input type="email" id="corretor-email"><small id="corretor-email-dica" style="display:none;margin-top:4px;color:var(--text-muted,#64748b);">Trocar o e-mail muda o login do corretor. Ao trocar, ele recebe no e-mail novo as boas-vindas com o link para criar a senha.</small></div>
-        <div class="form-group"><label>Telefone / WhatsApp</label><input type="tel" id="corretor-telefone"></div>
+        <div class="form-row">
+          <div class="form-group"><label class="required">Telefone / WhatsApp</label><input type="tel" id="corretor-telefone"></div>
+          <div class="form-group"><label class="required">CPF / CNPJ</label><input type="text" id="corretor-documento" inputmode="numeric" maxlength="18" oninput="mascaraCpfCnpj(this)"></div>
+        </div>
         <div class="form-group"><label>CRECI</label><input type="text" id="corretor-creci"></div>
+        <h4 class="form-section-title" style="margin-top:4px;">Endereço</h4>
+        <div data-endereco="corretor-end"></div>
         <div class="form-group">
           <label>Tipo</label>
           <select id="corretor-tipo">
@@ -6085,9 +6101,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261028g-equipe-interna"></script>
-  <script src="rede.js?v=20261028e-permissoes"></script>
-  <script src="protecao.js?v=20261017j-protecao"></script>
+  <script src="app.js?v=20261028h-cadastro"></script>
+  <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
+  <script src="rede.js?v=20261028h-cadastro"></script>
+  <script src="protecao.js?v=20261028h-cadastro"></script>
   <script src="anuncios.js?v=20261017r-imediacoes"></script>
   <script src="ia-imovel.js?v=20261021h-fotos"></script>
   <script src="imediacoes.js?v=20261021f-mapas"></script>

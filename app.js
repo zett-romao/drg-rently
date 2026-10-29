@@ -767,6 +767,12 @@ async function doSignupTenant() {
     showAlert('signup-alert', 'Preencha todos os campos obrigatórios.');
     return;
   }
+  // Obrigatórios (28/10/2026): telefone e endereço da sede
+  const signupTelefone = ($('signup-telefone')?.value || '').replace(/\D/g, '');
+  const signupEndereco = lerEndereco('signup-end');
+  if (signupTelefone.length < 10) { showAlert('signup-alert', 'Telefone inválido (com DDD).'); return; }
+  const signupFaltaEnd = faltaNoEndereco(signupEndereco);
+  if (signupFaltaEnd.length) { showAlert('signup-alert', 'Complete o endereço: ' + signupFaltaEnd.join(', ') + '.'); return; }
 
   // Valida CPF ou CNPJ
   const docDigits = docNum.replace(/\D/g, '');
@@ -819,6 +825,8 @@ async function doSignupTenant() {
       nome: razao,
       tipoPessoa,           // 'PF' ou 'PJ'
       creci: creci || null,
+      telefone: signupTelefone,
+      cidade: signupEndereco.cidade, uf: signupEndereco.uf,
       plano: 'trial',
       ativo: true,
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -841,6 +849,9 @@ async function doSignupTenant() {
     });
 
     await batch.commit();
+    // Endereço completo no doc privado (só depois do batch: a regra exige o usuário já criado)
+    try { await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').set({ endereco: signupEndereco }); }
+    catch (e) { console.warn('Endereço da sede não gravado (completar em Configurações):', e); }
 
     State.signingUp = false;
     await loadProfileAndShow(cred.user);
@@ -1149,6 +1160,7 @@ async function renderApp() {
   // Corretor: contador de leads novos repassados a ele
   if (State.tenant && isCorretor()) atualizarBadgeMeusLeads();
   if (State.tenant && isCorretor() && typeof verificarContratoCorretor === 'function') verificarContratoCorretor();
+  if (State.tenant && isCorretor() && typeof verificarCadastroCorretor === 'function') verificarCadastroCorretor();
 
   // Aplica ordem customizada do sidebar (preferência do usuário) e habilita drag & drop
   await applySidebarOrder();
@@ -2025,6 +2037,8 @@ async function saveNovoCliente() {
 
   const erro = !nome ? `${pf ? 'Nome do corretor' : 'Razão social'} é obrigatório.`
     : (pf ? !validaCPF(docDigits) : !validaCNPJ(docDigits)) ? `${pf ? 'CPF' : 'CNPJ'} inválido. Confira os números.`
+    : (telefone || '').length < 10 ? 'Telefone inválido (com DDD).'
+    : faltaNoEndereco(lerEndereco('nc-end')).length ? 'Complete o endereço: ' + faltaNoEndereco(lerEndereco('nc-end')).join(', ') + '.'
     : !adminNome ? 'Nome do responsável é obrigatório.'
     : !email ? 'E-mail do responsável é obrigatório.'
     : senha.length < 6 ? 'Senha deve ter no mínimo 6 caracteres.'
@@ -2040,6 +2054,7 @@ async function saveNovoCliente() {
     const agora = firebase.firestore.FieldValue.serverTimestamp();
     const tenantData = {
       nome, tipoPessoa: _tipoNovoCliente, creci, telefone,
+      cidade: lerEndereco('nc-end').cidade, uf: lerEndereco('nc-end').uf,
       plano, ativo: true,
       valorMensalidade: ilimitado ? null : (parseFloat($('nc-valor').value) || null),
       proximoVencimento: ilimitado ? null : ($('nc-vencimento').value || null),
@@ -2057,6 +2072,7 @@ async function saveNovoCliente() {
       criadoEm: agora, criadoPor: State.user.uid,
     });
     await batch.commit();
+    await tenantRef.collection('config').doc('cadastro').set({ endereco: lerEndereco('nc-end') });
 
     logAuditoria('create', 'tenant', tenantRef.id, { nome, tipoPessoa: _tipoNovoCliente, plano, admin: email });
     closeNovoClienteModal();
@@ -12093,6 +12109,11 @@ async function loadConfigImobiliaria() {
   $('cfg-cnpj').value = ehPF ? (State.tenant.cpf || '') : (State.tenant.cnpj || '');
   $('cfg-creci').value = State.tenant.creci || '';
   $('cfg-telefone').value = State.tenant.telefone ? maskTelefone(State.tenant.telefone) : '';
+  // Endereço da sede: fica em config/cadastro (privado; o doc do tenant é público)
+  tenantPath().collection('config').doc('cadastro').get().then((s) => {
+    preencherEndereco('cfg-end', s.exists ? s.data().endereco : null);
+    avisoCadastroImobiliaria();
+  }).catch(() => {});
   $('cfg-email-contato').value = State.tenant.emailContato || '';
   $('cfg-slug').value = State.tenant.slug || '';
   if ($('cfg-site-proprio')) $('cfg-site-proprio').value = State.tenant.siteProprio || '';
@@ -12190,6 +12211,25 @@ async function loadConfigImobiliaria() {
 }
 
 let _saveConfigDebounce = null;
+// Imobiliária (28/10/2026): CPF/CNPJ, telefone e endereço da sede são obrigatórios.
+// Devolve a lista do que falta (vazia = completo). Sem argumentos, lê a tela de Configurações.
+function faltaNoCadastroImobiliaria(t, endereco) {
+  t = t || State.tenant || {};
+  const f = [];
+  if (!cpfCnpjValido(t.cnpj || t.cpf)) f.push('CPF/CNPJ');
+  if (String(t.telefone || '').replace(/\D/g, '').length < 10) f.push('telefone');
+  const fe = faltaNoEndereco(endereco);
+  if (fe.length) f.push('endereço da sede (' + fe.join(', ') + ')');
+  return f;
+}
+function avisoCadastroImobiliaria() {
+  const box = $('cfg-cadastro-aviso');
+  if (!box) return;
+  const f = faltaNoCadastroImobiliaria({ ...State.tenant, telefone: ($('cfg-telefone')?.value || '').replace(/\D/g, '') }, lerEndereco('cfg-end'));
+  box.innerHTML = f.length ? '⚠️ Cadastro incompleto — falta: <strong>' + escapeHtml(f.join('; ')) + '</strong>. Sem isso não sai contrato de parceria.' : '';
+  box.style.display = f.length ? 'block' : 'none';
+}
+
 async function saveConfigImobiliaria() {
   clearTimeout(_saveConfigDebounce);
   if (!exigirPode('configuracoes', 'editar', 'cfg-alert')) return;
@@ -12221,13 +12261,21 @@ async function saveConfigImobiliaria() {
         }
       }
 
+      const enderecoSede = lerEndereco('cfg-end');
       await tenantPath().update({
         telefone: telefoneDigits,
         emailContato,
         slug,
         siteProprio,
+        // só cidade/UF no doc público (foro dos contratos); endereço completo vai no privado
+        cidade: enderecoSede.cidade || null,
+        uf: enderecoSede.uf || null,
         atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
       });
+      await tenantPath().collection('config').doc('cadastro').set({ endereco: enderecoSede }, { merge: true });
+      State.tenant.cidade = enderecoSede.cidade || null;
+      State.tenant.uf = enderecoSede.uf || null;
+      avisoCadastroImobiliaria();
       State.tenant.siteProprio = siteProprio;
       // Sincroniza no State pra a UI usar imediatamente
       State.tenant.telefone = telefoneDigits;

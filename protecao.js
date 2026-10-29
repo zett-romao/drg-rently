@@ -27,8 +27,8 @@ const PROTECAO_PADRAO = {
   urlConsultaCreci: 'https://www.cofeci.gov.br/',
   contratoTexto: `CONTRATO DE PARCERIA ENTRE IMOBILIÁRIA E CORRETOR DE IMÓVEIS
 
-IMOBILIÁRIA: {{IMOBILIARIA}}{{CNPJ_TEXTO}}{{CRECI_IMOBILIARIA_TEXTO}}, doravante IMOBILIÁRIA.
-CORRETOR(A) PARCEIRO(A): {{CORRETOR}}, inscrito(a) no CRECI sob nº {{CRECI_CORRETOR}}, e-mail {{EMAIL_CORRETOR}}, doravante CORRETOR.
+IMOBILIÁRIA: {{IMOBILIARIA}}{{CNPJ_TEXTO}}{{CRECI_IMOBILIARIA_TEXTO}}, com sede em {{ENDERECO_IMOBILIARIA}}, telefone {{TELEFONE_IMOBILIARIA}}, doravante IMOBILIÁRIA.
+CORRETOR(A) PARCEIRO(A): {{CORRETOR}}, inscrito(a) no {{DOC_CORRETOR}}, inscrito(a) no CRECI sob nº {{CRECI_CORRETOR}}, com endereço em {{ENDERECO_CORRETOR}}, telefone {{TELEFONE_CORRETOR}}, e-mail {{EMAIL_CORRETOR}}, doravante CORRETOR.
 
 1. OBJETO. Parceria para captação e intermediação de imóveis por meio do sistema da IMOBILIÁRIA, sem vínculo empregatício, nos termos da Lei 6.530/1978 e do art. 6º da Lei 13.097/2015 (corretor associado).
 
@@ -50,7 +50,7 @@ CORRETOR(A) PARCEIRO(A): {{CORRETOR}}, inscrito(a) no CRECI sob nº {{CRECI_CORR
 
 10. PRAZO. Prazo indeterminado; qualquer parte pode encerrar a parceria por aviso no sistema ou por escrito. As cláusulas 2, 5, 7 e 9 continuam valendo depois do encerramento para os negócios e clientes originados durante a parceria.
 
-11. FORO. Fica eleito o foro da comarca de {{CIDADE}}.
+{{CLAUSULA_FORO}}
 
 {{CIDADE}}, {{DATA}}.
 
@@ -110,14 +110,16 @@ async function renderCardProtecao() {
     <p class="muted">Contrato de parceria, conferência do CRECI e alerta de abertura de fichas em massa. Tudo opcional — ajuste ao jeito da sua imobiliária.</p>
     <div class="form-group"><label for="prot-contrato">📝 Modelo do contrato de parceria</label>
       <textarea id="prot-contrato" rows="10" style="font-family:inherit;">${_escP(p.contratoTexto)}</textarea>
-      <small class="muted">Campos trocados na hora de gerar: {{IMOBILIARIA}} {{CNPJ_TEXTO}} {{CRECI_IMOBILIARIA_TEXTO}} {{CORRETOR}} {{CRECI_CORRETOR}} {{EMAIL_CORRETOR}} {{PCT_CAPTADOR}} {{PCT_VENDEDOR}} {{PCT_ESCRITORIO}} {{CIDADE}} {{DATA}}. É um modelo: revise com o seu advogado.</small></div>
+      <small class="muted">Campos trocados na hora de gerar: {{IMOBILIARIA}} {{CNPJ_TEXTO}} {{CRECI_IMOBILIARIA_TEXTO}} {{ENDERECO_IMOBILIARIA}} {{TELEFONE_IMOBILIARIA}} {{CORRETOR}} {{DOC_CORRETOR}} {{CRECI_CORRETOR}} {{ENDERECO_CORRETOR}} {{TELEFONE_CORRETOR}} {{EMAIL_CORRETOR}} {{PCT_CAPTADOR}} {{PCT_VENDEDOR}} {{PCT_ESCRITORIO}} {{CIDADE}} {{DATA}}.
+        🔒 A cláusula de <strong>foro</strong> é sempre a da cidade da sede, com renúncia a qualquer outro — o sistema a coloca mesmo que seja apagada do modelo. É um modelo: revise com o seu advogado.</small></div>
     <div class="form-group"><label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="prot-exigir" ${p.exigirContrato ? 'checked' : ''}>
       <span>Corretor só usa o sistema depois de assinar o contrato (desligado = assina, mas já trabalha)</span></label></div>
     <div class="form-row">
       <div class="form-group"><label for="prot-limite">👀 Alerta quando um corretor abrir mais de … fichas da rede no dia</label>
         <input type="number" id="prot-limite" min="5" max="500" value="${_escP(p.limiteFichasDia)}"></div>
-      <div class="form-group"><label for="prot-foro">⚖️ Cidade do foro do contrato</label>
-        <input type="text" id="prot-foro" maxlength="60" placeholder="ex.: Barueri/SP" value="${_escP(p.cidadeForo)}"></div>
+      <div class="form-group"><label>⚖️ Foro do contrato</label>
+        <input type="text" disabled value="${_escP(State.tenant?.cidade ? State.tenant.cidade + (State.tenant.uf ? '/' + State.tenant.uf : '') : 'cidade da sede — preencha em Configurações')}">
+        <small class="muted">Sempre a cidade da sede da imobiliária (Configurações → Endereço da sede), com renúncia a qualquer outro foro.</small></div>
       <div class="form-group"><label for="prot-creci">🔎 Endereço da consulta de CRECI</label>
         <input type="url" id="prot-creci" value="${_escP(p.urlConsultaCreci)}"><small class="muted">Use a “Busca de corretores” do CRECI do seu estado.</small></div>
     </div>
@@ -134,7 +136,6 @@ async function salvarProtecao() {
   const protecao = {
     contratoTexto: $('prot-contrato').value.trim() || PROTECAO_PADRAO.contratoTexto,
     exigirContrato: $('prot-exigir').checked,
-    cidadeForo: $('prot-foro').value.trim().slice(0, 60),
     limiteFichasDia: Math.max(5, Math.min(500, parseInt($('prot-limite').value, 10) || PROTECAO_PADRAO.limiteFichasDia)),
     urlConsultaCreci: /^https:\/\//i.test($('prot-creci').value.trim()) ? $('prot-creci').value.trim() : PROTECAO_PADRAO.urlConsultaCreci,
   };
@@ -174,18 +175,64 @@ async function confirmarCreciNaAprovacao(uid) {
 // =============================================================
 // 1. Contrato de parceria
 // =============================================================
-function _preencherContrato(texto, c) {
+// Foro (28/10/2026, regra do dono): sempre a cidade da SEDE da imobiliária, com renúncia
+// expressa a qualquer outro. Vale até para modelo editado: a cláusula FORO é trocada/inserida.
+const CLAUSULA_FORO = 'FORO. As partes elegem o foro da comarca de {{CIDADE}}, sede da IMOBILIÁRIA, para dirimir quaisquer questões oriundas deste contrato, com renúncia expressa a qualquer outro, por mais privilegiado que seja ou venha a ser.';
+
+function _ajustarModelo(texto) {
+  let t = String(texto);
+  // Modelos salvos antes de 28/10/2026: qualificação sem endereço/telefone/documento
+  t = t.replace(/^IMOBILIÁRIA: \{\{IMOBILIARIA\}\}\{\{CNPJ_TEXTO\}\}\{\{CRECI_IMOBILIARIA_TEXTO\}\}, doravante IMOBILIÁRIA\.$/m,
+    'IMOBILIÁRIA: {{IMOBILIARIA}}{{CNPJ_TEXTO}}{{CRECI_IMOBILIARIA_TEXTO}}, com sede em {{ENDERECO_IMOBILIARIA}}, telefone {{TELEFONE_IMOBILIARIA}}, doravante IMOBILIÁRIA.');
+  t = t.replace(/^CORRETOR\(A\) PARCEIRO\(A\): \{\{CORRETOR\}\}, inscrito\(a\) no CRECI sob nº \{\{CRECI_CORRETOR\}\}, e-mail \{\{EMAIL_CORRETOR\}\}, doravante CORRETOR\.$/m,
+    'CORRETOR(A) PARCEIRO(A): {{CORRETOR}}, inscrito(a) no {{DOC_CORRETOR}}, inscrito(a) no CRECI sob nº {{CRECI_CORRETOR}}, com endereço em {{ENDERECO_CORRETOR}}, telefone {{TELEFONE_CORRETOR}}, e-mail {{EMAIL_CORRETOR}}, doravante CORRETOR.');
+  // Cláusula de foro: troca a que existir (numerada ou não) pela padrão; sem nenhuma, insere antes da data
+  if (/\{\{CLAUSULA_FORO\}\}/.test(t)) {
+    const nums = [...t.matchAll(/^(\d+)\.\s/gm)].map((m) => Number(m[1]));
+    t = t.replace('{{CLAUSULA_FORO}}', `${(nums.length ? Math.max(...nums) : 0) + 1}. ${CLAUSULA_FORO}`);
+  } else if (/^(\d+\.\s*)?FORO\b.*$/mi.test(t)) {
+    t = t.replace(/^(\d+\.\s*)?FORO\b.*$/mi, (m, n) => `${n || ''}${CLAUSULA_FORO}`);
+  } else {
+    const nums = [...t.matchAll(/^(\d+)\.\s/gm)].map((m) => Number(m[1]));
+    const clausula = `${(nums.length ? Math.max(...nums) : 0) + 1}. ${CLAUSULA_FORO}`;
+    t = /^\{\{CIDADE\}\}, \{\{DATA\}\}\.?$/m.test(t)
+      ? t.replace(/^\{\{CIDADE\}\}, \{\{DATA\}\}\.?$/m, (m) => `${clausula}\n\n${m}`)
+      : `${t}\n\n${clausula}`;
+  }
+  return t;
+}
+
+// O que falta para sair o contrato (imobiliária + corretor). Vazio = pode gerar.
+function faltasParaContrato(c, cadastroImob) {
+  const t = State.tenant || {};
+  const fi = typeof faltaNoCadastroImobiliaria === 'function' ? faltaNoCadastroImobiliaria(t, cadastroImob && cadastroImob.endereco) : [];
+  const fc = faltaNoCadastroCorretor(c);
+  return [
+    ...(fi.length ? [`da IMOBILIÁRIA (Configurações): ${fi.join('; ')}`] : []),
+    ...(fc.length ? [`do CORRETOR (Editar): ${fc.join('; ')}`] : []),
+  ];
+}
+
+function _preencherContrato(texto, c, cadastroImob) {
   const t = State.tenant || {};
   const r = typeof regraComissao === 'function' ? regraComissao() : { captadorPct: 30, vendedorPct: 30, escritorioPct: 40 };
-  const cidade = (_protecaoCache && _protecaoCache.cidadeForo) || t.cidade || '________________';
+  const endImob = (cadastroImob && cadastroImob.endereco) || {};
+  const cidade = endImob.cidade ? `${endImob.cidade}${endImob.uf ? '/' + endImob.uf : ''}` : '________________';
+  const docC = String(c.documento || '').replace(/\D/g, '');
   const v = {
-    IMOBILIARIA: t.nome || 'Imobiliária', CNPJ_TEXTO: t.cnpj ? `, CNPJ ${t.cnpj}` : '',
+    IMOBILIARIA: t.nome || 'Imobiliária',
+    CNPJ_TEXTO: t.cnpj ? `, CNPJ ${t.cnpj}` : (t.cpf ? `, CPF ${t.cpf}` : ''),
     CRECI_IMOBILIARIA_TEXTO: t.creci ? `, CRECI ${t.creci}` : '',
+    ENDERECO_IMOBILIARIA: fmtEndereco(endImob) || '________________',
+    TELEFONE_IMOBILIARIA: t.telefone ? maskTelefone(t.telefone) : '________',
     CORRETOR: c.nome || '', CRECI_CORRETOR: c.creci || '________', EMAIL_CORRETOR: c.email || '',
+    DOC_CORRETOR: docC.length === 14 ? `CNPJ sob nº ${fmtCpfCnpj(docC)}` : `CPF sob nº ${docC ? fmtCpfCnpj(docC) : '________'}`,
+    ENDERECO_CORRETOR: fmtEndereco(c.endereco) || '________________',
+    TELEFONE_CORRETOR: c.telefone ? maskTelefone(c.telefone) : '________',
     PCT_CAPTADOR: r.captadorPct, PCT_VENDEDOR: r.vendedorPct, PCT_ESCRITORIO: r.escritorioPct,
     CIDADE: cidade, DATA: new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' }),
   };
-  return String(texto).replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in v ? String(v[k]) : m));
+  return _ajustarModelo(texto).replace(/\{\{([A-Z_]+)\}\}/g, (m, k) => (k in v ? String(v[k]) : m));
 }
 async function _pdfDoTexto(texto) {
   for (let i = 0; i < 20 && !window.html2pdf; i++) await new Promise((r) => setTimeout(r, 300));
@@ -206,8 +253,12 @@ async function enviarContratoParceria(uid, btn) {
       if (!s.exists) throw new Error('Corretor não encontrado.');
       const c = s.data();
       if (!c.email) throw new Error('O corretor precisa ter e-mail para assinar.');
+      const cadSnap = await tenantPath().collection('config').doc('cadastro').get();
+      const cadastroImob = cadSnap.exists ? cadSnap.data() : {};
+      const faltas = faltasParaContrato(c, cadastroImob);
+      if (faltas.length) throw new Error('Complete antes o cadastro — falta ' + faltas.join(' | ') + '.');
       const p = await getProtecao();
-      const texto = _preencherContrato(p.contratoTexto, c);
+      const texto = _preencherContrato(p.contratoTexto, c, cadastroImob);
       const { blob, base64 } = await _pdfDoTexto(texto);
       const cfg = await _cfgSite();
       const plat = plataformaAssinatura(cfg);
