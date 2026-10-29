@@ -26,7 +26,7 @@ const MODULOS_DISPONIVEIS = [
   { id: 'dashboard',     label: 'Dashboard',     grupo: 'Visão Geral', somenteLeitura: true },
   { id: 'alertas',       label: 'Alertas',       grupo: 'Visão Geral', somenteLeitura: true },
   { id: 'relatorios',    label: 'Relatórios',    grupo: 'Visão Geral', somenteLeitura: true },
-  { id: 'locadores',     label: 'Locadores',     grupo: 'Cadastros' },
+  { id: 'locadores',     label: 'Proprietários',     grupo: 'Cadastros' },
   { id: 'locatarios',    label: 'Locatários',    grupo: 'Cadastros' },
   { id: 'compradores',   label: 'Compradores',   grupo: 'Cadastros' },
   { id: 'garantias',     label: 'Garantias',     grupo: 'Cadastros' },
@@ -3353,7 +3353,7 @@ async function mostrarAjudaAtalhos() {
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>,</kbd></td><td>Configurações</td></tr>
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Ctrl</kbd> + <kbd>/</kbd> ou <kbd>?</kbd></td><td>Esta ajuda</td></tr>
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>D</kbd></td><td>Dashboard</td></tr>
-        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>L</kbd></td><td>Locadores/Vendedores</td></tr>
+        <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>L</kbd></td><td>Proprietários</td></tr>
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>T</kbd></td><td>Locatários</td></tr>
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>I</kbd></td><td>Imóveis</td></tr>
         <tr style="border-bottom:1px solid #E2E8F0;"><td style="padding:6px 8px;"><kbd>Alt</kbd> + <kbd>G</kbd></td><td>Garantias</td></tr>
@@ -14217,7 +14217,7 @@ function copyContratoTexto() {
 
 const IMPORT_SCHEMAS = {
   locadores: {
-    label: 'Locadores',
+    label: 'Proprietários',
     cols: ['tipo','nome','documento','rg','nascimento','estado_civil','profissao','email','telefone','cep','logradouro','numero','complemento','bairro','cidade','uf','pix','banco','obs'],
     sample: ['PF','João Silva','12345678901','12345678','1980-05-15','casado','Engenheiro','joao@exemplo.com','11999998888','01310100','Av. Paulista','100','Apto 50','Bela Vista','São Paulo','SP','12345678901','341 / 1234 / 56789-0','Cliente preferencial'],
     obrigatorios: ['tipo','nome','documento'],
@@ -14286,7 +14286,7 @@ function onImportTipoChange() {
   }
   // Atualiza o label do botão "Baixar template" pra refletir o tipo selecionado
   const tipo = $('import-tipo')?.value || 'locadores';
-  const labels = { locadores: 'Locadores/Vendedores', locatarios: 'Locatários', imoveis: 'Imóveis' };
+  const labels = { locadores: 'Proprietários', locatarios: 'Locatários', imoveis: 'Imóveis' };
   const lbl = $('import-tipo-label');
   if (lbl) lbl.textContent = labels[tipo] || tipo;
   cancelarImportacao();
