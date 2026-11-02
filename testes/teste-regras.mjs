@@ -420,6 +420,14 @@ await caso('licença: super admin muda o plano', true, () => updateDoc(TD(db('su
 await caso('licença: cadastro novo nasce em trial', true, () => setDoc(doc(db('novo1'), 'tenants', 'tCadNovo1'), { nome: 'Nova', plano: 'trial', ativo: true, criadoPor: 'novo1' }));
 await caso('licença: cadastro novo já ilimitado BLOQUEIA', false, () => setDoc(doc(db('novo2'), 'tenants', 'tNovo2'), { nome: 'Esperta', plano: 'ilimitado', ativo: true, criadoPor: 'novo2' }));
 await caso('licença: cadastro novo com vencimento BLOQUEIA', false, () => setDoc(doc(db('novo3'), 'tenants', 'tNovo3'), { nome: 'Esperta', plano: 'trial', proximoVencimento: '2099-01-01', criadoPor: 'novo3' }));
+// 📦 converter conta levando a carteira: o Super Admin grava imóvel, foto e proprietário em outra imobiliária
+await caso('carteira: super admin grava imóvel trazido', true, () => setDoc(doc(db('super'), 'tenants', T, 'imoveis', 'imTrazido'), { apelido: 'x', criadoPor: 'cor1', vinculos: ['cor1'], linkPublico: false, compartilhadoCom: [] }));
+await caso('carteira: super admin grava a foto do imóvel trazido', true, () => setDoc(doc(db('super'), 'tenants', T, 'imoveis', 'imTrazido', 'fotos', 'f1'), { url: 'https://firebasestorage.googleapis.com/x', ordem: 0 }));
+await caso('carteira: super admin grava proprietário trazido', true, () => setDoc(doc(db('super'), 'tenants', T, 'locadores', 'locTrazido'), { nome: 'P', criadoPor: 'cor1', vinculos: ['cor1'] }));
+await caso('carteira: o corretor vê o imóvel trazido como dele', true, () => getDoc(doc(db('cor1'), 'tenants', T, 'imoveis', 'imTrazido')));
+await caso('carteira: o corretor vê o proprietário trazido como dele', true, () => getDoc(doc(db('cor1'), 'tenants', T, 'locadores', 'locTrazido')));
+await caso('carteira: admin da imobiliária NÃO grava em outra imobiliária', false, () => setDoc(doc(db('admin1'), 'tenants', 'outraImob', 'imoveis', 'z'), { apelido: 'x' }));
+
 // 🔒 licença privada: licencas/{id}
 await caso('licença privada: visitante (sem login) lê BLOQUEIA', false, () => getDoc(doc(db(null), 'licencas', T)));
 await caso('licença privada: admin da imobiliária lê a própria BLOQUEIA', false, () => getDoc(doc(db('admin1'), 'licencas', T)));

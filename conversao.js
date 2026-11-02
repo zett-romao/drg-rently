@@ -102,6 +102,8 @@ async function buscarContaConversao() {
       _conv.docOk = cpfCnpjValido(doc);
     } else {
       // A) conta própria / equipe → parceiro
+      let nIm = 0, nLoc = 0;
+      if (t) { try { [nIm, nLoc] = await Promise.all(['imoveis', 'locadores'].map(async col => (await db.collection('tenants').doc(t.id).collection(col).get()).size)); } catch (_) {} }
       const tenants = (await db.collection('tenants').get()).docs.map(x => ({ id: x.id, ...x.data() }))
         .filter(x => !x.arquivado && x.id !== u.tenantId)
         .sort((a, b) => _ehDoDono(b) - _ehDoDono(a) || String(a.nome || '').localeCompare(String(b.nome || '')));
@@ -112,8 +114,12 @@ async function buscarContaConversao() {
           <span>Arquivar a conta antiga (${escapeHtml(t?.nome || '—')})${outros ? ` — ⚠️ tem mais ${outros} usuário(s), que continuariam sem acesso` : ' — ele era o único usuário'}</span></label></div>
         <div style="font-size:12.5px; background:#EFF6FF; color:#1E3A8A; border-left:3px solid #2563EB; padding:8px 10px; line-height:1.6;">
           ℹ️ Ele entra <strong>já aprovado</strong> como 🤝 parceiro da imobiliária escolhida, com o acesso de corretor (só o que captar, fichas sem contato).
-          Os dados da conta antiga <strong>não</strong> são levados; arquivada, ela pode ser restaurada no filtro "Mostrar arquivados".
-        </div>`;
+          ${nIm + nLoc ? 'Os outros dados da conta antiga (locatários, contratos…) ficam nela' : 'Os dados da conta antiga ficam nela'}; arquivada, ela pode ser restaurada no filtro "Mostrar arquivados".
+        </div>
+        ${nIm + nLoc ? `<div class="form-group" style="margin-top:10px;"><label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="conv-levar" checked>
+          <span>📦 <strong>Levar a carteira junto:</strong> ${nIm} imóvel(is) e ${nLoc} proprietário(s) vão para a imobiliária escolhida como <strong>captação dele</strong>
+          (fotos inclusive). Chegam <strong>fora do site</strong> — publicar é decisão da imobiliária — e o código de anúncio é refeito lá. Na conta antiga nada é apagado.</span></label></div>` : ''}`;
+      _conv.carteira = { imoveis: nIm, locadores: nLoc };
       _conv.direcao = 'parceiro';
     }
     box.innerHTML = html;
@@ -151,8 +157,13 @@ async function confirmarConversao() {
       batch.update(db.collection('users').doc(c.uid), { role: 'corretor', tenantId: destino, ativo: true, status: 'ativo', perfilId: null });
       if (arquivar) batch.update(db.collection('tenants').doc(c.t.id), { arquivado: true, ativo: false, arquivadoEm: agora, arquivadoPor: State.user.uid, motivoArquivo: `convertido em parceiro de ${destinoNome}` });
       await batch.commit();
-      logAuditoria('converter_conta', 'usuario', c.uid, { para: 'parceiro', destino, destinoNome, contaAntiga: c.t?.id || null, arquivada: !!arquivar });
-      $('conv-resultado').innerHTML = `<p style="color:#047857;">✅ ${escapeHtml(c.u.nome || '')} agora é parceiro de <strong>${escapeHtml(destinoNome)}</strong>. Ele entra com o mesmo e-mail e senha (se estiver logado, precisa sair e entrar de novo).
+      let levados = null;
+      if (c.t && $('conv-levar')?.checked) {
+        btn.textContent = '⏳ Levando a carteira… aguarde';
+        levados = await levarCarteiraConversao(c.t.id, destino, c.uid);
+      }
+      logAuditoria('converter_conta', 'usuario', c.uid, { para: 'parceiro', destino, destinoNome, contaAntiga: c.t?.id || null, arquivada: !!arquivar, carteiraLevada: levados });
+      $('conv-resultado').innerHTML = `<p style="color:#047857;">✅ ${escapeHtml(c.u.nome || '')} agora é parceiro de <strong>${escapeHtml(destinoNome)}</strong>.${levados ? ` Levados: ${levados.imoveis} imóvel(is), ${levados.fotos} foto(s) e ${levados.locadores} proprietário(s), como captação dele.` : ''} Ele entra com o mesmo e-mail e senha (se estiver logado, precisa sair e entrar de novo).
         Complete o cartão dele em Corretores se faltar algo — o sistema cobra no primeiro acesso.</p>`;
     } else {
       const nomeConta = $('conv-nome-conta').value.trim() || c.cartao?.nome || c.u.nome;
@@ -184,6 +195,34 @@ async function confirmarConversao() {
   } catch (err) {
     showAlert('conv-alert', 'Erro: ' + err.message);
   } finally { btn.disabled = false; btn.textContent = '🔄 Converter'; }
+}
+
+// 📦 Leva imóveis (com fotos) e proprietários da conta antiga para a imobiliária, como captação do corretor
+// (02/11/2026, pedido do dono). Mesmo ID do documento → o imóvel continua apontando para o proprietário certo.
+// Chegam fora do site (linkPublico:false, sem compartilhamento) e sem código de anúncio (a imobiliária gera o dela).
+// 🔒 Na conta antiga nada é apagado. Vínculos (alcance) = só o corretor, que é parceiro do destino.
+async function levarCarteiraConversao(origemId, destinoId, uid) {
+  const O = db.collection('tenants').doc(origemId), D = db.collection('tenants').doc(destinoId);
+  const marca = { trazidoDe: { tenantId: origemId, em: new Date().toISOString(), por: State.user.uid }, criadoPor: uid, vinculos: [uid] };
+  const out = { imoveis: 0, locadores: 0, fotos: 0 };
+  const lote = [];
+  for (const d of (await O.collection('locadores').get()).docs) {
+    lote.push([D.collection('locadores').doc(d.id), { ...d.data(), ...marca }]); out.locadores++;
+  }
+  for (const d of (await O.collection('imoveis').get()).docs) {
+    const im = { ...d.data(), ...marca, linkPublico: false, compartilhadoCom: [] };
+    if (im.codigoAnuncio) { im.codigoAnterior = im.codigoAnuncio; delete im.codigoAnuncio; }
+    lote.push([D.collection('imoveis').doc(d.id), im]); out.imoveis++;
+    for (const f of (await O.collection('imoveis').doc(d.id).collection('fotos').get()).docs) {
+      lote.push([D.collection('imoveis').doc(d.id).collection('fotos').doc(f.id), f.data()]); out.fotos++;
+    }
+  }
+  for (let i = 0; i < lote.length; i += 400) {
+    const b = db.batch();
+    lote.slice(i, i + 400).forEach(([ref, dados]) => b.set(ref, dados));
+    await b.commit();
+  }
+  return out;
 }
 
 window.openConverterConta = openConverterConta;
