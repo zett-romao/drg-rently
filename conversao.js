@@ -5,7 +5,9 @@
 // Os dados da conta antiga não são movidos: em A a conta antiga pode ser arquivada; em B os imóveis
 // que ele captou ficam com a imobiliária (use 🔁 Carteira lá antes, se quiser passá-los a outro corretor).
 
-const TENANT_DRG = 'K52yZ4nqu7Z7DJfVegYo';   // D.R. Global Imóveis
+// ⭐ sugeridas primeiro: as empresas do dono (selo empresaDoDono, marcado na DR Systems Central) — antes
+// era o ID da D.R. Global Imóveis fixo no código (02/11/2026: plataforma separada das empresas do dono).
+const _ehDoDono = (t) => t && t.empresaDoDono === true;
 let _conv = null;
 
 function _convModal() {
@@ -100,10 +102,10 @@ async function buscarContaConversao() {
       // A) conta própria / equipe → parceiro
       const tenants = (await db.collection('tenants').get()).docs.map(x => ({ id: x.id, ...x.data() }))
         .filter(x => !x.arquivado && x.id !== u.tenantId)
-        .sort((a, b) => (b.id === TENANT_DRG) - (a.id === TENANT_DRG) || String(a.nome || '').localeCompare(String(b.nome || '')));
+        .sort((a, b) => _ehDoDono(b) - _ehDoDono(a) || String(a.nome || '').localeCompare(String(b.nome || '')));
       html += `<h4 class="form-section-title">Tornar corretor parceiro</h4>
         <div class="form-group"><label>Parceiro de qual imobiliária</label>
-          <select id="conv-destino">${tenants.map(x => `<option value="${x.id}">${escapeHtml(x.nome || x.id)}${x.id === TENANT_DRG ? ' ⭐' : ''}</option>`).join('')}</select></div>
+          <select id="conv-destino">${tenants.map(x => `<option value="${x.id}">${escapeHtml(x.nome || x.id)}${_ehDoDono(x) ? ' ⭐' : ''}</option>`).join('')}</select></div>
         <div class="form-group"><label class="toggle-row" style="cursor:pointer;"><input type="checkbox" id="conv-arquivar" ${outros ? '' : 'checked'} ${t ? '' : 'disabled'}>
           <span>Arquivar a conta antiga (${escapeHtml(t?.nome || '—')})${outros ? ` — ⚠️ tem mais ${outros} usuário(s), que continuariam sem acesso` : ' — ele era o único usuário'}</span></label></div>
         <div style="font-size:12.5px; background:#EFF6FF; color:#1E3A8A; border-left:3px solid #2563EB; padding:8px 10px; line-height:1.6;">

@@ -1749,7 +1749,9 @@ function renderTenantsTable() {
     // Indicador se é o tenant ativo atual OU o tenant dono do Super Admin
     const isAtivo = State.tenant?.id === t.id;
     const isDono = !!t.donoSuperAdmin;
-    const indicadorDono = isDono ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;">🏠 meu tenant</span>' : '';
+    // 02/11/2026 (separar DR Systems × empresas do dono): "donoSuperAdmin" é só ONDE o Super Admin entra
+    // ao fazer login — não faz da empresa "da plataforma". Empresa do dono é outro selo (empresaDoDono).
+    const indicadorDono = isDono ? ' <span class="papel-chip" style="background:#FEF3C7;color:#92400E;" title="O Super Admin entra nesta conta ao fazer login">🚪 abre ao entrar</span>' : '';
     const indicadorAtivo = isAtivo ? ' <span class="papel-chip" style="background:#DCFCE7;color:#166534;">🎯 ativo agora</span>' : '';
 
     // Botões de ação: Gerenciar + Atuar como + Marcar como meu + Arquivar/Restaurar + Excluir
@@ -1762,7 +1764,7 @@ function renderTenantsTable() {
       : `
         <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
         ${!isAtivo ? `<button class="btn btn-sm" onclick="definirTenantAtivoSuperAdmin('${t.id}')" title="Operar neste tenant nesta sessão (persistido pra próximos logins)" style="background:var(--primary); color:white; border-color:var(--primary);">🎯 Operar aqui</button>` : ''}
-        ${!isDono ? `<button class="btn btn-sm btn-secondary" onclick="marcarComoTenantDono('${t.id}')" title="Marcar como tenant padrão da DRG Global (fallback)">🏠 Marcar como meu</button>` : ''}
+        ${!isDono ? `<button class="btn btn-sm btn-secondary" onclick="marcarComoTenantDono('${t.id}')" title="Entrar nesta conta ao fazer login (quando não houver outra escolhida)">🚪 Abrir ao entrar</button>` : ''}
         <button class="btn btn-sm btn-secondary" onclick="arquivarTenant('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Mover pra arquivo (pode restaurar depois)">🗄 Arquivar</button>
       `;
 
@@ -1770,7 +1772,7 @@ function renderTenantsTable() {
       <tr ${t.arquivado ? 'style="opacity:0.6;"' : (isAtivo ? 'style="background:rgba(220, 252, 231, 0.4);"' : '')}>
         <td><strong>${escapeHtml(t.nome || '—')}</strong>${indicadorAtivo}${indicadorDono}<br><span class="muted" style="font-size:11px;">${documento}</span></td>
         <td>${tipoBadge}</td>
-        <td>${PLANO_LABEL[t.plano] || t.plano || '—'}</td>
+        <td>${PLANO_LABEL[t.plano] || t.plano || '—'}${t.empresaDoDono ? '<br><span class="papel-chip" style="background:#DCFCE7;color:#166534;" title="Empresa do dono: ♾️ ilimitado, sem custo — marcado na DR Systems Central">🏠 empresa do dono</span>' : ''}</td>
         <td>${fmtBRL(t.valorMensalidade)}</td>
         <td>${vencTxt}</td>
         <td>${sitBadge}</td>
@@ -2271,6 +2273,11 @@ async function saveTenantManagement() {
     modulosHabilitados = TENANT_PACOTES[pacote]?.modulos || [];
   }
 
+  // 🏠 Empresa do dono fica sempre no ♾️ Ilimitado sem custo (02/11/2026); desmarca-se na DR Systems Central.
+  if (plano !== 'ilimitado' && (_tenantsCarregados.find(x => x.id === tenantId) || {}).empresaDoDono) {
+    showAlert('tenant-alert', '🏠 Empresa do dono fica sempre no ♾️ Ilimitado, sem custo. Para mudar o plano, desmarque "empresa do dono" na DR Systems Central › Apps e licenças › DRG-Rently.');
+    return;
+  }
   const data = {
     plano,
     // Ilimitado é cortesia: sem mensalidade, sem vencimento, sem trial

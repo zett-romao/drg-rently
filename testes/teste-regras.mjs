@@ -402,6 +402,23 @@ await caso('equipes: cada um lê o próprio mapa', true, () => getDoc(R(db('gerA
 await caso('equipes: corretor lê mapa de outro BLOQUEIA', false, () => getDoc(R(db('cor1'), 'equipesMembro', 'gerA')));
 await caso('auditoria segue gravando (regressão)', true, () => setDoc(R(db('opSo'), 'auditoria', 'audAlc'), { userId: 'opSo', timestamp: serverTimestamp(), acao: 'x' }));
 
+// ---------- 🔒 Licença é da DR Systems, não da imobiliária (02/11/2026) ----------
+const TD = (d) => doc(d, 'tenants', T);
+await caso('licença: admin da imobiliária muda o próprio plano BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { plano: 'ilimitado' }));
+await caso('licença: admin zera a própria mensalidade BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { valorMensalidade: 0 }));
+await caso('licença: admin empurra o vencimento BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { proximoVencimento: '2099-12-31' }));
+await caso('licença: admin se dá isenção BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { isencao: { ate: null } }));
+await caso('licença: admin se reativa BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { ativo: true }));
+await caso('licença: admin se marca empresa do dono BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { empresaDoDono: true }));
+await caso('licença: admin libera módulos BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { modulosHabilitados: null, pacote: 'ilimitado' }));
+await caso('licença: admin mexe na assinatura Asaas BLOQUEIA', false, () => updateDoc(TD(db('admin1')), { 'asaas.subscriptionStatus': 'ACTIVE' }));
+await caso('licença: admin segue editando os dados da imobiliária (programa de parceiros)', true, () => updateDoc(TD(db('admin1')), { programaParceiros: { ativo: false } }));
+await caso('licença: admin segue editando o domínio do site', true, () => updateDoc(TD(db('admin1')), { dominioSite: 'imoba.com.br' }));
+await caso('licença: super admin muda o plano', true, () => updateDoc(TD(db('super')), { plano: 'pro', valorMensalidade: 149 }));
+await caso('licença: cadastro novo nasce em trial', true, () => setDoc(doc(db('novo1'), 'tenants', 'tCadNovo1'), { nome: 'Nova', plano: 'trial', ativo: true, criadoPor: 'novo1' }));
+await caso('licença: cadastro novo já ilimitado BLOQUEIA', false, () => setDoc(doc(db('novo2'), 'tenants', 'tNovo2'), { nome: 'Esperta', plano: 'ilimitado', ativo: true, criadoPor: 'novo2' }));
+await caso('licença: cadastro novo com vencimento BLOQUEIA', false, () => setDoc(doc(db('novo3'), 'tenants', 'tNovo3'), { nome: 'Esperta', plano: 'trial', proximoVencimento: '2099-01-01', criadoPor: 'novo3' }));
+await caso('licença: super admin cadastra cliente ilimitado', true, () => setDoc(doc(db('super'), 'tenants', 'tSup'), { nome: 'Do dono', plano: 'ilimitado', pacote: 'ilimitado', modulosHabilitados: null, criadoPor: 'super', cadastradoPeloSuperAdmin: true }));
 
 console.log(`\n${ok} ok · ${falhas} falha(s)`);
 await env.cleanup();

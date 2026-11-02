@@ -32,6 +32,14 @@ service cloud.firestore {
       return isSignedIn() && userExists() && userDoc().tenantId == tenantId;
     }
 
+    // Campos da LICENÇA no doc tenants/{id} — da DR Systems (dona do app), não da imobiliária.
+    function camposLicenca() {
+      return ['pacote', 'modulosHabilitados', 'valorMensalidade', 'proximoVencimento', 'trialExpira',
+              'isencao', 'asaas', 'arquivado', 'arquivadoEm', 'arquivadoPor', 'empresaDoDono',
+              'donoSuperAdmin', 'suspensoMotivo', 'suspensoEm',
+              'plataformaAtualizadoEm', 'notas'];
+    }
+
     function isAdminOf(tenantId) {
       return belongsToTenant(tenantId) && userDoc().role == 'admin';
     }
@@ -336,8 +344,17 @@ service cloud.firestore {
     // ----------- TENANTS -----------
     match /tenants/{tenantId} {
       allow read;  // leitura pública dos campos públicos (nome, telefone, emailContato)
-      allow create: if isSignedIn() && request.resource.data.criadoPor == request.auth.uid;
-      allow update: if isAdminOf(tenantId);
+      // 🔒 Licença é da DR Systems, não da imobiliária (02/11/2026, do dono: "tudo separado — dona do
+      // app — das empresas do dono, que são iguais a qualquer outra empresa"). O administrador da
+      // imobiliária mexe nos dados dela (site, parceiros, domínio…), NUNCA em plano, mensalidade,
+      // vencimento, isenção, cobrança Asaas ou situação. Quem altera: Super Admin ou a DR Systems
+      // Central (Worker drg-rently-asaas, conta de serviço). Conta nova nasce só em trial.
+      allow create: if isSuperAdmin()
+                    || (isSignedIn() && request.resource.data.criadoPor == request.auth.uid
+                        && request.resource.data.get('plano', 'trial') == 'trial'
+                        && !request.resource.data.keys().hasAny(camposLicenca()));
+      allow update: if isAdminOf(tenantId)
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposLicenca().concat(['plano', 'ativo']));
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 

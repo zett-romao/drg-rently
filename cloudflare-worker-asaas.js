@@ -234,6 +234,8 @@ function firestoreToFields(obj) {
     else if (typeof v === 'boolean') f[k] = { booleanValue: v };
     else if (typeof v === 'number') f[k] = Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
     else if (v instanceof Date) f[k] = { timestampValue: v.toISOString() };
+    else if (Array.isArray(v)) f[k] = { arrayValue: { values: v.map((x) => firestoreToFields({ x }).x) } };
+    else if (typeof v === 'object') f[k] = { mapValue: { fields: firestoreToFields(v) } };
     else f[k] = { stringValue: String(v) };
   }
   return f;
@@ -815,6 +817,12 @@ export default {
       });
     }
 
+    // 🧩 Contrato de Plataforma DR Systems v1 — servidor-a-servidor, token próprio (sem CORS/origem)
+    if (path.startsWith('/drs/v1/')) {
+      try { return await handleDrs(request, env, path); }
+      catch (e) { return drsJson({ ok: false, erro: 'falha no Rently: ' + e.message }, 500); }
+    }
+
     // =============================================================
     // ROTAS /mfa/* — 2FA TOTP. Exigem só identidade (Firebase ID token);
     // não usam chave Asaas nem token administrativo.
@@ -1174,7 +1182,6 @@ async function handleWebhook(request, env, origin) {
   const subscription = event.subscription;
 
   try {
-    const FIRESTORE = `https://firestore.googleapis.com/v1/projects/${env.PROJECT_ID || 'drg-rently'}/databases/(default)/documents`;
 
     if ((eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') && payment) {
       const ref = payment.externalReference || '';
@@ -1216,16 +1223,19 @@ async function handleWebhook(request, env, origin) {
         // (b) Mensalidade do SaaS (externalReference = tenantId): reativa o tenant
         const tenantId = ref;
         const nextDue = calcularProximoVencimento();
-        await atualizarFirestore(FIRESTORE, env, `tenants/${tenantId}`, {
-          proximoVencimento: { stringValue: nextDue },
-          ativo: { booleanValue: true },
-        });
-        await adicionarPagamentoFirestore(FIRESTORE, env, tenantId, {
-          asaasPaymentId: payment.id,
+        // 🔧 02/11/2026: grava como admin (conta de serviço). Antes ia pela chave pública sem login:
+        // as regras recusavam e o erro era engolido — a mensalidade paga não renovava o vencimento.
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(tenantId)) throw new Error('externalReference inválido: ' + tenantId);
+        if (!(await firestoreAdminGet(env, `tenants/${tenantId}`))) throw new Error('tenant não existe: ' + tenantId);
+        await firestoreAdminMerge(env, `tenants/${tenantId}`, { proximoVencimento: nextDue, ativo: true });
+        await firestoreAdminAddDoc(env, `tenants/${tenantId}/pagamentos`, {
+          asaasPaymentId: payment.id || '',
           data: dataPg,
-          valor: payment.value,
+          valor: Number(payment.value) || 0,
           metodo: (payment.billingType || 'pix').toLowerCase(),
           obs: `Asaas - ${payment.description || 'mensalidade'}`,
+          registradoEm: new Date(),
+          registradoPor: 'asaas-webhook',
         });
       }
     } else if (eventType === 'PAYMENT_OVERDUE' && payment) {
@@ -1235,9 +1245,10 @@ async function handleWebhook(request, env, origin) {
     } else if (eventType === 'SUBSCRIPTION_DELETED' && subscription) {
       const tenantId = subscription.externalReference;
       if (tenantId) {
-        await atualizarFirestore(FIRESTORE, env, `tenants/${tenantId}`, {
-          'asaas.subscriptionStatus': { stringValue: 'CANCELLED' },
-        });
+        if (/^[A-Za-z0-9_-]{1,64}$/.test(tenantId) && await firestoreAdminGet(env, `tenants/${tenantId}`)) {
+          // updateMask só em asaas.subscriptionStatus: o resto do mapa asaas fica intacto
+          await firestoreAdminMergeCampo(env, `tenants/${tenantId}`, 'asaas.subscriptionStatus', { asaas: { subscriptionStatus: 'CANCELLED' } });
+        }
       }
     }
   } catch (err) {
@@ -1256,36 +1267,6 @@ function calcularProximoVencimento() {
   const d = new Date();
   d.setDate(d.getDate() + 30);
   return d.toISOString().slice(0, 10);
-}
-
-async function atualizarFirestore(firestoreBase, env, docPath, fields) {
-  // Monta updateMask
-  const updateMask = Object.keys(fields).map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join('&');
-  const url = `${firestoreBase}/${docPath}?key=${env.FIREBASE_API_KEY}&${updateMask}`;
-  await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fields }),
-  });
-}
-
-async function adicionarPagamentoFirestore(firestoreBase, env, tenantId, pag) {
-  const url = `${firestoreBase}/tenants/${tenantId}/pagamentos?key=${env.FIREBASE_API_KEY}`;
-  await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      fields: {
-        asaasPaymentId: { stringValue: pag.asaasPaymentId },
-        data: { stringValue: pag.data },
-        valor: { doubleValue: pag.valor },
-        metodo: { stringValue: pag.metodo },
-        obs: { stringValue: pag.obs },
-        registradoEm: { timestampValue: new Date().toISOString() },
-        registradoPor: { stringValue: 'asaas-webhook' },
-      },
-    }),
-  });
 }
 
 function htmlHelp(env) {
@@ -1428,4 +1409,140 @@ async function tenantHealth(env, origin, apiKey) {
       walletId: data.walletId,
     },
   }, 200, origin);
+}
+
+// Grava um campo aninhado (ex.: 'asaas.subscriptionStatus') sem tocar no resto do mapa.
+async function firestoreAdminMergeCampo(env, docPath, caminho, obj) {
+  const token = await getGoogleAccessToken(env);
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}?updateMask.fieldPaths=${encodeURIComponent(caminho)}`;
+  const res = await fetch(url, { method: 'PATCH', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: firestoreToFields(obj) }) });
+  if (!res.ok) throw new Error('Firestore PATCH ' + res.status);
+}
+
+// Lista uma coleção inteira (paginado) como admin.
+async function firestoreAdminList(env, colecao) {
+  const token = await getGoogleAccessToken(env);
+  const out = []; let pageToken = '';
+  for (let i = 0; i < 50; i++) {
+    const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${colecao}?pageSize=300${pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''}`;
+    const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) throw new Error('Firestore LIST ' + res.status);
+    const j = await res.json();
+    for (const d of j.documents || []) out.push(Object.assign({ id: d.name.split('/').pop() }, firestoreParseFields(d.fields)));
+    if (!j.nextPageToken) break; pageToken = j.nextPageToken;
+  }
+  return out;
+}
+
+// ── 🧩 CONTRATO DE PLATAFORMA DR SYSTEMS v1 (02/11/2026) ─────────────────────
+// Do dono: "traga a gestão financeira e administrativa da rently para a dr systems — tudo separado —
+// dona do app — das empresas do dono, que são iguais a qualquer outra empresa que usará o sistema".
+// A DR Systems Central administra as licenças (tenants/{id}) por este contrato
+// (DRG-BuscaNFe/docs/PLATAFORMA-CONTRATO.md). 🔒 Token próprio: Secret DRS_PLATAFORMA_TOKEN.
+// 🔒 Nunca apaga cliente — "excluir de vez" continua só no Super Admin do Rently.
+// Status do Rently (tenantSituacao, app.js) → contrato:
+//   arquivado → arquivado · ativo:false → suspenso · ilimitado / isento → ativo ·
+//   vencimento passado → inadimplente · plano trial → trial · o resto → ativo
+// 🏠 Empresa do dono (empresaDoDono:true): sempre ♾️ Ilimitado, sem custo — igual a qualquer cliente,
+// só que cortesia. Marcar/desmarcar vem da Central (definir { empresaDoDono }).
+const DRS_PLANOS = {
+  trial: { nome: 'Trial', cobra: false }, basic: { nome: 'Basic', cobra: true }, pro: { nome: 'Pro', cobra: true },
+  ilimitado: { nome: '♾️ Ilimitado', cobra: false, cortesia: true, obs: 'sem mensalidade, sem vencimento, todos os módulos (inclusive os futuros); sempre disponível para as empresas do dono' },
+};
+function drsJson(obj, status) {
+  return new Response(JSON.stringify(obj), { status: status || 200, headers: { 'Content-Type': 'application/json' } });
+}
+function drsIgual(a, b) {
+  const x = new TextEncoder().encode(String(a)), y = new TextEncoder().encode(String(b));
+  if (x.length !== y.length) return false;
+  let d = 0; for (let i = 0; i < x.length; i++) d |= x[i] ^ y[i];
+  return d === 0;
+}
+function drsHoje() { return new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10); } // Brasília
+function drsIsento(t) { const i = t.isencao; return !!(i && typeof i === 'object' && (!i.ate || i.ate >= drsHoje())); }
+function drsStatus(t) {
+  if (t.arquivado === true) return 'arquivado';
+  if (t.ativo === false) return 'suspenso';
+  if (t.plano === 'ilimitado' || drsIsento(t)) return 'ativo';
+  if (t.proximoVencimento && t.proximoVencimento < drsHoje()) return 'inadimplente';
+  if (t.plano === 'trial') return 'trial';
+  return 'ativo';
+}
+function drsLicenca(t) {
+  const mens = t.plano === 'ilimitado' ? 0 : (t.valorMensalidade != null && t.valorMensalidade !== '' ? Number(t.valorMensalidade) : null);
+  return {
+    id: String(t.id || ''), nome: t.nome || '', documento: String(t.cnpj || '').replace(/\D/g, ''),
+    status: drsStatus(t), plano: (DRS_PLANOS[t.plano] || {}).nome || t.plano || '',
+    limite: null, // o Rently não tem teto numérico: o plano libera módulos
+    validade: t.plano === 'ilimitado' ? null : (t.plano === 'trial' ? (t.trialExpira || t.proximoVencimento || null) : (t.proximoVencimento || null)),
+    mensalidade: Number.isFinite(mens) ? mens : null,
+    contato: { email: t.email || '', telefone: t.telefone || '' },
+    criadoEm: t.criadoEm || null,
+    // extensões opcionais do contrato (a Central mostra se souber; ignora se não)
+    empresaDoDono: t.empresaDoDono === true,
+    isento: drsIsento(t),
+    cobranca: t.asaas && t.asaas.subscriptionId ? { asaas: t.asaas.subscriptionStatus || 'ACTIVE', proximoVencimento: t.asaas.nextDueDate || t.asaas.subscriptionNextDueDate || null } : null,
+  };
+}
+// Corpo do "♾️ Ilimitado" — o mesmo que o Super Admin grava (saveTenantManagement, app.js)
+function drsIlimitado() {
+  return { plano: 'ilimitado', pacote: 'ilimitado', modulosHabilitados: null, valorMensalidade: null, proximoVencimento: null, trialExpira: null };
+}
+async function handleDrs(request, env, rota) {
+  const tk = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  if (!env.DRS_PLATAFORMA_TOKEN || !tk || !drsIgual(tk, env.DRS_PLATAFORMA_TOKEN))
+    return drsJson({ ok: false, erro: 'token da plataforma inválido' }, 401);
+  if (request.method === 'GET' && rota === '/drs/v1/info')
+    return drsJson({ contrato: 1, app: 'rently', nome: 'DRG-Rently', versao: '1.0', recursos: ['licencas', 'acoes', 'planos', 'empresaDoDono'], unidadeLimite: 'módulos' });
+  if (request.method === 'GET' && rota === '/drs/v1/licencas') {
+    const lista = await firestoreAdminList(env, 'tenants');
+    return drsJson({ licencas: lista.map(drsLicenca) });
+  }
+  if (request.method === 'GET' && rota === '/drs/v1/planos') return drsJson({ planos: DRS_PLANOS });
+  const m = rota.match(/^\/drs\/v1\/licencas\/([^/]+)\/acao$/);
+  if (request.method === 'POST' && m) {
+    const id = decodeURIComponent(m[1]);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return drsJson({ ok: false, erro: 'id inválido' }, 400);
+    const caminho = 'tenants/' + id;
+    const t = await firestoreAdminGet(env, caminho);
+    if (!t) return drsJson({ ok: false, erro: 'licença não encontrada no Rently' }, 404);
+    const b = await request.json().catch(() => ({}));
+    const agora = new Date();
+    let patch;
+    if (b.acao === 'ativar' || b.acao === 'reativar') patch = { ativo: true, arquivado: false, arquivadoEm: null };
+    else if (b.acao === 'suspender') patch = { ativo: false, suspensoMotivo: String(b.motivo || 'Acesso suspenso pela DR Systems. Fale com o suporte.').slice(0, 300), suspensoEm: agora };
+    else if (b.acao === 'arquivar') patch = { arquivado: true, arquivadoEm: agora, arquivadoPor: 'dr-systems-central' };
+    else if (b.acao === 'definir') {
+      patch = {};
+      if (b.empresaDoDono === true || b.empresaDoDono === 'true') Object.assign(patch, { empresaDoDono: true }, drsIlimitado());
+      else if (b.empresaDoDono === false || b.empresaDoDono === 'false') patch.empresaDoDono = false;
+      const donoFica = patch.empresaDoDono === true || (t.empresaDoDono === true && patch.empresaDoDono !== false);
+      if (b.plano != null && b.plano !== '') {
+        const p = String(b.plano).toLowerCase().replace(/[^a-z]/g, '');
+        if (!DRS_PLANOS[p]) return drsJson({ ok: false, erro: 'plano do Rently: trial, basic, pro ou ilimitado' }, 400);
+        if (donoFica && p !== 'ilimitado') return drsJson({ ok: false, erro: 'empresa do dono fica sempre no ♾️ Ilimitado sem custo — desmarque "empresa do dono" antes de trocar o plano' }, 400);
+        if (p === 'ilimitado') Object.assign(patch, drsIlimitado());
+        else { patch.plano = p; if (t.pacote === 'ilimitado') { patch.pacote = 'completo'; patch.modulosHabilitados = null; } }
+      }
+      const planoFinal = patch.plano || t.plano;
+      if (b.validade != null && b.validade !== '') {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.validade))) return drsJson({ ok: false, erro: 'validade AAAA-MM-DD' }, 400);
+        if (planoFinal === 'ilimitado') return drsJson({ ok: false, erro: 'o ♾️ Ilimitado não tem vencimento' }, 400);
+        if (planoFinal === 'trial') patch.trialExpira = String(b.validade); else patch.proximoVencimento = String(b.validade);
+      }
+      if (b.mensalidade != null && b.mensalidade !== '') {
+        const n = Number(b.mensalidade);
+        if (!(n >= 0)) return drsJson({ ok: false, erro: 'mensalidade inválida' }, 400);
+        if (planoFinal === 'ilimitado' && n > 0) return drsJson({ ok: false, erro: 'o ♾️ Ilimitado é sem custo' }, 400);
+        if (planoFinal !== 'ilimitado') patch.valorMensalidade = n;
+      }
+      if (!Object.keys(patch).length) return drsJson({ ok: false, erro: 'nada para definir (o Rently não tem limite numérico)' }, 400);
+    }
+    else return drsJson({ ok: false, erro: 'ação desconhecida' }, 400);
+    patch.plataformaAtualizadoEm = agora;
+    await firestoreAdminMerge(env, caminho, patch);
+    const novo = await firestoreAdminGet(env, caminho);
+    return drsJson({ ok: true, licenca: drsLicenca(Object.assign({ id }, novo || {})) });
+  }
+  return drsJson({ ok: false, erro: 'rota do contrato não encontrada' }, 404);
 }
