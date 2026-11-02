@@ -341,6 +341,20 @@ service cloud.firestore {
       allow read, write: if isSuperAdmin();
     }
 
+    // ----------- LICENÇAS (privadas) -----------
+    // 🔒 02/11/2026: mensalidade, vencimento, trial, isenção, notas e Asaas de cada cliente saíram de
+    // tenants/{id} (leitura pública) para cá. Lê só a equipe DR Systems; grava só o Super Admin (a
+    // DR Systems Central e o webhook do Asaas gravam pelo Worker, com conta de serviço). A imobiliária
+    // — inclusive as empresas do dono — não lê nem grava a própria licença por aqui.
+    match /licencas/{tenantId} {
+      allow read: if isDRGTeam();
+      allow write: if isSuperAdmin();
+      match /pagamentos/{pagId} {
+        allow read: if isDRGTeam();
+        allow write: if isSuperAdmin();
+      }
+    }
+
     // ----------- TENANTS -----------
     match /tenants/{tenantId} {
       allow read;  // leitura pública dos campos públicos (nome, telefone, emailContato)

@@ -14,6 +14,8 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   const u = (uid, d) => setDoc(doc(db, 'users', uid), d);
   await setDoc(doc(db, 'tenants', T), { nome: 'Imob A', criadoPor: 'admin1', programaParceiros: { ativo: true } });
+  await setDoc(doc(db, 'licencas', T), { valorMensalidade: 99, notas: 'x', asaas: { customerId: 'cus' } }); // 🔒 licença privada
+  await setDoc(doc(db, 'licencas', T, 'pagamentos', 'p1'), { valor: 99 });
   await u('admin1', { role: 'admin', tenantId: T, perfilId: 'restrito' }); // admin com perfil restrito: piso libera
   await u('op0', { role: 'operador', tenantId: T });                       // sem perfil, sem seed → padrão do código
   await u('op1', { role: 'operador', tenantId: T, perfilId: 'restrito' }); // 3.0
@@ -418,6 +420,16 @@ await caso('licença: super admin muda o plano', true, () => updateDoc(TD(db('su
 await caso('licença: cadastro novo nasce em trial', true, () => setDoc(doc(db('novo1'), 'tenants', 'tCadNovo1'), { nome: 'Nova', plano: 'trial', ativo: true, criadoPor: 'novo1' }));
 await caso('licença: cadastro novo já ilimitado BLOQUEIA', false, () => setDoc(doc(db('novo2'), 'tenants', 'tNovo2'), { nome: 'Esperta', plano: 'ilimitado', ativo: true, criadoPor: 'novo2' }));
 await caso('licença: cadastro novo com vencimento BLOQUEIA', false, () => setDoc(doc(db('novo3'), 'tenants', 'tNovo3'), { nome: 'Esperta', plano: 'trial', proximoVencimento: '2099-01-01', criadoPor: 'novo3' }));
+// 🔒 licença privada: licencas/{id}
+await caso('licença privada: visitante (sem login) lê BLOQUEIA', false, () => getDoc(doc(db(null), 'licencas', T)));
+await caso('licença privada: admin da imobiliária lê a própria BLOQUEIA', false, () => getDoc(doc(db('admin1'), 'licencas', T)));
+await caso('licença privada: operador lê BLOQUEIA', false, () => getDoc(doc(db('op0'), 'licencas', T)));
+await caso('licença privada: admin grava BLOQUEIA', false, () => setDoc(doc(db('admin1'), 'licencas', T), { valorMensalidade: 0 }, { merge: true }));
+await caso('licença privada: admin lê pagamentos da mensalidade BLOQUEIA', false, () => getDocs(collection(db('admin1'), 'licencas', T, 'pagamentos')));
+await caso('licença privada: super admin lê', true, () => getDoc(doc(db('super'), 'licencas', T)));
+await caso('licença privada: super admin grava', true, () => setDoc(doc(db('super'), 'licencas', T), { valorMensalidade: 120 }, { merge: true }));
+await caso('licença privada: super admin registra pagamento', true, () => addDoc(collection(db('super'), 'licencas', T, 'pagamentos'), { valor: 120 }));
+await caso('tenant público: visitante segue lendo nome/site (vitrine)', true, () => getDoc(doc(db(null), 'tenants', T)));
 await caso('licença: super admin cadastra cliente ilimitado', true, () => setDoc(doc(db('super'), 'tenants', 'tSup'), { nome: 'Do dono', plano: 'ilimitado', pacote: 'ilimitado', modulosHabilitados: null, criadoPor: 'super', cadastradoPeloSuperAdmin: true }));
 
 console.log(`\n${ok} ok · ${falhas} falha(s)`);

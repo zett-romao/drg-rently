@@ -1542,6 +1542,34 @@ let _tenantsCarregados = []; // cache pra filtros sem requery
 
 const PLANO_LABEL = { trial: 'Trial', basic: 'Basic', pro: 'Pro', ilimitado: '♾️ Ilimitado' };
 
+// 🔒 Licença PRIVADA (02/11/2026, do dono: "faça urgente"): mensalidade, vencimento, trial, isenção,
+// notas e Asaas saíram de tenants/{id} — que é de leitura pública (vitrine, site, parceiros) — para
+// licencas/{id}, que só a equipe DR Systems lê e só o Super Admin grava (e a Central, pelo Worker).
+// Os pagamentos da mensalidade também: licencas/{id}/pagamentos.
+const LIC_PRIVADOS = ['valorMensalidade', 'proximoVencimento', 'trialExpira', 'isencao', 'notas', 'asaas'];
+const licRef = (tenantId) => db.collection('licencas').doc(tenantId);
+const _ehPrivado = (k) => LIC_PRIVADOS.includes(k.split('.')[0]);
+// Tenant + licença num objeto só (as telas do Super Admin leem os campos como antes)
+async function lerTenantComLicenca(tenantId) {
+  const [tSnap, lSnap] = await Promise.all([db.collection('tenants').doc(tenantId).get(), licRef(tenantId).get().catch(() => null)]);
+  const dados = Object.assign({}, tSnap.data() || {}, lSnap && lSnap.exists ? lSnap.data() : {});
+  return { exists: tSnap.exists, id: tenantId, data: () => dados };
+}
+// Grava separando: campos privados → licencas/{id} (set merge; 'asaas.x' vira mapa); o resto → tenants/{id}
+async function gravarLicenca(tenantId, obj) {
+  const pub = {}, priv = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!_ehPrivado(k)) { pub[k] = v; continue; }
+    const partes = k.split('.'); let alvo = priv;
+    for (let i = 0; i < partes.length - 1; i++) { alvo[partes[i]] = alvo[partes[i]] || {}; alvo = alvo[partes[i]]; }
+    alvo[partes[partes.length - 1]] = v;
+  }
+  const ops = [];
+  if (Object.keys(priv).length) ops.push(licRef(tenantId).set(priv, { merge: true }));
+  if (Object.keys(pub).length) ops.push(db.collection('tenants').doc(tenantId).update(pub));
+  await Promise.all(ops);
+}
+
 function diasAteData(isoDate) {
   if (!isoDate) return null;
   const hoje = new Date(); hoje.setHours(0,0,0,0);
@@ -1583,6 +1611,10 @@ async function loadTenantsTable() {
       return;
     }
     _tenantsCarregados = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+      const lic = new Map((await db.collection('licencas').get()).docs.map(d => [d.id, d.data()]));
+      _tenantsCarregados.forEach(t => Object.assign(t, lic.get(t.id) || {}));
+    } catch (e) { console.warn('licenças privadas', e); }
     // CPF de PF fica no doc privado: busca (e migra o que ainda estiver no público)
     await Promise.all(_tenantsCarregados.filter(t => t.tipoPessoa === 'PF' || t.cpf).map(async (t) => {
       try {
@@ -1884,7 +1916,7 @@ async function openTenantModal(tenantId) {
   $('tenant-id').value = tenantId;
 
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     if (!tSnap.exists) { showAlert('tenant-alert', 'Tenant não encontrado.'); return; }
     const t = tSnap.data();
     if (!t.cpf && t.tipoPessoa === 'PF') {
@@ -2047,7 +2079,7 @@ async function loadTenantPagamentos(tenantId) {
   const tbody = $('tbody-pagamentos');
   tbody.innerHTML = `<tr><td colspan="5" class="empty">Carregando…</td></tr>`;
   try {
-    const snap = await db.collection('tenants').doc(tenantId).collection('pagamentos').orderBy('data', 'desc').get();
+    const snap = await licRef(tenantId).collection('pagamentos').orderBy('data', 'desc').get();
     if (snap.empty) {
       tbody.innerHTML = `<tr><td colspan="5" class="empty">Sem pagamentos registrados.</td></tr>`;
       return;
@@ -2077,7 +2109,7 @@ async function addPagamento() {
   if (!data || !valor) { showAlert('tenant-alert', 'Informe data e valor.'); return; }
 
   try {
-    await db.collection('tenants').doc(tenantId).collection('pagamentos').add({
+    await licRef(tenantId).collection('pagamentos').add({
       data, metodo, valor, obs: obs || null,
       registradoPor: State.user.uid,
       registradoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -2094,7 +2126,7 @@ async function addPagamento() {
 async function deletePagamento(tenantId, pagId) {
   if (!(await confirmar({ titulo: 'Excluir pagamento?', mensagem: 'Remover este pagamento do histórico do tenant.', confirmar: '🗑 Excluir', perigo: true }))) return;
   try {
-    await db.collection('tenants').doc(tenantId).collection('pagamentos').doc(pagId).delete();
+    await licRef(tenantId).collection('pagamentos').doc(pagId).delete();
     loadTenantPagamentos(tenantId);
   } catch (err) {
     showAlert('tenant-alert', 'Erro: ' + err.message);
@@ -2180,7 +2212,10 @@ async function saveNovoCliente() {
     if (ilimitado) { tenantData.pacote = 'ilimitado'; tenantData.modulosHabilitados = null; }
 
     const batch = db.batch();
+    const licData = {};
+    for (const k of LIC_PRIVADOS) if (k in tenantData) { licData[k] = tenantData[k]; delete tenantData[k]; }
     batch.set(tenantRef, tenantData);
+    if (Object.keys(licData).length) batch.set(licRef(tenantRef.id), licData);
     batch.set(db.collection('users').doc(conta.uid), {
       nome: adminNome, email, tenantId: tenantRef.id, role: 'admin', ativo: true,
       criadoEm: agora, criadoPor: State.user.uid,
@@ -2248,7 +2283,7 @@ async function ajustarAsaasPelaIsencao(tenantId, antes, isencao, proximoVenc) {
   }
   try {
     await chamarAsaas('PUT', `/subscriptions/${sub}`, { nextDueDate: proximoVenc });
-    await db.collection('tenants').doc(tenantId).update({ 'asaas.nextDueDate': proximoVenc });
+    await gravarLicenca(tenantId, { 'asaas.nextDueDate': proximoVenc });
     logAuditoria('asaas_subscription_update', 'tenant', tenantId, { nextDueDate: proximoVenc, motivo: 'isencao' });
     return `🎁 Isenção salva.\n\n✅ Asaas: a próxima cobrança passou para ${fmtDataBR(proximoVenc)}.\nCobranças já geradas e não pagas continuam lá — confira em "Ver pagamentos" e cancele no Asaas se precisar.`;
   } catch (e) {
@@ -2303,13 +2338,13 @@ async function saveTenantManagement() {
   const btn = $('btn-save-tenant');
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
-    const antes = (await db.collection('tenants').doc(tenantId).get()).data() || {};
+    const antes = (await lerTenantComLicenca(tenantId)).data() || {};
     const mudouIsencao = JSON.stringify(antes.isencao?.ate ?? 'x') !== JSON.stringify(isencaoNova?.ate ?? 'x') || !!antes.isencao !== !!isencaoNova;
     // Isento até X: o vencimento passa a ser o 1º depois da isenção (mesmo dia do mês de antes)
     if (isencaoNova && isencaoNova.ate && mudouIsencao) {
       data.proximoVencimento = proximoVencimentoAposIsencao(isencaoNova.ate, data.proximoVencimento || antes.proximoVencimento);
     }
-    await db.collection('tenants').doc(tenantId).update(data);
+    await gravarLicenca(tenantId, data);
     if (mudouIsencao) {
       logAuditoria('isencao_mensalidade', 'tenant', tenantId, { ate: isencaoNova ? (isencaoNova.ate || 'sem data final') : 'retirada', motivo: isencaoNova?.motivo || null });
       const avisoAsaas = await ajustarAsaasPelaIsencao(tenantId, antes, isencaoNova, data.proximoVencimento);
@@ -16687,7 +16722,7 @@ async function carregarBlocoAsaas(tenantId) {
   }
 
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     if (!tSnap.exists) return;
     const t = tSnap.data();
     const asaas = t.asaas || {};
@@ -16774,7 +16809,7 @@ async function criarCustomerAsaas(tenantId) {
   });
   if (!ok) return;
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.cnpj && !t.cpf) {
       try { t.cpf = (await db.collection('tenants').doc(tenantId).collection('config').doc('cadastro').get()).data()?.cpf || null; } catch (_) {}
@@ -16799,7 +16834,7 @@ async function criarCustomerAsaas(tenantId) {
     });
 
     // Salva no tenant
-    await db.collection('tenants').doc(tenantId).update({
+    await gravarLicenca(tenantId, {
       'asaas.customerId': result.customer.id,
       'asaas.customerCreatedAt': firebase.firestore.FieldValue.serverTimestamp(),
     });
@@ -16822,7 +16857,7 @@ async function criarSubscriptionAsaas(tenantId) {
   if (!(await confirmar({ titulo: 'Criar assinatura recorrente?', mensagem: 'O cliente vai começar a receber cobranças automaticamente todo mês.', detalhe: `<strong>Valor:</strong> ${fmtBRL(valor)}/mês<br><strong>Método:</strong> ${escapeHtml(billingType)}<br><strong>Primeiro vencimento:</strong> ${escapeHtml(dataVenc)}`, confirmar: '💳 Criar assinatura', aviso: true }))) return;
 
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.customerId) throw new Error('Tenant não tem customer Asaas. Crie o cliente primeiro.');
 
@@ -16836,7 +16871,7 @@ async function criarSubscriptionAsaas(tenantId) {
       tenantId,
     });
 
-    await db.collection('tenants').doc(tenantId).update({
+    await gravarLicenca(tenantId, {
       'asaas.subscriptionId': result.subscription.id,
       'asaas.subscriptionStatus': result.subscription.status,
       'asaas.subscriptionValue': result.subscription.value,
@@ -16860,7 +16895,7 @@ async function criarSubscriptionAsaas(tenantId) {
 
 async function reajustarSubscriptionAsaas(tenantId) {
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.subscriptionId) {
       alert('Tenant não tem assinatura Asaas ativa.');
@@ -16879,7 +16914,7 @@ async function reajustarSubscriptionAsaas(tenantId) {
       updatePendingPayments: aplicarPendentes,
     });
 
-    await db.collection('tenants').doc(tenantId).update({
+    await gravarLicenca(tenantId, {
       'asaas.subscriptionValue': novoValor,
       valorMensalidade: novoValor,
     });
@@ -16896,7 +16931,7 @@ async function reajustarSubscriptionAsaas(tenantId) {
 
 async function cobrancaAvulsaAsaas(tenantId) {
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.customerId) {
       alert('Tenant não tem cliente Asaas vinculado. Crie o cliente primeiro.');
@@ -16939,7 +16974,7 @@ async function cobrancaAvulsaAsaas(tenantId) {
     });
 
     // Registra no histórico local
-    await tenantPath().collection('pagamentos').add({
+    await licRef(tenantId).collection('pagamentos').add({
       asaasPaymentId: result.payment.id,
       data: dataVenc,
       valor,
@@ -16961,12 +16996,12 @@ async function cobrancaAvulsaAsaas(tenantId) {
 
 async function atualizarStatusAsaas(tenantId) {
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.subscriptionId) return;
 
     const result = await chamarAsaas('GET', `/subscriptions/${t.asaas.subscriptionId}`);
-    await db.collection('tenants').doc(tenantId).update({
+    await gravarLicenca(tenantId, {
       'asaas.subscriptionStatus': result.subscription.status,
       'asaas.subscriptionValue': result.subscription.value,
       'asaas.subscriptionNextDueDate': result.subscription.nextDueDate,
@@ -16980,7 +17015,7 @@ async function atualizarStatusAsaas(tenantId) {
 
 async function listarPagamentosAsaas(tenantId) {
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.subscriptionId) return;
 
@@ -17009,12 +17044,12 @@ async function cancelarSubscriptionAsaas(tenantId) {
   });
   if (!ok) return;
   try {
-    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tSnap = await lerTenantComLicenca(tenantId);
     const t = tSnap.data();
     if (!t.asaas?.subscriptionId) return;
 
     await chamarAsaas('DELETE', `/subscriptions/${t.asaas.subscriptionId}`);
-    await db.collection('tenants').doc(tenantId).update({
+    await gravarLicenca(tenantId, {
       'asaas.subscriptionId': firebase.firestore.FieldValue.delete(),
       'asaas.subscriptionStatus': 'CANCELLED',
       'asaas.canceladoEm': firebase.firestore.FieldValue.serverTimestamp(),

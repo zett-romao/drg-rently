@@ -48,6 +48,7 @@ globalThis.fetch = async (url, o = {}) => {
     }
     docs.set(cam, atual); return R(200, {});
   }
+  if (metodo === 'DELETE') { docs.delete(cam); return R(200, {}); }
   return R(400, {});
 };
 
@@ -64,6 +65,7 @@ docs.set('tenants/CLIENTE1', { nome: 'Imobiliária Um', cnpj: '11.222.333/0001-8
 docs.set('tenants/TRIAL1', { nome: 'Corretor PF', tipoPessoa: 'PF', plano: 'trial', ativo: true, trialExpira: somaDias(10) });
 docs.set('tenants/SUSP', { nome: 'Suspensa', plano: 'basic', ativo: false });
 docs.set('tenants/ARQ', { nome: 'Arquivada', plano: 'basic', ativo: true, arquivado: true });
+docs.set('tenants/CLIENTE1/pagamentos/p0', { data: '2026-10-01', valor: 99, metodo: 'pix', obs: 'out' });
 docs.set('tenants/ISENTA', { nome: 'Isenta', plano: 'basic', ativo: true, proximoVencimento: somaDias(-30), isencao: { ate: null, motivo: 'parceria' } });
 
 const chama = async (metodo, rota, corpo, tk = TK) => {
@@ -90,12 +92,28 @@ checa(L.TRIAL1.status === 'trial' && L.TRIAL1.validade === somaDias(10), 'trial:
 checa(L.SUSP.status === 'suspenso' && L.ARQ.status === 'arquivado', 'ativo:false → suspenso; arquivado → arquivado');
 checa(L.ISENTA.status === 'ativo' && L.ISENTA.isento === true, '🎁 isenta não fica inadimplente');
 
+// 🔒 migração: licença sai do doc público
+const L0 = JSON.stringify(L);
+r = await chama('POST', '/drs/v1/manutencao/separar-licencas');
+const pubs = [...docs.entries()].filter(([k]) => /^tenants\/[^/]+$/.test(k)).map(([, d]) => d);
+checa(r.st === 200 && r.j.ok && pubs.every((d) => !['valorMensalidade', 'proximoVencimento', 'trialExpira', 'isencao', 'notas', 'asaas'].some((k) => k in d)),
+  '🔒 migração: nenhum tenant público guarda mensalidade, vencimento, trial, isenção, notas ou Asaas');
+checa(docs.get('licencas/CLIENTE1').valorMensalidade === 99 && docs.get('licencas/CLIENTE1').asaas.subscriptionId === 'sub_1' && docs.get('licencas/ISENTA').isencao.motivo === 'parceria',
+  '…foi tudo para licencas/{id}');
+checa(docs.has('licencas/CLIENTE1/pagamentos/p0') && !docs.has('tenants/CLIENTE1/pagamentos/p0') && r.j.pagamentos === 1, '…e o histórico de mensalidades também');
+checa(docs.get('tenants/CLIENTE1').nome === 'Imobiliária Um' && docs.get('tenants/CLIENTE1').plano === 'basic', '…sem perder nome/plano no público');
+r = await chama('GET', '/drs/v1/licencas');
+checa(JSON.stringify(Object.fromEntries((r.j.licencas || []).map((l) => [l.id, l]))) === L0, 'a Central vê exatamente o mesmo de antes da migração');
+r = await chama('POST', '/drs/v1/manutencao/separar-licencas');
+checa(r.j.ok && r.j.movidos === 0, 'migração idempotente (2ª vez não move nada)');
+
 // 🏠 empresa do dono → ♾️ Ilimitado sem custo
 r = await acao('DRGIMOVEIS', { acao: 'definir', empresaDoDono: true });
 let d = docs.get('tenants/DRGIMOVEIS');
 checa(r.st === 200 && r.j.licenca.empresaDoDono && r.j.licenca.status === 'ativo' && r.j.licenca.mensalidade === 0 && r.j.licenca.validade === null,
   '🏠 empresa do dono: vira ♾️ Ilimitado, ativa, R$ 0, sem vencimento');
-checa(d.plano === 'ilimitado' && d.pacote === 'ilimitado' && d.modulosHabilitados === null && d.valorMensalidade === null && d.proximoVencimento === null && d.nome === 'D.R. Global Imóveis',
+const dl = docs.get('licencas/DRGIMOVEIS');
+checa(d.plano === 'ilimitado' && d.pacote === 'ilimitado' && d.modulosHabilitados === null && dl.valorMensalidade === null && dl.proximoVencimento === null && d.nome === 'D.R. Global Imóveis' && !('valorMensalidade' in d),
   '…grava igual ao Super Admin (pacote ilimitado, todos os módulos) e não mexe no resto');
 r = await acao('DRGIMOVEIS', { acao: 'definir', plano: 'basic' });
 checa(r.st === 400 && /empresa do dono/.test(r.j.erro), '🔒 empresa do dono não sai do Ilimitado sem desmarcar');
@@ -106,10 +124,10 @@ checa(r.st === 400, '🔒 Ilimitado não tem vencimento');
 
 // definir num cliente comum
 r = await acao('CLIENTE1', { acao: 'definir', plano: 'Pro', mensalidade: '149.90', validade: '2026-12-10' });
-d = docs.get('tenants/CLIENTE1');
-checa(r.st === 200 && d.plano === 'pro' && d.valorMensalidade === 149.9 && d.proximoVencimento === '2026-12-10' && d.asaas.subscriptionId === 'sub_1', 'definir: plano, mensalidade e vencimento (Asaas intacto)');
+d = docs.get('tenants/CLIENTE1'); let lc = docs.get('licencas/CLIENTE1');
+checa(r.st === 200 && d.plano === 'pro' && lc.valorMensalidade === 149.9 && lc.proximoVencimento === '2026-12-10' && lc.asaas.subscriptionId === 'sub_1' && !('valorMensalidade' in d), 'definir: plano no público; mensalidade e vencimento na licença privada (Asaas intacto)');
 r = await acao('TRIAL1', { acao: 'definir', validade: '2026-12-31' });
-checa(docs.get('tenants/TRIAL1').trialExpira === '2026-12-31', 'definir validade num trial estende o trial');
+checa(docs.get('licencas/TRIAL1').trialExpira === '2026-12-31', 'definir validade num trial estende o trial');
 r = await acao('CLIENTE1', { acao: 'definir', plano: 'ouro' });
 checa(r.st === 400, 'plano inexistente: recusa');
 r = await acao('CLIENTE1', { acao: 'definir', limite: 10 });
@@ -133,13 +151,13 @@ checa(r.j.planos.ilimitado.cobra === false && r.j.planos.ilimitado.cortesia === 
 
 // webhook da mensalidade (antes gravava sem credencial e falhava calado)
 const wh = (ev) => worker.fetch(new Request('https://x/webhook', { method: 'POST', headers: { 'asaas-access-token': 'wh-teste', 'Content-Type': 'application/json' }, body: JSON.stringify(ev) }), env);
-docs.get('tenants/CLIENTE1').proximoVencimento = somaDias(-5);
+docs.get('licencas/CLIENTE1').proximoVencimento = somaDias(-5);
 await wh({ event: 'PAYMENT_RECEIVED', payment: { id: 'pay_9', value: 149.9, billingType: 'PIX', externalReference: 'CLIENTE1', paymentDate: hoje, description: 'Mensalidade' } });
-d = docs.get('tenants/CLIENTE1');
-const pg = [...docs.entries()].filter(([k]) => k.startsWith('tenants/CLIENTE1/pagamentos/'));
-checa(d.proximoVencimento > hoje && pg.length === 1 && pg[0][1].asaasPaymentId === 'pay_9', '🔧 webhook: mensalidade paga renova o vencimento e registra o pagamento');
+d = docs.get('licencas/CLIENTE1');
+const pg = [...docs.entries()].filter(([k]) => k.startsWith('licencas/CLIENTE1/pagamentos/') && k !== 'licencas/CLIENTE1/pagamentos/p0');
+checa(d.proximoVencimento > hoje && pg.length === 1 && pg[0][1].asaasPaymentId === 'pay_9' && docs.get('tenants/CLIENTE1').ativo === true && !('proximoVencimento' in docs.get('tenants/CLIENTE1')), '🔧 webhook: mensalidade paga renova o vencimento e registra o pagamento');
 await wh({ event: 'SUBSCRIPTION_DELETED', subscription: { id: 'sub_1', externalReference: 'CLIENTE1' } });
-d = docs.get('tenants/CLIENTE1');
+d = docs.get('licencas/CLIENTE1');
 checa(d.asaas.subscriptionStatus === 'CANCELLED' && d.asaas.customerId === 'cus_1' && d.asaas.subscriptionId === 'sub_1', '🔧 webhook: assinatura cancelada marca só o status (resto do mapa asaas intacto)');
 checa(semAuth === 0, '🔒 nenhuma gravação sem credencial de admin');
 

@@ -271,6 +271,7 @@ async function firestoreAdminGet(env, docPath) {
 }
 
 async function firestoreAdminMerge(env, docPath, obj) {
+  if (!obj || !Object.keys(obj).length) return true; // sem máscara o PATCH trocaria o doc inteiro
   const token = await getGoogleAccessToken(env);
   const mask = Object.keys(obj).map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
   const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}?${mask}`;
@@ -1227,8 +1228,9 @@ async function handleWebhook(request, env, origin) {
         // as regras recusavam e o erro era engolido — a mensalidade paga não renovava o vencimento.
         if (!/^[A-Za-z0-9_-]{1,64}$/.test(tenantId)) throw new Error('externalReference inválido: ' + tenantId);
         if (!(await firestoreAdminGet(env, `tenants/${tenantId}`))) throw new Error('tenant não existe: ' + tenantId);
-        await firestoreAdminMerge(env, `tenants/${tenantId}`, { proximoVencimento: nextDue, ativo: true });
-        await firestoreAdminAddDoc(env, `tenants/${tenantId}/pagamentos`, {
+        await firestoreAdminMerge(env, `tenants/${tenantId}`, { ativo: true });
+        await firestoreAdminMerge(env, `licencas/${tenantId}`, { proximoVencimento: nextDue });
+        await firestoreAdminAddDoc(env, `licencas/${tenantId}/pagamentos`, {
           asaasPaymentId: payment.id || '',
           data: dataPg,
           valor: Number(payment.value) || 0,
@@ -1247,7 +1249,7 @@ async function handleWebhook(request, env, origin) {
       if (tenantId) {
         if (/^[A-Za-z0-9_-]{1,64}$/.test(tenantId) && await firestoreAdminGet(env, `tenants/${tenantId}`)) {
           // updateMask só em asaas.subscriptionStatus: o resto do mapa asaas fica intacto
-          await firestoreAdminMergeCampo(env, `tenants/${tenantId}`, 'asaas.subscriptionStatus', { asaas: { subscriptionStatus: 'CANCELLED' } });
+          await firestoreAdminMergeCampo(env, `licencas/${tenantId}`, 'asaas.subscriptionStatus', { asaas: { subscriptionStatus: 'CANCELLED' } });
         }
       }
     }
@@ -1495,8 +1497,13 @@ async function handleDrs(request, env, rota) {
   if (request.method === 'GET' && rota === '/drs/v1/info')
     return drsJson({ contrato: 1, app: 'rently', nome: 'DRG-Rently', versao: '1.0', recursos: ['licencas', 'acoes', 'planos', 'empresaDoDono'], unidadeLimite: 'módulos' });
   if (request.method === 'GET' && rota === '/drs/v1/licencas') {
-    const lista = await firestoreAdminList(env, 'tenants');
-    return drsJson({ licencas: lista.map(drsLicenca) });
+    const [lista, privadas] = await Promise.all([firestoreAdminList(env, 'tenants'), firestoreAdminList(env, 'licencas')]);
+    const priv = new Map(privadas.map((l) => [l.id, l]));
+    return drsJson({ licencas: lista.map((t) => drsLicenca(Object.assign({}, t, priv.get(t.id) || {}, { id: t.id }))) });
+  }
+  // 🔒 Migração única (idempotente): tira os dados da licença do doc público tenants/{id}
+  if (request.method === 'POST' && rota === '/drs/v1/manutencao/separar-licencas') {
+    return drsJson(await separarLicencas(env));
   }
   if (request.method === 'GET' && rota === '/drs/v1/planos') return drsJson({ planos: DRS_PLANOS });
   const m = rota.match(/^\/drs\/v1\/licencas\/([^/]+)\/acao$/);
@@ -1504,8 +1511,9 @@ async function handleDrs(request, env, rota) {
     const id = decodeURIComponent(m[1]);
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return drsJson({ ok: false, erro: 'id inválido' }, 400);
     const caminho = 'tenants/' + id;
-    const t = await firestoreAdminGet(env, caminho);
-    if (!t) return drsJson({ ok: false, erro: 'licença não encontrada no Rently' }, 404);
+    const tPub = await firestoreAdminGet(env, caminho);
+    if (!tPub) return drsJson({ ok: false, erro: 'licença não encontrada no Rently' }, 404);
+    const t = Object.assign({}, tPub, (await firestoreAdminGet(env, 'licencas/' + id)) || {});
     const b = await request.json().catch(() => ({}));
     const agora = new Date();
     let patch;
@@ -1540,9 +1548,54 @@ async function handleDrs(request, env, rota) {
     }
     else return drsJson({ ok: false, erro: 'ação desconhecida' }, 400);
     patch.plataformaAtualizadoEm = agora;
-    await firestoreAdminMerge(env, caminho, patch);
-    const novo = await firestoreAdminGet(env, caminho);
-    return drsJson({ ok: true, licenca: drsLicenca(Object.assign({ id }, novo || {})) });
+    const pub = {}, priv = {};
+    for (const [k, v] of Object.entries(patch)) (LIC_PRIVADOS.includes(k) ? priv : pub)[k] = v;
+    if (Object.keys(pub).length) await firestoreAdminMerge(env, caminho, pub);
+    if (Object.keys(priv).length) await firestoreAdminMerge(env, 'licencas/' + id, priv);
+    const novo = Object.assign({}, await firestoreAdminGet(env, caminho), (await firestoreAdminGet(env, 'licencas/' + id)) || {});
+    return drsJson({ ok: true, licenca: drsLicenca(Object.assign({}, novo, { id })) });
   }
   return drsJson({ ok: false, erro: 'rota do contrato não encontrada' }, 404);
+}
+
+// 🔒 Licença PRIVADA (02/11/2026): estes campos moram em licencas/{id} (só a equipe DR Systems lê),
+// não em tenants/{id} (leitura pública: vitrine, site, parceiros). Ver firestore.rules.
+const LIC_PRIVADOS = ['valorMensalidade', 'proximoVencimento', 'trialExpira', 'isencao', 'notas', 'asaas'];
+
+// Apaga campos de um doc (updateMask com o campo e sem valor = remove).
+async function firestoreAdminApagarCampos(env, docPath, campos) {
+  if (!campos.length) return;
+  const token = await getGoogleAccessToken(env);
+  const mask = campos.map((k) => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+  const url = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/${docPath}?${mask}&currentDocument.exists=true`;
+  const res = await fetch(url, { method: 'PATCH', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: {} }) });
+  if (!res.ok) throw new Error('Firestore PATCH (apagar) ' + res.status);
+}
+
+// Move licença e histórico de mensalidades de cada tenant para licencas/{id}. Idempotente:
+// o que já está em licencas/{id} vale (não é sobrescrito pelo que ainda estiver no público).
+async function separarLicencas(env) {
+  const tenants = await firestoreAdminList(env, 'tenants');
+  const rel = { tenants: tenants.length, movidos: 0, campos: 0, pagamentos: 0 };
+  for (const t of tenants) {
+    const presentes = LIC_PRIVADOS.filter((k) => k in t);
+    const pags = await firestoreAdminList(env, `tenants/${t.id}/pagamentos`);
+    if (!presentes.length && !pags.length) continue;
+    if (presentes.length) {
+      const jaPriv = (await firestoreAdminGet(env, 'licencas/' + t.id)) || {};
+      const dados = {};
+      for (const k of presentes) if (!(k in jaPriv)) dados[k] = t[k];
+      if (Object.keys(dados).length) await firestoreAdminMerge(env, 'licencas/' + t.id, dados);
+      await firestoreAdminApagarCampos(env, 'tenants/' + t.id, presentes);
+      rel.campos += presentes.length;
+    }
+    for (const pg of pags) {
+      const { id, ...dados } = pg;
+      await firestoreAdminMerge(env, `licencas/${t.id}/pagamentos/${id}`, dados);
+      await firestoreAdminDelete(env, `tenants/${t.id}/pagamentos/${id}`);
+      rel.pagamentos++;
+    }
+    rel.movidos++;
+  }
+  return { ok: true, ...rel };
 }
