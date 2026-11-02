@@ -7,7 +7,9 @@
 
 // ⭐ sugeridas primeiro: as empresas do dono (selo empresaDoDono, marcado na DR Systems Central) — antes
 // era o ID da D.R. Global Imóveis fixo no código (02/11/2026: plataforma separada das empresas do dono).
-const _ehDoDono = (t) => t && t.empresaDoDono === true;
+// 🔧 02/11/2026: também a conta que abre no login do Super Admin (donoSuperAdmin), como era antes — sem
+// isso a ⭐ da D.R. Global sumiu enquanto ela não tiver o selo "empresa do dono" marcado na Central.
+const _ehDoDono = (t) => !!t && (t.empresaDoDono === true || t.donoSuperAdmin === true);
 let _conv = null;
 
 function _convModal() {
