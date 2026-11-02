@@ -1494,7 +1494,7 @@ async function enviarResetSenha() {
 
   try {
     // Pelo Worker (29/10/2026): link para rently.dev.br/acao.html e e-mail em português do
-    // no-reply@drglobalimoveis.com.br. O e-mail padrão do Firebase (inglês, link para
+    // no-reply@rently.dev.br. O e-mail padrão do Firebase (inglês, link para
     // drg-rently.firebaseapp.com) era barrado pela restrição de domínio da chave do Google.
     // Reserva: se o Worker não responder, usa o envio do Firebase.
     let viaWorker = false;
@@ -1509,7 +1509,7 @@ async function enviarResetSenha() {
     if (!viaWorker) await auth.sendPasswordResetEmail(email);
     showAlert(
       'forgot-alert',
-      `✅ Se houver um acesso com ${email}, enviamos agora o link para criar uma nova senha. Confira a caixa de entrada e a pasta de spam (remetente: no-reply@drglobalimoveis.com.br).`,
+      `✅ Se houver um acesso com ${email}, enviamos agora o link para criar uma nova senha. Confira a caixa de entrada e a pasta de spam (remetente: no-reply@rently.dev.br).`,
       'success'
     );
     // Esconde o formulário após 6s

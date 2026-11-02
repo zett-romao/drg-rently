@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v57-20261102-licprivada';
+const CACHE_VERSION = 'drg-rently-v58-20261102-remetente';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

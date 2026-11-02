@@ -500,10 +500,11 @@ async function trocarEmailUsuario(request, env, origin, usuario) {
 // "Esqueci minha senha" (29/10/2026). Antes: auth.sendPasswordResetEmail → e-mail em inglês do
 // Firebase com link para drg-rently.firebaseapp.com, barrado pela restrição de domínio da chave.
 // Agora: link gerado aqui (service account) para https://rently.dev.br/acao.html e e-mail em
-// português saindo de no-reply@drglobalimoveis.com.br (domínio verificado no Resend).
+// português saindo de no-reply@rently.dev.br (domínio da plataforma, verificado no Resend).
 // Rota pública: responde SEMPRE "ok" (não revela se o e-mail tem conta) e segura 1 envio/min por e-mail.
 // =============================================================
-const RESET_REMETENTE = 'no-reply@drglobalimoveis.com.br';
+// 02/11/2026: sai em nome da plataforma (rently.dev.br, verificado no Resend), não da imobiliária do dono
+const RESET_REMETENTE = 'no-reply@rently.dev.br';
 const RESEND_WORKER = 'https://drg-rently-resend.zett-romao.workers.dev';
 
 async function sha256Hex(txt) {
