@@ -1,7 +1,8 @@
 // =============================================================
 // DRG-Rently — Regras Firestore
 // Cole este conteúdo no Firebase Console → Firestore → Rules → Publish
-// Última atualização: 2026-10-29 (👁 alcance por módulo no servidor — vinculos + equipes; perfis/equipes só por quem gerencia;
+// Última atualização: 2026-11-03 (🔒 trava de login: plataforma/acesso — só o Super Admin e os permitidos entram)
+// Anterior: 2026-10-29 (👁 alcance por módulo no servidor — vinculos + equipes; perfis/equipes só por quem gerencia;
 //                     leitura de leads e Livro Caixa por módulo; conversão de conta — 225 testes)
 // =============================================================
 rules_version = '2';
@@ -12,6 +13,24 @@ service cloud.firestore {
 
     function userExists() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // 🔒 TRAVA DE LOGIN (03/11/2026, do dono: "impedir todos os logins com exceção do meu ou dos
+    // quais eu permitir dentre os cadastrados"). plataforma/acesso = { travado, permitidos: [uid] }.
+    // Travado: só o super_admin e os uids da lista passam. liberadoNaTrava() abre CADA `allow` que
+    // depende de quem está logado — e não mora dentro de userExists() de propósito: lá ele rodaria
+    // dezenas de vezes por pedido e estourava o teto de 1000 expressões das regras (testado).
+    // Visitante (sem login) passa no portão: o que ele pode ver já é decidido pela própria regra.
+    // Fica de fora só a leitura do próprio users/{uid} (o app precisa dela para dizer "travado").
+    function caminhoTrava() { return /databases/$(database)/documents/plataforma/acesso; }
+    function loginsTravados() {
+      return exists(caminhoTrava()) && get(caminhoTrava()).data.get('travado', false) == true;
+    }
+    function liberadoNaTrava() {
+      return request.auth == null
+             || !loginsTravados()
+             || request.auth.uid in get(caminhoTrava()).data.get('permitidos', [])
+             || (userExists() && userDoc().role == 'super_admin');
     }
 
     function userDoc() {
@@ -262,18 +281,18 @@ service cloud.firestore {
     match /users/{uid} {
       // Leituras
       allow read: if isSignedIn() && request.auth.uid == uid;
-      allow read: if isDRGTeam();
-      allow read: if isSignedIn() && userExists()
+      allow read: if liberadoNaTrava() && (isDRGTeam());
+      allow read: if liberadoNaTrava() && (isSignedIn() && userExists()
                   && userDoc().role == 'admin'
-                  && resource.data.tenantId == userDoc().tenantId;
+                  && resource.data.tenantId == userDoc().tenantId);
       // Perfis 3.0: delegado lista a equipe do próprio tenant
-      allow read: if isSignedIn() && userExists()
+      allow read: if liberadoNaTrava() && (isSignedIn() && userExists()
                   && resource.data.tenantId == userDoc().tenantId
-                  && delegadoGerenciar(userDoc().tenantId);
+                  && delegadoGerenciar(userDoc().tenantId));
 
       // Criações
       // (a) signup de imobiliária: vira admin SÓ do tenant que ele mesmo criou no mesmo batch
-      allow create: if isSignedIn() && request.auth.uid == uid
+      allow create: if isSignedIn() && request.auth.uid == uid && !loginsTravados()
                     && request.resource.data.role == 'admin'
                     && getAfter(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.criadoPor == request.auth.uid;
       // (b) autocadastro de corretor parceiro: nasce pendente e desativado,
@@ -284,61 +303,69 @@ service cloud.firestore {
                     && request.resource.data.status == 'pendente'
                     && programaParceirosAtivo(request.resource.data.tenantId);
       // (c) admin criando usuário do próprio tenant (nunca equipe DRG)
-      allow create: if isSignedIn() && userExists()
+      allow create: if liberadoNaTrava() && (isSignedIn() && userExists()
                     && userDoc().role == 'admin'
                     && request.resource.data.tenantId == userDoc().tenantId
-                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
+                    && request.resource.data.role in ['admin', 'operador', 'corretor']);
       // (c2) Perfis 3.0: delegado cria operador/corretor do próprio tenant (nunca admin)
-      allow create: if isSignedIn() && userExists()
+      allow create: if liberadoNaTrava() && (isSignedIn() && userExists()
                     && request.resource.data.tenantId == userDoc().tenantId
                     && request.resource.data.role in ['operador', 'corretor']
-                    && delegadoGerenciar(userDoc().tenantId);
+                    && delegadoGerenciar(userDoc().tenantId));
       // (d) super_admin criando equipe DRG
-      allow create: if isSuperAdmin()
+      allow create: if liberadoNaTrava() && (isSuperAdmin()
                     && (!('tenantId' in request.resource.data)
-                        || request.resource.data.tenantId == null);
+                        || request.resource.data.tenantId == null));
       // (e) equipe DRG atuando num tenant: cria admin/operador/corretor dele (nunca equipe DRG)
-      allow create: if isDRGTeam()
+      allow create: if liberadoNaTrava() && (isDRGTeam()
                     && request.resource.data.tenantId is string
-                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
+                    && request.resource.data.role in ['admin', 'operador', 'corretor']);
 
       // Atualizações
-      allow update: if isSignedIn() && request.auth.uid == uid && camposProtegidosIntactos();
-      allow update: if isSuperAdmin();
+      allow update: if isSignedIn() && request.auth.uid == uid && camposProtegidosIntactos() && liberadoNaTrava();
+      allow update: if liberadoNaTrava() && (isSuperAdmin());
       // equipe DRG atuando num tenant: aprova/suspende/edita usuários dele
-      allow update: if isDRGTeam()
+      allow update: if liberadoNaTrava() && (isDRGTeam()
                     && resource.data.get('tenantId', null) is string
                     && request.resource.data.tenantId == resource.data.tenantId
-                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
-      allow update: if isSignedIn() && userExists()
+                    && request.resource.data.role in ['admin', 'operador', 'corretor']);
+      allow update: if liberadoNaTrava() && (isSignedIn() && userExists()
                     && userDoc().role == 'admin'
                     && resource.data.tenantId == userDoc().tenantId
                     && request.resource.data.tenantId == userDoc().tenantId
-                    && request.resource.data.role in ['admin', 'operador', 'corretor'];
+                    && request.resource.data.role in ['admin', 'operador', 'corretor']);
 
       // Perfis 3.0: delegado troca perfil / ativa-desativa operador e corretor do
       // próprio tenant — nunca a si mesmo, nunca admin, nunca outro campo
-      allow update: if isSignedIn() && userExists()
+      allow update: if liberadoNaTrava() && (isSignedIn() && userExists()
                     && request.auth.uid != uid
                     && resource.data.tenantId == userDoc().tenantId
                     && resource.data.role in ['operador', 'corretor']
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['perfilId', 'ativo'])
-                    && delegadoGerenciar(userDoc().tenantId);
+                    && delegadoGerenciar(userDoc().tenantId));
 
       // Deleções
-      allow delete: if isSuperAdmin();
+      allow delete: if liberadoNaTrava() && (isSuperAdmin());
+    }
+
+    // ----------- 🔒 TRAVA DE LOGIN -----------
+    // Lê quem está logado (o app confere se a pessoa está na lista e, se não, sai com aviso).
+    // Só o Super Admin trava, destrava e escolhe quem entra.
+    match /plataforma/{docId} {
+      allow read: if isSignedIn();
+      allow write: if liberadoNaTrava() && (isSuperAdmin());
     }
 
     // ----------- DRG PERFIS (perfis customizáveis da equipe interna) -----------
     match /drgPerfis/{perfilId} {
-      allow read: if isDRGTeam();
-      allow create, update, delete: if isSuperAdmin();
+      allow read: if liberadoNaTrava() && (isDRGTeam());
+      allow create, update, delete: if liberadoNaTrava() && (isSuperAdmin());
     }
 
     // ----------- DRG CONFIG (configurações globais da DRG: Asaas, etc.) -----------
     // Apenas super_admin lê/escreve. Não é DRGTeam (operador_drg não vê tokens).
     match /drgConfig/{docId} {
-      allow read, write: if isSuperAdmin();
+      allow read, write: if liberadoNaTrava() && (isSuperAdmin());
     }
 
     // ----------- LICENÇAS (privadas) -----------
@@ -347,11 +374,11 @@ service cloud.firestore {
     // DR Systems Central e o webhook do Asaas gravam pelo Worker, com conta de serviço). A imobiliária
     // — inclusive as empresas do dono — não lê nem grava a própria licença por aqui.
     match /licencas/{tenantId} {
-      allow read: if isDRGTeam();
-      allow write: if isSuperAdmin();
+      allow read: if liberadoNaTrava() && (isDRGTeam());
+      allow write: if liberadoNaTrava() && (isSuperAdmin());
       match /pagamentos/{pagId} {
-        allow read: if isDRGTeam();
-        allow write: if isSuperAdmin();
+        allow read: if liberadoNaTrava() && (isDRGTeam());
+        allow write: if liberadoNaTrava() && (isSuperAdmin());
       }
     }
 
@@ -363,14 +390,14 @@ service cloud.firestore {
       // imobiliária mexe nos dados dela (site, parceiros, domínio…), NUNCA em plano, mensalidade,
       // vencimento, isenção, cobrança Asaas ou situação. Quem altera: Super Admin ou a DR Systems
       // Central (Worker drg-rently-asaas, conta de serviço). Conta nova nasce só em trial.
-      allow create: if isSuperAdmin()
-                    || (isSignedIn() && request.resource.data.criadoPor == request.auth.uid
+      allow create: if liberadoNaTrava() && (isSuperAdmin()
+                    || (isSignedIn() && !loginsTravados() && request.resource.data.criadoPor == request.auth.uid
                         && request.resource.data.get('plano', 'trial') == 'trial'
-                        && !request.resource.data.keys().hasAny(camposLicenca()));
-      allow update: if isAdminOf(tenantId)
-                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposLicenca().concat(['plano', 'ativo']));
-      allow update: if isSuperAdmin();
-      allow delete: if isSuperAdmin();
+                        && !request.resource.data.keys().hasAny(camposLicenca())));
+      allow update: if liberadoNaTrava() && (isAdminOf(tenantId)
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposLicenca().concat(['plano', 'ativo'])));
+      allow update: if liberadoNaTrava() && (isSuperAdmin());
+      allow delete: if liberadoNaTrava() && (isSuperAdmin());
 
       // Subcoleções genéricas — só equipe interna (corretor NÃO entra aqui).
       // Gravação conferida pelo perfil (fase 4); leitura continua livre para a equipe.
@@ -380,44 +407,44 @@ service cloud.firestore {
       // VÊ o módulo no perfil — antes o "Ver" só escondia a tela. Demais cadastros seguem livres
       // para a equipe (uma tela lê dados de outras: contrato lê proprietário, imóvel etc.).
       match /{collection}/{docId} {
-        allow read: if isEquipeTenant(tenantId)
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId)
                     && (collection != 'auditoria' || veModulo(tenantId, 'auditoria'))
                     && (!(collection in ['leadsImoveis', 'leadsCorretor']) || veModulo(tenantId, 'leads'))
                     && (!(collection in ['caixaPool', 'caixaPoolFechamento']) || veModulo(tenantId, 'caixa'))
-                    && dentroDoAlcance(tenantId, collection, resource.data);
-        allow create: if isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
+                    && dentroDoAlcance(tenantId, collection, resource.data));
+        allow create: if liberadoNaTrava() && (isEquipeTenant(tenantId) && podeGravar(tenantId, collection, 'criar')
                       && (collection != 'auditoria' || registroDeAuditoriaValido())
                       && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave',
-                                          'perfis', 'equipes', 'equipesMembro']);
-        allow update: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
+                                          'perfis', 'equipes', 'equipesMembro']));
+        allow update: if liberadoNaTrava() && (isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'editar') || efeitoColateralPermitido(tenantId, collection))
                       && dentroDoAlcance(tenantId, collection, resource.data)
-                      && vinculosIntactos(tenantId, collection);
+                      && vinculosIntactos(tenantId, collection));
         // Recalcular vínculos (alcance.js): só quem enxerga o módulo inteiro, e só o campo vinculos
-        allow update: if isEquipeTenant(tenantId) && colecaoComAlcance(collection)
+        allow update: if liberadoNaTrava() && (isEquipeTenant(tenantId) && colecaoComAlcance(collection)
                       && soCampos(['vinculos'])
                       && !alcanceRestrito(tenantId, collection)
-                      && veModulo(tenantId, moduloDaColecao(collection));
-        allow delete: if isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
+                      && veModulo(tenantId, moduloDaColecao(collection)));
+        allow delete: if liberadoNaTrava() && (isEquipeTenant(tenantId) && !colecaoComRegraPropria(collection)
                       && (podeGravar(tenantId, collection, 'excluir') || exclusaoEmCascata(tenantId, collection))
-                      && dentroDoAlcance(tenantId, collection, resource.data);
-        allow read: if isDRGTeam();
-        allow create: if isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
-                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']);
-        allow update, delete: if isDRGTeam() && !colecaoComRegraPropria(collection);
+                      && dentroDoAlcance(tenantId, collection, resource.data));
+        allow read: if liberadoNaTrava() && (isDRGTeam());
+        allow create: if liberadoNaTrava() && (isDRGTeam() && (collection != 'auditoria' || registroDeAuditoriaValido())
+                      && !(collection in ['site', 'siteVersoes', 'leadsCorretor', 'registrosCliente', 'registrosClienteChave']));
+        allow update, delete: if liberadoNaTrava() && (isDRGTeam() && !colecaoComRegraPropria(collection));
       }
 
       // Meu site: rascunho (quem edita) e publicado (quem publica; o site público lê).
       match /site/{docId} {
         allow read: if docId == 'publicado';
-        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
-        allow write: if docId == 'rascunho' && podeEditarSite(tenantId);
-        allow write: if docId == 'publicado' && podePublicarSite(tenantId);
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId) || isDRGTeam());
+        allow write: if liberadoNaTrava() && (docId == 'rascunho' && podeEditarSite(tenantId));
+        allow write: if liberadoNaTrava() && (docId == 'publicado' && podePublicarSite(tenantId));
       }
       // Histórico de publicações: quem publica acrescenta; ninguém altera nem apaga
       match /siteVersoes/{versaoId} {
-        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
-        allow create: if podePublicarSite(tenantId);
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId) || isDRGTeam());
+        allow create: if liberadoNaTrava() && (podePublicarSite(tenantId));
         allow update, delete: if false;
       }
 
@@ -425,7 +452,7 @@ service cloud.firestore {
       // e acompanha só os seus. Decidir (aprovar/rejeitar) é da equipe interna.
       match /alteracoesPendentes/{pedidoId} {
         // Só imóveis/proprietários, módulo = coleção, e editar/excluir só do que ELE captou
-        allow create: if isCorretorOf(tenantId)
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.solicitadoPor == request.auth.uid
                       && request.resource.data.status == 'PENDENTE'
                       && request.resource.data.colecao in ['imoveis', 'locadores']
@@ -436,54 +463,54 @@ service cloud.firestore {
                       // 🔒 blindagem: o pedido também não leva contato em texto público nem muda o compartilhamento
                       && (request.resource.data.colecao != 'imoveis' || request.resource.data.get('dados', null) == null
                           || (textosPublicosLimpos(request.resource.data.dados)
-                              && request.resource.data.dados.get('compartilhadoCom', null) == null));
-        allow read: if isCorretorOf(tenantId)
-                    && resource.data.solicitadoPor == request.auth.uid;
+                              && request.resource.data.dados.get('compartilhadoCom', null) == null)));
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                    && resource.data.solicitadoPor == request.auth.uid);
       }
 
       // Perfis: corretor lê (precisa resolver o próprio perfil no login)
       match /perfis/{perfilId} {
-        allow read: if isCorretorOf(tenantId);
-        allow create, update, delete: if gerenciaEquipe(tenantId);
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId));
+        allow create, update, delete: if liberadoNaTrava() && (gerenciaEquipe(tenantId));
       }
       // 👥 Equipes (29/10/2026): nome + membros; o gestor monta. Equipe interna lê pela regra genérica.
       match /equipes/{equipeId} {
-        allow create, update, delete: if gerenciaEquipe(tenantId);
+        allow create, update, delete: if liberadoNaTrava() && (gerenciaEquipe(tenantId));
       }
       // Membros das equipes de cada um (a regra dentroDoAlcance lê o do próprio usuário)
       match /equipesMembro/{uid} {
-        allow read: if belongsToTenant(tenantId) && request.auth.uid == uid;
-        allow create, update, delete: if gerenciaEquipe(tenantId);
+        allow read: if liberadoNaTrava() && (belongsToTenant(tenantId) && request.auth.uid == uid);
+        allow create, update, delete: if liberadoNaTrava() && (gerenciaEquipe(tenantId));
       }
 
       // Config da rede (campos visíveis etc.): corretor só lê.
       // Demais docs de config (tokens, workers) seguem só pra equipe.
       match /config/rede {
-        allow read: if isCorretorOf(tenantId);
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId));
       }
 
       // Contador do código do anúncio (anuncios.js): o corretor que cadastra
       // imóvel reserva o próximo número. Só +1 por vez, sem mexer no prefixo.
       // (equipe interna já grava pela regra genérica de subcoleção)
       match /contadores/anuncios {
-        allow read: if isCorretorOf(tenantId);
-        allow create: if isCorretorOf(tenantId)
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId));
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.seq == 1
-                      && request.resource.data.keys().hasOnly(['seq', 'prefixo']);
-        allow update: if isCorretorOf(tenantId)
+                      && request.resource.data.keys().hasOnly(['seq', 'prefixo']));
+        allow update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.seq == resource.data.seq + 1
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seq']);
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['seq']));
       }
 
       // Diretório de corretores do tenant
       // 🔒 Blindagem (17/10/2026): corretor lê SÓ o próprio cartão — nome, telefone e e-mail
       // de colega não circulam; quem liga corretor a corretor é a imobiliária.
       match /corretores/{corretorId} {
-        allow read: if isCorretorOf(tenantId) && request.auth.uid == corretorId;
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId) && request.auth.uid == corretorId);
         // corretor edita o próprio cartão, sem mexer em status/tipo/comissão
-        allow update: if isCorretorOf(tenantId) && request.auth.uid == corretorId
+        allow update: if liberadoNaTrava() && (isCorretorOf(tenantId) && request.auth.uid == corretorId
                       && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria', 'verContatoProprietario', 'contatoEscopo']);
+                          .hasAny(['status', 'tipo', 'comissao', 'tenantId', 'uid', 'creciConferido', 'contratoParceria', 'verContatoProprietario', 'contatoEscopo']));
         // autocadastro: cria o próprio cartão pendente (programa ligado)
         allow create: if isSignedIn() && request.auth.uid == corretorId
                       && !request.resource.data.keys().hasAny(['creciConferido', 'contratoParceria', 'verContatoProprietario', 'contatoEscopo'])
@@ -495,8 +522,8 @@ service cloud.firestore {
       // 🛡 "Tenho um cliente" (protecao.js, 17/10/2026): protocolo do corretor com data e hora do
       // servidor. Ninguém altera o que foi registrado nem apaga; a equipe só anota a análise.
       match /registrosCliente/{regId} {
-        allow read: if isCorretorOf(tenantId) && resource.data.corretorUid == request.auth.uid;
-        allow create: if isCorretorOf(tenantId)
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId) && resource.data.corretorUid == request.auth.uid);
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.corretorUid == request.auth.uid
                       && request.resource.data.criadoEm == request.time
                       && request.resource.data.keys().hasOnly(['corretorUid', 'corretorNome', 'clienteNome', 'telefone', 'email',
@@ -504,39 +531,39 @@ service cloud.firestore {
                       && request.resource.data.clienteNome is string && request.resource.data.clienteNome.size() <= 120
                       && request.resource.data.telefone is string && request.resource.data.telefone.matches('[0-9]{10,11}')
                       && request.resource.data.chave is string
-                      && existsAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosClienteChave/$(request.resource.data.chave));
-        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
-        allow update: if (isEquipeTenant(tenantId) || isDRGTeam())
-                      && soCampos(['analise', 'analiseNota', 'analisadoPor', 'analisadoEm']);
+                      && existsAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosClienteChave/$(request.resource.data.chave)));
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId) || isDRGTeam());
+        allow update: if liberadoNaTrava() && ((isEquipeTenant(tenantId) || isDRGTeam())
+                      && soCampos(['analise', 'analiseNota', 'analisadoPor', 'analisadoEm']));
         allow delete: if false;
       }
       // Um cliente (celular, em SHA-256) = um registro: o segundo corretor é recusado
       match /registrosClienteChave/{chave} {
-        allow create: if isCorretorOf(tenantId)
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.corretorUid == request.auth.uid
                       && request.resource.data.criadoEm == request.time
                       && request.resource.data.keys().hasOnly(['corretorUid', 'registroId', 'criadoEm'])
-                      && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosCliente/$(request.resource.data.registroId)).data.chave == chave;
-        allow read: if isEquipeTenant(tenantId) || isDRGTeam();
+                      && getAfter(/databases/$(database)/documents/tenants/$(tenantId)/registrosCliente/$(request.resource.data.registroId)).data.chave == chave);
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId) || isDRGTeam());
         allow update, delete: if false;
       }
 
       // Extrato de comissão: corretor lê só os negócios em que participa
       match /comissoes/{negId} {
-        allow read: if isCorretorOf(tenantId)
-                    && request.auth.uid in resource.data.participantes;
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                    && request.auth.uid in resource.data.participantes);
       }
 
       // Vitrine pública: cópia enxuta do imóvel publicado (site + feed dos portais)
       match /vitrine/{imovelId} {
         allow read;
         // corretor só atualiza a cópia de imóvel DELE que a imobiliária já publicou
-        allow create, update: if isCorretorOf(tenantId)
+        allow create, update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                               && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
                               && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('linkPublico', false) == true
-                              && textosPublicosLimpos(request.resource.data);
-        allow delete: if isCorretorOf(tenantId)
-                      && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
+                              && textosPublicosLimpos(request.resource.data));
+        allow delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                      && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid);
       }
 
       // "Anuncie seu imóvel" da vitrine pública: qualquer visitante cria, só cria
@@ -579,10 +606,10 @@ service cloud.firestore {
       // (antes: allow read/update em leadsImoveis quando corretorUid == ele)
       match /leadsCorretor/{leadId} {
         // equipe: repassar é EDITAR o lead — quem edita leads grava/apaga a cópia
-        allow create, update, delete: if (isEquipeTenant(tenantId) && podeNoModulo(tenantId, 'leads', 'editar')) || isDRGTeam();
-        allow read: if isCorretorOf(tenantId)
-                    && resource.data.get('corretorUid', null) == request.auth.uid;
-        allow update: if isCorretorOf(tenantId)
+        allow create, update, delete: if liberadoNaTrava() && ((isEquipeTenant(tenantId) && podeNoModulo(tenantId, 'leads', 'editar')) || isDRGTeam());
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                    && resource.data.get('corretorUid', null) == request.auth.uid);
+        allow update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && resource.data.get('corretorUid', null) == request.auth.uid
                       && soCampos(['status', 'statusAtualizadoEm', 'statusAtualizadoPor', 'notaCorretor',
                                    'historico', 'corretorUid', 'motivoDevolucao',
@@ -595,7 +622,7 @@ service cloud.firestore {
                               && request.resource.data.status == 'devolvido'
                               && request.resource.data.motivoDevolucao is string
                               && request.resource.data.motivoDevolucao.size() > 0
-                              && request.resource.data.motivoDevolucao.size() <= 500));
+                              && request.resource.data.motivoDevolucao.size() <= 500)));
       }
 
       // Estatísticas dos imóveis publicados (relatório ao proprietário).
@@ -621,83 +648,83 @@ service cloud.firestore {
       // Auditoria: o corretor também deixa rastro (só cria, em nome próprio; nunca lê/altera/apaga).
       // Antes ele ficava fora da regra genérica e as ações dele não eram registradas.
       match /auditoria/{logId} {
-        allow create: if isCorretorOf(tenantId)
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.userId == request.auth.uid
                       && request.resource.data.userRole == 'corretor'
-                      && request.resource.data.timestamp == request.time;
+                      && request.resource.data.timestamp == request.time);
       }
 
       // Endereço do Worker da IA (sem segredo): o corretor precisa para o gerador de anúncios
       match /config/ia {
-        allow read: if isCorretorOf(tenantId);
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId));
       }
 
       // Locadores (proprietários): corretor só os que ele cadastrou
       match /locadores/{locId} {
-        allow read, update, delete: if isCorretorOf(tenantId)
-                                    && resource.data.criadoPor == request.auth.uid;
-        allow create: if isCorretorOf(tenantId)
-                      && request.resource.data.criadoPor == request.auth.uid;
+        allow read, update, delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                                    && resource.data.criadoPor == request.auth.uid);
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                      && request.resource.data.criadoPor == request.auth.uid);
       }
 
       // Imóveis
       match /imoveis/{imovelId} {
         // (sem leitura pública: site e feed leem a coleção "vitrine")
         // Gravação da equipe: regra genérica acima (conferida pelo perfil)
-        allow read: if isEquipeTenant(tenantId);
-        allow read, write: if isDRGTeam();
+        allow read: if liberadoNaTrava() && (isEquipeTenant(tenantId));
+        allow read, write: if liberadoNaTrava() && (isDRGTeam());
         // Corretor: só os que ele captou
-        allow read, delete: if isCorretorOf(tenantId)
-                            && resource.data.criadoPor == request.auth.uid;
+        allow read, delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                            && resource.data.criadoPor == request.auth.uid);
         // (publicar no site/portais — linkPublico — é decisão da imobiliária)
         // 🔒 textos públicos sem contato; com quem a ficha completa é compartilhada é a imobiliária que decide
-        allow create: if isCorretorOf(tenantId)
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.criadoPor == request.auth.uid
                       && request.resource.data.get('linkPublico', false) == false
                       && request.resource.data.get('compartilhadoCom', []).size() == 0
-                      && textosPublicosLimpos(request.resource.data);
-        allow update: if isCorretorOf(tenantId)
+                      && textosPublicosLimpos(request.resource.data));
+        allow update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && resource.data.criadoPor == request.auth.uid
                       && request.resource.data.criadoPor == request.auth.uid
                       && request.resource.data.get('linkPublico', false) == resource.data.get('linkPublico', false)
                       && request.resource.data.get('compartilhadoCom', []) == resource.data.get('compartilhadoCom', [])
-                      && textosPublicosLimpos(request.resource.data);
+                      && textosPublicosLimpos(request.resource.data));
 
         // Fotos do imóvel: leitura sempre pública (galeria)
         match /fotos/{fotoId} {
           allow read;
-          allow write: if isEquipeTenant(tenantId);
-          allow write: if isDRGTeam();
+          allow write: if liberadoNaTrava() && (isEquipeTenant(tenantId));
+          allow write: if liberadoNaTrava() && (isDRGTeam());
           // corretor: só no imóvel dele, e a URL tem que ser do nosso Storage
-          allow delete: if isCorretorOf(tenantId)
-                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
-          allow create, update: if isCorretorOf(tenantId)
+          allow delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid);
+          allow create, update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                         && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
                         && request.resource.data.get('url', '').matches('https://firebasestorage[.]googleapis[.]com/.*')
                         && semContato(request.resource.data.get('nome', null))
-                        && semContato(request.resource.data.get('legenda', null));
+                        && semContato(request.resource.data.get('legenda', null)));
         }
       }
 
       // Ficha da rede: cópia do imóvel só com os campos liberados em config/rede.
       // Corretor vê se: visível pra rede, OU é o captador, OU foi liberado pra ele.
       match /imoveisRede/{imovelId} {
-        allow read: if isCorretorOf(tenantId)
+        allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
                     && (resource.data.visivel == true
                         || resource.data.captadorUid == request.auth.uid
-                        || request.auth.uid in resource.data.get('compartilhadoCom', []));
-        allow create: if isCorretorOf(tenantId)
+                        || request.auth.uid in resource.data.get('compartilhadoCom', [])));
+        allow create: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && request.resource.data.captadorUid == request.auth.uid
                       && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
                       && request.resource.data.get('compartilhadoCom', []) == get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('compartilhadoCom', [])
-                      && fichaSemContato(request.resource.data);
-        allow update: if isCorretorOf(tenantId)
+                      && fichaSemContato(request.resource.data));
+        allow update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && resource.data.captadorUid == request.auth.uid
                       && request.resource.data.captadorUid == request.auth.uid
                       && request.resource.data.get('compartilhadoCom', []) == get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.get('compartilhadoCom', [])
-                      && fichaSemContato(request.resource.data);
-        allow delete: if isCorretorOf(tenantId)
-                      && resource.data.captadorUid == request.auth.uid;
+                      && fichaSemContato(request.resource.data));
+        allow delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                      && resource.data.captadorUid == request.auth.uid);
 
         // 🔓 Contato do proprietário (exceção, 28/10/2026): só a equipe grava; lê só o corretor
         // marcado pela imobiliária (corretores/{uid}.verContatoProprietario) e só de ficha que ele enxerga.
@@ -709,39 +736,39 @@ service cloud.firestore {
                    || (e.get('imobiliaria', false) == true && resource.data.get('captadorEhCorretor', true) == false)
                    || resource.data.get('captadorUid', '') in e.get('corretores', []);
           }
-          allow read, write: if isEquipeTenant(tenantId);
-          allow read, write: if isDRGTeam();
-          allow read: if isCorretorOf(tenantId)
+          allow read, write: if liberadoNaTrava() && (isEquipeTenant(tenantId));
+          allow read, write: if liberadoNaTrava() && (isDRGTeam());
+          allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && get(/databases/$(database)/documents/tenants/$(tenantId)/corretores/$(request.auth.uid)).data.get('verContatoProprietario', false) == true
                       && escopoContatoOk(get(/databases/$(database)/documents/tenants/$(tenantId)/corretores/$(request.auth.uid)).data.get('contatoEscopo', {'todos': true}))
                       && (get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('visivel', false) == true
                           || get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.captadorUid == request.auth.uid
-                          || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', []));
+                          || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', [])));
         }
 
         // Ficha COMPLETA: só captador e corretores liberados
         match /completo/{docId} {
-          allow read, write: if isEquipeTenant(tenantId);
-          allow read, write: if isDRGTeam();
-          allow read: if isCorretorOf(tenantId)
+          allow read, write: if liberadoNaTrava() && (isEquipeTenant(tenantId));
+          allow read, write: if liberadoNaTrava() && (isDRGTeam());
+          allow read: if liberadoNaTrava() && (isCorretorOf(tenantId)
                       && (get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.captadorUid == request.auth.uid
-                          || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', []));
-          allow delete: if isCorretorOf(tenantId)
-                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid;
-          allow create, update: if isCorretorOf(tenantId)
+                          || request.auth.uid in get(/databases/$(database)/documents/tenants/$(tenantId)/imoveisRede/$(imovelId)).data.get('compartilhadoCom', [])));
+          allow delete: if liberadoNaTrava() && (isCorretorOf(tenantId)
+                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid);
+          allow create, update: if liberadoNaTrava() && (isCorretorOf(tenantId)
                        && get(/databases/$(database)/documents/tenants/$(tenantId)/imoveis/$(imovelId)).data.criadoPor == request.auth.uid
-                       && fichaSemContato(request.resource.data);
+                       && fichaSemContato(request.resource.data));
         }
       }
     }
 
     // ----------- LOGS DE AUDITORIA (collection global) -----------
     match /auditoria/{logId} {
-      allow read: if isDRGTeam();
-      allow read: if isSignedIn() && userExists()
+      allow read: if liberadoNaTrava() && (isDRGTeam());
+      allow read: if liberadoNaTrava() && (isSignedIn() && userExists()
                   && userDoc().role == 'admin'
-                  && resource.data.tenantId == userDoc().tenantId;
-      allow create: if isSignedIn();
+                  && resource.data.tenantId == userDoc().tenantId);
+      allow create: if liberadoNaTrava() && (isSignedIn());
       allow update, delete: if false;  // logs são imutáveis
     }
 
@@ -749,7 +776,7 @@ service cloud.firestore {
     // Worker grava via Firebase REST API (não passa por regras do client).
     // Aqui só liberamos LEITURA pra equipe DRG monitorar.
     match /instalacoesSelfHosted/{instalacaoId} {
-      allow read: if isDRGTeam();
+      allow read: if liberadoNaTrava() && (isDRGTeam());
       allow write: if false;  // só o Worker grava (via REST)
     }
   }

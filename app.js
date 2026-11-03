@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.1.1';
 
 // =============================================================
 // State
@@ -467,6 +467,7 @@ function translateAuthError(code) {
     'auth/operation-not-allowed': 'Operação não permitida. Contate o suporte.',
     'auth/internal-error': 'Erro interno do servidor. Tente novamente.',
     'auth/popup-closed-by-user': 'Janela fechada antes de concluir.',
+    'drg/travado': '🔒 Cadastros novos estão temporariamente fechados pelo administrador da plataforma.',
   };
   return map[code] || `Erro de autenticação (${code || 'desconhecido'}).`;
 }
@@ -495,6 +496,13 @@ async function loadProfileAndShow(user) {
       showAlert('login-alert', State.userDoc.status === 'pendente'
         ? '⏳ Seu cadastro de corretor parceiro está aguardando aprovação da imobiliária. Você receberá acesso assim que for aprovado.'
         : 'Sua conta foi desativada. Contate o administrador da imobiliária.');
+      return;
+    }
+
+    // 🔒 Trava de login (trava-login.js): travado → só o Super Admin e os liberados por ele entram
+    if (!(await passaNaTravaDeLogin(user.uid, State.userDoc.role))) {
+      await auth.signOut();
+      showAlert('login-alert', TRAVA_MSG);
       return;
     }
 
@@ -596,6 +604,7 @@ async function loadProfileAndShow(user) {
 
     renderApp();
     showScreen('screen-app');
+    vigiarTravaDeLogin(user.uid, State.userDoc.role); // trava ligada com a sessão aberta → sai na hora
     // Log de login bem-sucedido (não bloqueia o fluxo se falhar)
     logAuditoria('login', 'sessao', user.uid, { email: user.email });
     // Telemetria pra Modelo C (self-hosted): só dispara se for instância em Firebase de outro projeto
@@ -620,6 +629,7 @@ auth.onAuthStateChanged(async (user) => {
   if (State.signingUp) return;
 
   if (!user) {
+    pararVigiaTrava();
     State.user = null;
     State.userDoc = null;
     State.tenant = null;
@@ -815,6 +825,10 @@ async function doSignupTenant() {
   try {
     const cred = await auth.createUserWithEmailAndPassword(email, senha);
     createdUid = cred.user.uid;
+    // 🔒 Trava de login ligada = cadastro novo fechado (o catch desfaz a conta recém-criada)
+    if (await cadastroFechadoPelaTrava()) {
+      const e = new Error(TRAVA_MSG); e.code = 'drg/travado'; throw e;
+    }
 
     const tenantRef = db.collection('tenants').doc();
     const tenantId = tenantRef.id;
@@ -1340,6 +1354,7 @@ function showSection(name, _opts = {}) {
     if (userDRGPodeVerArea('drg_tenants_view')) loadTenantsTable();
     if (userDRGPodeVerArea('drg_equipe')) loadEquipeDRG();
     if (State.isDRGMaster) loadDRGCobrancaConfig();
+    loadTravaLogin(); // 🔒 trava de login (só aparece para o Super Admin)
   }
   if (name === 'locadores' && State.tenant) {
     loadLocadores();

@@ -4472,3 +4472,23 @@ label.carac-item:has(input:checked){background:#eef6ff;color:#0f172a;font-weight
 }
 .alcance-sub { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 6px 0 2px; }
 .alcance-sub:first-child { margin-top: 2px; }
+
+/* 🔒 Trava de login (03/11/2026) — painel Super Admin */
+.trava-status{padding:12px 14px;border-radius:10px;margin:4px 0 12px;line-height:1.5}
+.trava-status.trava-on{background:#FEE2E2;border-left:4px solid #B91C1C;color:#7F1D1D}
+.trava-status.trava-off{background:#ECFDF5;border-left:4px solid #047857;color:#064E3B}
+.trava-acoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:12px}
+.trava-acoes .btn{min-height:44px;width:100%}
+.trava-busca-linha{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.trava-busca-linha input{flex:1;min-width:200px;min-height:42px;font-size:16px}
+.trava-lista{max-height:520px;overflow:auto;border:1px solid #E5E7EB;border-radius:10px}
+.trava-linha{display:grid;grid-template-columns:28px 1.4fr 1fr auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid #F1F5F9;cursor:pointer}
+.trava-linha:last-child{border-bottom:0}
+.trava-linha:hover{background:#F8FAFC}
+.trava-linha input{width:20px;height:20px}
+.trava-linha.trava-sempre{background:#F0F9FF;cursor:default}
+.trava-quem,.trava-onde{min-width:0;overflow-wrap:anywhere;font-size:14px}
+@media (max-width:600px){
+  .trava-linha{grid-template-columns:28px 1fr;}
+  .trava-onde,.trava-sit{grid-column:2}
+}

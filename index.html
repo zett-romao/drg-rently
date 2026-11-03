@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261029g-equipes">
+  <link rel="stylesheet" href="styles.css?v=20261103a-trava">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -1120,6 +1120,27 @@
           </div>
           <!-- KPIs gerais -->
           <div class="dashboard-grid" id="superadmin-kpis" style="margin-bottom: 22px;"></div>
+
+          <!-- 🔒 Trava de login (03/11/2026) — só o Super Admin; ver trava-login.js -->
+          <div class="card" id="card-trava-login" style="display:none; margin-bottom:14px;">
+            <div class="section-header">
+              <div>
+                <h3>🔒 Trava de login</h3>
+                <p class="muted">Impede a entrada de todos os cadastrados, menos você e quem você marcar. Vale no servidor: quem está fora não lê nem grava nada.</p>
+              </div>
+            </div>
+            <div id="trava-status" class="trava-status"></div>
+            <div id="trava-alert" class="alert" style="display:none;"></div>
+            <div class="trava-acoes">
+              <button type="button" class="btn btn-danger" id="btn-trava-toggle" onclick="alternarTravaLogin(this)">🔒 Travar logins agora</button>
+              <button type="button" class="btn btn-secondary" id="btn-trava-salvar" onclick="salvarPermitidosTrava(this)">💾 Salvar quem pode entrar</button>
+            </div>
+            <div class="trava-busca-linha">
+              <input type="search" id="trava-busca" placeholder="🔎 Procurar por nome, e-mail ou empresa" oninput="renderTravaLogin()" autocomplete="off">
+              <span class="muted" id="trava-contagem"></span>
+            </div>
+            <div id="trava-lista" class="trava-lista"></div>
+          </div>
 
           <!-- Configuração de cobrança Asaas (só super_admin) -->
           <details class="card" style="margin-bottom: 14px;" id="asaas-config-card">
@@ -6308,7 +6329,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261102c-remetente"></script>
+  <script src="app.js?v=20261103a-trava"></script>
+  <script src="trava-login.js?v=20261103a-trava"></script>
   <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
   <script src="rede.js?v=20261029q-alcance"></script>

@@ -27,5 +27,11 @@ cp ../firestore.rules . && echo '{"firestore":{"rules":"firestore.rules"},"emula
    12 telas, e o servidor nega ler/abrir/mexer fora dela mesmo contornando a tela:
    `PLAYWRIGHT_PATH=... npx firebase emulators:exec --only firestore,auth --project drg-rently "node teste-alcance-equipes.mjs"`
 
+4. **`teste-trava-login.mjs`** — 🔒 trava de login (03/11/2026): com `plataforma/acesso.travado`, só o
+   super_admin e os uids de `permitidos` leem/gravam; quem está fora só lê o próprio `users/{uid}`; cadastro
+   de imobiliária nova fecha; site público segue. 26 cenários. Limpa o emulador no início e no fim
+   (o teste-regras deixa dados: rode cada arquivo num `emulators:exec` próprio).
+   `npx firebase emulators:exec --only firestore --project demo-rently "node teste-trava-login.mjs"`
+
 Rode **antes de colar regras novas no Console**. Mudou um efeito colateral no app
 (algo que grava fora do próprio módulo)? Acrescente o cenário.

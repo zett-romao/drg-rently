@@ -143,6 +143,18 @@ async function verificarIdToken(idToken) {
   return { uid: payload.sub, email: payload.email || '', authTime: payload.auth_time || 0 };
 }
 
+// 🔒 TRAVA DE LOGIN (03/11/2026) — o mesmo plataforma/acesso das regras do Firestore. Com a trava
+// ligada, só o super_admin e os uids permitidos usam o Worker: token válido não basta.
+async function verificarIdTokenComTrava(idToken, env) {
+  const u = await verificarIdToken(idToken);
+  const trava = await firestoreAdminGet(env, 'plataforma/acesso');
+  if (!trava || trava.travado !== true) return u;
+  if (Array.isArray(trava.permitidos) && trava.permitidos.includes(u.uid)) return u;
+  const doc = await firestoreAdminGet(env, 'users/' + u.uid);
+  if (doc && doc.role === 'super_admin') return u;
+  throw new Error('acesso travado pelo administrador da plataforma');
+}
+
 // Extrai o idToken do request: header Authorization (GET) ou body JSON (POST).
 async function extrairIdToken(request) {
   const auth = request.headers.get('Authorization') || '';
@@ -835,7 +847,7 @@ export default {
       }
       let usuarioMfa;
       try {
-        usuarioMfa = await verificarIdToken(await extrairIdToken(request));
+        usuarioMfa = await verificarIdTokenComTrava(await extrairIdToken(request), env);
       } catch (e) {
         return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
       }
@@ -867,7 +879,7 @@ export default {
       if (request.method !== 'POST') return jsonResponse({ error: 'Use POST.' }, 405, origin);
       let usuarioTe;
       try {
-        usuarioTe = await verificarIdToken(await extrairIdToken(request));
+        usuarioTe = await verificarIdTokenComTrava(await extrairIdToken(request), env);
       } catch (e) {
         return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
       }
@@ -891,7 +903,7 @@ export default {
       }
       let usuarioAp;
       try {
-        usuarioAp = await verificarIdToken(await extrairIdToken(request));
+        usuarioAp = await verificarIdTokenComTrava(await extrairIdToken(request), env);
       } catch (e) {
         return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
       }
@@ -921,7 +933,7 @@ export default {
       if (path !== '/tenant/health') {
         try {
           const idToken = await extrairIdToken(request);
-          _usuarioAutenticado = await verificarIdToken(idToken);
+          _usuarioAutenticado = await verificarIdTokenComTrava(idToken, env);
         } catch (e) {
           return jsonResponse({ error: 'Autenticação falhou: ' + e.message + '. Faça login novamente.' }, 401, origin);
         }
