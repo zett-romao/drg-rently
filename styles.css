@@ -4492,3 +4492,60 @@ label.carac-item:has(input:checked){background:#eef6ff;color:#0f172a;font-weight
   .trava-linha{grid-template-columns:28px 1fr;}
   .trava-onde,.trava-sit{grid-column:2}
 }
+
+/* =============================================================
+   📱 CELULAR FIXO NAS LATERAIS (dono, 04/11/2026: "a tela fica dançando, não está bem
+   ajustada à tela do celular, precisa ficar fixa nas laterais")
+   Três causas, três travas:
+   1) iPhone dá ZOOM sozinho ao tocar num campo com letra < 16px e a página fica maior que a
+      tela, escorregando de lado. Campo no celular = 16px.
+   2) O "elástico" do iOS puxava a página para o lado: overscroll-behavior-x: none.
+   3) Tabela larga rolava de lado dentro da página. Imóveis virou cartões (abaixo), e as
+      outras tabelas seguram o rolamento lateral nelas mesmas (contain), sem arrastar a tela.
+   ============================================================= */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { overscroll-behavior-x: none; }
+.table-wrap { overscroll-behavior-x: contain; }
+@media (max-width: 900px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select, textarea { font-size: 16px !important; }
+  .main, .content { max-width: 100vw; overflow-x: clip; }
+}
+
+/* 🏠 Imóveis no celular: cada imóvel é um cartão (antes: tabela de 8 colunas rolando de lado,
+   com valor, status e botões fora da tela). No computador a tabela segue igual. */
+@media (max-width: 700px) {
+  #section-imoveis .table-wrap { overflow: visible; }
+  .tabela-imoveis { min-width: 0 !important; font-size: 14px; border: 0; }
+  .tabela-imoveis thead { display: none; }
+  .tabela-imoveis, .tabela-imoveis tbody { display: block; width: 100%; }
+  .tabela-imoveis tr.im-linha {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: center;
+    padding: 14px; margin: 0 0 12px; background: var(--card-bg, #fff);
+    border: 1px solid var(--border, #e2e8f0); border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .06);
+  }
+  .tabela-imoveis tr.im-linha > td { display: block; padding: 0 !important; border: 0 !important; white-space: normal !important; min-width: 0; }
+  .tabela-imoveis td.im-num { display: none !important; }
+  .tabela-imoveis td.im-titulo { grid-column: 1; grid-row: 1; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+  .tabela-imoveis td.im-titulo .codigo-anuncio-chip { margin-bottom: 4px; }
+  .tabela-imoveis td.im-status { grid-column: 2; grid-row: 1; align-self: start; }
+  .tabela-imoveis td.im-tipo { grid-column: 1; color: var(--text-muted, #64748b); font-size: 13px; }
+  .tabela-imoveis td.im-fin { grid-column: 2; justify-self: end; }
+  .tabela-imoveis td.im-prop { grid-column: 1 / -1; font-size: 13px; color: var(--text-muted, #64748b); }
+  .tabela-imoveis td.im-prop::before { content: "👤 Proprietário: "; font-weight: 600; }
+  .tabela-imoveis td.im-valor { grid-column: 1 / -1; font-size: 18px; font-weight: 800; color: var(--text, #0f172a); }
+  .tabela-imoveis td.im-acoes { grid-column: 1 / -1; padding-top: 4px !important; }
+  .tabela-imoveis td.im-acoes .action-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; }
+  .tabela-imoveis td.im-acoes .btn { width: 100%; min-height: 44px; margin: 0; justify-content: center; font-size: 14px; }
+  .tabela-imoveis td.empty { display: block; padding: 24px 8px !important; text-align: center; }
+
+  /* Cabeçalho: os dois botões lado a lado, mesma altura */
+  #section-imoveis .section-header > div + div { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+  #section-imoveis .section-header > div + div .btn { width: 100%; min-height: 46px; margin: 0; }
+  /* Filtros compactos: o rótulo vira um título pequeno acima dos botões */
+  .imoveis-filtros-linha { gap: 10px; }
+  .imoveis-filtros-linha .filtro-grupo { gap: 6px; }
+  .imoveis-filtros-linha .filtro-rotulo { flex-basis: 100%; background: none; color: var(--text-muted, #64748b); padding: 0; margin: 0; font-size: 11px; }
+  .imoveis-filtros-linha .papel-filtro-btn { padding: 7px 12px; font-size: 13px; }
+}

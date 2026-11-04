@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v61-20261103-trava';
+const CACHE_VERSION = 'drg-rently-v62-20261104-celular';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

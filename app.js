@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.1.1';
+const APP_VERSION = '0.1.2';
 
 // =============================================================
 // State
@@ -1248,13 +1248,44 @@ async function renderApp() {
   // (corretor não tem dashboard — o dashboard lê dados da imobiliária toda).
   // Corretor começa no catálogo da rede (dono: "precisa entrar na tela inicial" —
   // "Imóveis" dele vinha vazio para quem ainda não captou); captador, sem rede, em Imóveis.
-  const inicial = isCorretor() ? (podeVerSecao('rede') ? 'rede' : 'imoveis') : 'dashboard';
+  const inicial = telaInicialDoPapel();
   if (State.currentSection && !podeVerSecao(State.currentSection)) {
     State.currentSection = inicial;
   }
 
   showSection(State.currentSection || inicial);
 }
+
+function telaInicialDoPapel() {
+  return isCorretor() ? (podeVerSecao('rede') ? 'rede' : 'imoveis') : 'dashboard';
+}
+
+// 🏠 Reabrir o app = tela inicial (dono, 04/11/2026: "ao acessar o app, ele deve abrir na tela
+// inicial"). O celular não recarrega a aba: devolve a página como estava (bfcache ou aba em
+// segundo plano), e o usuário caía na última tela. Depois de 10 min fora, volta ao início com
+// o histórico zerado. Modal aberto não é tocado (formulário em andamento não se perde).
+const VOLTA_INICIO_APOS_MS = 10 * 60 * 1000;
+let _saiuDoAppEm = null;
+function algumModalAberto() {
+  return [...document.querySelectorAll('.modal-overlay, .modal-confirm-overlay')]
+    .some(m => getComputedStyle(m).display !== 'none');
+}
+function voltarAoInicioSeReabriu() {
+  const fora = _saiuDoAppEm ? Date.now() - _saiuDoAppEm : 0;
+  _saiuDoAppEm = null;
+  if (fora < VOLTA_INICIO_APOS_MS || !State.user || !State.userDoc || algumModalAberto()) return;
+  const inicial = telaInicialDoPapel();
+  State.navHistory = [];
+  State.currentSection = null; // não empilha a tela antiga no Voltar
+  showSection(inicial, { skipHistory: true });
+  window.scrollTo(0, 0);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') _saiuDoAppEm = Date.now();
+  else voltarAoInicioSeReabriu();
+});
+window.addEventListener('pagehide', () => { _saiuDoAppEm = Date.now(); });
+window.addEventListener('pageshow', (e) => { if (e.persisted) voltarAoInicioSeReabriu(); });
 
 // =============================================================
 // Navegação entre seções
@@ -11039,15 +11070,15 @@ function renderImoveisTable() {
     }
 
     return `
-      <tr ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
-        <td>${i + 1}</td>
-        <td>${im.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(im.codigoAnuncio)}</span> ` : ''}<strong>${escapeHtml(im.apelido || '—')}</strong>${temPermuta(im) ? ' <span class="selo-permuta-chip">PERMUTA</span>' : ''}${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
-        <td>${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
-        <td>${finBadge[finalidade] || finalidade}</td>
-        <td>${escapeHtml(locNome)}</td>
-        <td>${valorTxt}</td>
-        <td><span class="badge-status ${status}">${IMOVEL_STATUS_LABEL[status] || status}</span></td>
-        <td>
+      <tr class="im-linha" ${im.rascunho ? 'style="opacity:0.7;"' : ''}>
+        <td class="im-num">${i + 1}</td>
+        <td class="im-titulo">${im.codigoAnuncio ? `<span class="codigo-anuncio-chip">${escapeHtml(im.codigoAnuncio)}</span> ` : ''}<strong>${escapeHtml(im.apelido || '—')}</strong>${temPermuta(im) ? ' <span class="selo-permuta-chip">PERMUTA</span>' : ''}${im.rascunho ? ' <span class="papel-chip" style="background:#E5E7EB;color:#374151;">📋 rascunho</span>' : ''}${Array.isArray(im.tags) && im.tags.length ? '<br>' + im.tags.slice(0, 4).map(t => `<span class="tag-chip" style="font-size:9.5px; padding:1px 6px 1px 7px; margin-top:3px; display:inline-flex;">${escapeHtml(t)}</span>`).join(' ') + (im.tags.length > 4 ? ` <span class="muted" style="font-size:10px;">+${im.tags.length - 4}</span>` : '') : ''}</td>
+        <td class="im-tipo">${IMOVEL_TIPO_LABEL[im.tipo] || im.tipo || '—'}</td>
+        <td class="im-fin">${finBadge[finalidade] || finalidade}</td>
+        <td class="im-prop">${escapeHtml(locNome)}</td>
+        <td class="im-valor">${valorTxt}</td>
+        <td class="im-status"><span class="badge-status ${status}">${IMOVEL_STATUS_LABEL[status] || status}</span></td>
+        <td class="im-acoes">
           <div class="action-btns">
             <button class="btn btn-sm btn-secondary" onclick="openImovelModal('${im._id}')">Editar</button>
             <button class="btn btn-sm btn-secondary" onclick="previaAnuncio('${im._id}', this)" title="Ver o anúncio como vai aparecer no site, sem publicar">👁 Prévia</button>
