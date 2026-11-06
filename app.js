@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.1.4';
+const APP_VERSION = '0.2.0';
 
 // =============================================================
 // State
@@ -7960,9 +7960,11 @@ const BALANCETE_STATUS_LABEL = {
 };
 
 const LANC_CATEGORIAS = {
-  entrada: ['aluguel', 'multa_juros', 'reembolso_locatario', 'mobilia', 'garagem_extra', 'outros'],
-  despesa_locador: ['iptu', 'condominio', 'manutencao', 'seguro', 'outros'],
-  despesa_locatario: ['agua', 'luz', 'gas', 'internet', 'outros'],
+  entrada: ['aluguel', 'multa_juros', 'reembolso_locatario', 'mobilia', 'garagem_extra', 'abatimento', 'outros'],
+  // 06/11/2026: as duas colunas aceitam qualquer despesa — quem arca é decidido item a item
+  // na importação (Lei 8.245: ordinária → locatário; extraordinária → proprietário)
+  despesa_locador: ['condominio', 'fundo_reserva', 'obras', 'iptu', 'manutencao', 'seguro', 'agua', 'luz', 'gas', 'taxa_cobranca', 'internet', 'outros'],
+  despesa_locatario: ['condominio', 'agua', 'luz', 'gas', 'iptu', 'taxa_cobranca', 'internet', 'seguro', 'manutencao', 'fundo_reserva', 'obras', 'outros'],
 };
 
 const LANC_CATEGORIA_LABEL = {
@@ -7971,6 +7973,7 @@ const LANC_CATEGORIA_LABEL = {
   reembolso_locatario: 'Reembolso do locatário',
   mobilia: 'Mobília',
   garagem_extra: 'Garagem extra',
+  abatimento: 'Abatimento (pago pelo locatário)',
   iptu: 'IPTU',
   condominio: 'Condomínio',
   manutencao: 'Manutenção',
@@ -7979,6 +7982,9 @@ const LANC_CATEGORIA_LABEL = {
   luz: 'Luz',
   gas: 'Gás',
   internet: 'Internet',
+  fundo_reserva: 'Fundo de reserva',
+  obras: 'Obras / extraordinária',
+  taxa_cobranca: 'Taxa de cobrança / boleto',
   outros: 'Outros (custom)',
 };
 
@@ -8382,16 +8388,39 @@ function renderLancRow(l) {
         <input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="uploadLancComprovante('${l.id}', this.files[0])">
         ${hasFile ? `<a href="#" onclick="abrirLancComprovante(event, '${l.id}')" style="margin-left:4px;">↗</a>` : ''}
       </label>
+      ${botaoRecorrenciaLanc(l)}
       <button class="lanc-del" title="Excluir" onclick="removeLanc('${l.id}')">×</button>
     </div>
   `;
 }
 
+// 🔁 Recorrência do lançamento (06/11/2026): não repete → fixa (mesmo valor todo mês) →
+// variável (repete com o último valor e pede conferência) → não repete. "⚡ Gerar o mês"
+// (financeiro.js) copia para o mês seguinte só o que tem repetir:true e está dentro do "até".
+function botaoRecorrenciaLanc(l) {
+  const conferir = l.conferirValor ? ' lanc-rec-conferir' : '';
+  const txt = !l.repetir ? '↻' : (l.tipoValor === 'variavel' ? '🔁 var.' : '🔁 fixa');
+  const tit = !l.repetir ? 'Não se repete. Clique para repetir nos próximos meses (valor fixo)'
+    : (l.tipoValor === 'variavel' ? 'Repete todo mês com valor VARIÁVEL (pede conferência)' : 'Repete todo mês com o MESMO valor')
+      + (l.repetirAte ? ` até ${l.repetirAte.split('-').reverse().join('/')}` : ' (sem data para acabar)') + '. Clique para mudar.';
+  return `<button type="button" class="lanc-rec${l.repetir ? ' ativo' : ''}${conferir}" title="${escapeHtml(tit)}${l.conferirValor ? ' — ⚠ confira o valor deste mês' : ''}" onclick="ciclarRecorrenciaLanc('${l.id}')">${l.conferirValor ? '⚠ ' : ''}${txt}</button>`;
+}
+function ciclarRecorrenciaLanc(id) {
+  const l = _balanceteLancamentos.find(x => x.id === id);
+  if (!l) return;
+  if (!l.repetir) { l.repetir = true; l.tipoValor = 'fixa'; }
+  else if (l.tipoValor !== 'variavel') l.tipoValor = 'variavel';
+  else { l.repetir = false; l.tipoValor = null; l.repetirAte = null; }
+  l.conferirValor = false;
+  renderLancamentos();
+}
+window.ciclarRecorrenciaLanc = ciclarRecorrenciaLanc;
+
 function updateLanc(id, campo, valor) {
   const idx = _balanceteLancamentos.findIndex(l => l.id === id);
   if (idx === -1) return;
   _balanceteLancamentos[idx][campo] = valor;
-  if (campo === 'valor') recalcBalancete();
+  if (campo === 'valor') { _balanceteLancamentos[idx].conferirValor = false; recalcBalancete(); }
 }
 
 function addLancamento(bloco) {
@@ -9357,12 +9386,18 @@ async function saveBalancete() {
     receitaTotalLocador,
     despesaTotalLocador,
     liquidoLocador,
-    lancamentos: _balanceteLancamentos.map(l => ({
-      id: l.id, bloco: l.bloco, categoria: l.categoria,
-      descricao: l.descricao || null, valor: parseFloat(l.valor) || 0,
-      comprovantePath: l.comprovantePath || null,
-      comprovanteNome: l.comprovanteNome || null,
-    })),
+    // 06/11/2026: preserva os campos extras do lançamento (recorrência, origem da importação,
+    // dados do boleto) — antes só 7 campos sobreviviam ao Salvar e o resto sumia.
+    lancamentos: _balanceteLancamentos.map(l => {
+      const extra = {};
+      for (const [k, v] of Object.entries(l)) if (v !== undefined && !k.startsWith('_')) extra[k] = v;
+      return { ...extra,
+        id: l.id, bloco: l.bloco, categoria: l.categoria,
+        descricao: l.descricao || null, valor: parseFloat(l.valor) || 0,
+        comprovantePath: l.comprovantePath || null,
+        comprovanteNome: l.comprovanteNome || null,
+      };
+    }),
     obs: $('balancete-obs').value.trim() || null,
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };

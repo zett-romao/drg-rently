@@ -56,6 +56,59 @@ Extraia as informações abaixo e responda APENAS com JSON válido, sem markdown
 Se algum campo não for legível ou não estiver no documento, retorne null.
 NÃO inclua explicações. Resposta deve ser apenas JSON puro.`;
 
+// Prompt BOLETO_ITENS (06/11/2026 — body.modo === 'boleto_itens'): lê a COMPOSIÇÃO do boleto
+// (taxa condominial, água, gás, luz, fundo de reserva, taxa de cobrança…) linha a linha e sugere
+// quem arca com cada uma pela Lei do Inquilinato. A tela "Distribuir despesas" mostra a sugestão
+// e o operador decide — a IA nunca grava nada sozinha.
+const PROMPT_BOLETO_ITENS = `Você analisa boletos e faturas de imóveis LOCADOS (condomínio, IPTU, água, luz, gás, seguro…) para uma imobiliária brasileira.
+
+TAREFA: extrair os dados do documento E a COMPOSIÇÃO do valor (cada linha do rateio/discriminativo), uma entrada por linha.
+
+Para cada linha, sugira quem arca com ela segundo a Lei 8.245/91 (Lei do Inquilinato):
+- LOCATÁRIO (art. 23, XII — despesas ORDINÁRIAS): taxa condominial comum/ordinária, salários e encargos de funcionários do condomínio, consumo de água/esgoto, luz e gás (da unidade e das áreas comuns), limpeza, conservação, manutenção de elevadores/portões/equipamentos, pequenos reparos, seguro das áreas comuns incluso na taxa, tarifas bancárias de cobrança ("taxa de cobrança", "despesa boleto"), reposição do fundo de reserva usado em despesas ordinárias.
+- LOCADOR/PROPRIETÁRIO (art. 22, X — despesas EXTRAORDINÁRIAS): fundo de reserva (constituição/contribuição), obras de reforma ou acréscimo, pintura de fachada/empenas/poços, esquadrias externas, indenizações trabalhistas anteriores à locação, instalação de equipamentos de segurança/incêndio/telefonia/lazer, decoração e paisagismo das áreas comuns, chamadas extras para obras, rateio de ação judicial, taxa de mudança se o contrato não disser o contrário.
+- IPTU e seguro incêndio: normalmente o contrato transfere ao locatário — sugira "locatario" com motivo "conforme contrato".
+- Em dúvida, sugira "locador" e coloque confianca baixa.
+
+Responda APENAS com JSON válido, sem markdown:
+
+{
+  "tipo_documento": "boleto_condominio" | "boleto_iptu" | "conta_agua" | "conta_luz" | "conta_gas" | "boleto_outro" | "fatura",
+  "emissor": <quem emitiu (administradora/concessionária) ou null>,
+  "beneficiario": <beneficiário do pagamento ou null>,
+  "documento_beneficiario": <CNPJ/CPF formatado ou null>,
+  "condominio": <nome do condomínio/edifício ou null>,
+  "unidade": <identificação da unidade, ex: "Bloco 05 - Ap 158" ou null>,
+  "endereco_imovel": <endereço do imóvel ou null>,
+  "pagador_nome": <nome do pagador/sacado ou null>,
+  "pagador_documento": <CPF/CNPJ do pagador formatado ou null>,
+  "competencia": <"YYYY-MM" mês de referência ou null>,
+  "vencimento": <"YYYY-MM-DD" ou null>,
+  "valor_total": <número em reais, ponto decimal, ex: 435.82>,
+  "linha_digitavel": <linha digitável completa ou null>,
+  "instrucoes_multa": <texto curto sobre multa/juros após o vencimento ou null>,
+  "itens": [
+    {
+      "descricao": <texto da linha, limpo, ex: "Taxa condominial comum">,
+      "valor": <número em reais>,
+      "categoria": "condominio" | "agua" | "luz" | "gas" | "iptu" | "fundo_reserva" | "obras" | "taxa_cobranca" | "seguro" | "manutencao" | "internet" | "outros",
+      "natureza": "ordinaria" | "extraordinaria" | "consumo" | "tarifa" | "imposto",
+      "quem_paga_sugerido": "locatario" | "locador",
+      "motivo": <frase curta justificando, ex: "despesa ordinária (art. 23, XII)">,
+      "detalhe": <informação extra da linha, ex: leitura do hidrômetro, ou null>,
+      "variavel": <true se o valor costuma mudar todo mês (consumo, rateio de água/luz/gás); false se é fixo (taxa, tarifa)>,
+      "confianca": <0 a 1>
+    }
+  ],
+  "observacoes": <alertas úteis ou null, ex: "soma das linhas não bate com o total">
+}
+
+REGRAS:
+- Se o documento não tiver discriminativo, devolva UM item com o valor total.
+- Ignore linhas que são apenas subtotais/totais. A soma dos itens deve bater com valor_total; se não bater, avise em "observacoes".
+- Valores de multa/juros futuros (após vencimento) NÃO são itens.
+NÃO escreva nada fora do JSON.`;
+
 // Prompt MULTI-COMPROVANTE (v2 — usado quando body.modo === 'multi'):
 // Detecta múltiplos documentos em UM arquivo, diferencia NF/recibo vs comprovante,
 // classifica entrada/saída, retorna confidence por campo.
@@ -398,6 +451,7 @@ Responda APENAS com JSON válido, sem markdown:
 const LIMITES_POR_MODO = {
   contrato: 15 * 1024 * 1024,
   multi: 8 * 1024 * 1024,
+  boleto_itens: 8 * 1024 * 1024,
   default: 4 * 1024 * 1024,
 };
 
@@ -480,6 +534,8 @@ export default {
       }
     } else if (modo === 'multi') {
       promptFinal = PROMPT_MULTI;
+    } else if (modo === 'boleto_itens') {
+      promptFinal = PROMPT_BOLETO_ITENS;
     } else if (modo === 'documento_pessoa') {
       promptFinal = PROMPT_DOCUMENTO_PESSOA;
     } else {
@@ -497,7 +553,7 @@ export default {
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.1,
-        maxOutputTokens: modo === 'contrato' ? 8192 : 4096,
+        maxOutputTokens: (modo === 'contrato' || modo === 'boleto_itens') ? 8192 : 4096,
       },
     };
 

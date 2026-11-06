@@ -2435,7 +2435,7 @@ details.card > summary:hover {
 
 .lanc-row {
   display: grid;
-  grid-template-columns: 160px 1fr 130px 110px 30px;
+  grid-template-columns: 160px 1fr 130px 110px 64px 30px;
   gap: 8px;
   padding: 6px 0;
   align-items: center;
@@ -4548,4 +4548,62 @@ html, body { overscroll-behavior-x: none; }
   .imoveis-filtros-linha .filtro-grupo { gap: 6px; }
   .imoveis-filtros-linha .filtro-rotulo { flex-basis: 100%; background: none; color: var(--text-muted, #64748b); padding: 0; margin: 0; font-size: 11px; }
   .imoveis-filtros-linha .papel-filtro-btn { padding: 7px 12px; font-size: 13px; }
+}
+
+/* =============================================================
+   💰 FINANCEIRO DO MÊS (06/11/2026) — importar/distribuir, painel
+   ============================================================= */
+.fin-header-botoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.fin-header-botoes .btn { min-height: 40px; }
+button:active, .btn:active { transform: scale(.98); filter: brightness(.92); }
+.modal-xl { max-width: 1100px; width: 96vw; }
+.fin-modal .modal-body { max-height: calc(100dvh - 180px); overflow-y: auto; }
+.fin-lendo { text-align: center; padding: 50px 10px; font-size: 16px; line-height: 1.8; }
+.fin-imp-footer { display: flex; flex-direction: column; gap: 8px; }
+.fin-imp-botoes { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; }
+.fin-imp-botoes .btn { min-height: 44px; font-size: 15px; }
+.fin-doc { background: #F0FDFA; border: 1px solid #99F6E4; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.fin-doc-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.fin-doc-info > div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.fin-doc-info .muted { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+.fin-doc-total { font-size: 18px; color: #0F766E; }
+.fin-doc-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fin-doc-obs { margin-top: 8px; color: #92400E; background: #FEF3C7; padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+.fin-destino small { display: block; margin-top: 4px; font-size: 12px; }
+.fin-ok { color: #166534; } .fin-alerta { color: #B45309; font-weight: 600; }
+.fin-modo { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin: 6px 0 16px; }
+.fin-modo-op { display: flex; gap: 10px; align-items: flex-start; border: 2px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; line-height: 1.35; }
+.fin-modo-op.ativo { border-color: var(--primary, #00897B); background: #F0FDFA; }
+.fin-modo-op input { margin-top: 3px; }
+.fin-modo-op small { color: var(--text-muted, #64748B); }
+.fin-itens-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.fin-itens-massa { display: flex; gap: 6px; flex-wrap: wrap; }
+.fin-item { display: grid; grid-template-columns: minmax(200px, 1fr) 120px 230px 100px 150px 36px; gap: 8px; align-items: start;
+  padding: 10px 0; border-bottom: 1px solid var(--border); }
+.fin-item input[type="text"], .fin-item select, .fin-item input[type="month"] { width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.fin-item-sub { display: flex; gap: 6px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.fin-item-sub select { width: auto; font-size: 12px; padding: 4px 6px; }
+.fin-ia { display: block; margin-top: 4px; font-size: 11.5px; color: #475569; }
+.fin-ia-diverge { color: #B45309; font-weight: 600; }
+.fin-item-valor { text-align: right; font-weight: 600; }
+.fin-seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.fin-seg button { border: 0; background: #fff; padding: 8px 4px; font-size: 12.5px; cursor: pointer; min-height: 40px; }
+.fin-seg button + button { border-left: 1px solid var(--border); }
+.fin-seg button.ativo.prop { background: #FEF3C7; color: #92400E; font-weight: 700; }
+.fin-seg button.ativo.loc { background: #DBEAFE; color: #1E40AF; font-weight: 700; }
+.fin-item-rep { display: flex; flex-direction: column; gap: 4px; }
+.fin-item-del { border: 0; background: transparent; font-size: 18px; cursor: pointer; min-height: 40px; }
+.fin-resumo { margin-top: 14px; background: #F8FAFC; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+.fin-resumo ul { margin: 8px 0 0 18px; padding: 0; line-height: 1.7; }
+.fin-soma { font-weight: 700; }
+.fin-soma.ok { color: #166534; } .fin-soma.erro { color: #B91C1C; }
+.lanc-rec { border: 1px solid var(--border); background: #fff; border-radius: 6px; font-size: 12px; padding: 6px 4px; cursor: pointer; white-space: nowrap; }
+.lanc-rec.ativo { background: #ECFDF5; border-color: #6EE7B7; color: #065F46; font-weight: 600; }
+.lanc-rec-conferir { background: #FEF3C7 !important; border-color: #F59E0B !important; color: #92400E !important; }
+@media (max-width: 900px) {
+  .fin-item { grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+  .fin-item-desc { grid-column: 1 / -1; }
+  .fin-seg { grid-column: 1 / -1; }
+  .fin-item-del { justify-self: end; }
+  .fin-imp-botoes { grid-template-columns: 1fr; }
 }
