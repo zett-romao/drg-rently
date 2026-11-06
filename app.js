@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.1.2';
+const APP_VERSION = '0.1.3';
 
 // =============================================================
 // State
@@ -1717,6 +1717,10 @@ function renderSuperAdminKpis(tenants) {
       <div class="stat-card-icon stat-icon-purple">💰</div>
       <div class="stat-card-body"><div class="stat-card-value is-money">${fmtBRL(mrr)}</div><div class="stat-card-label">MRR (mensal recorrente)</div></div>
     </div>
+    <div class="stat-card" onclick="filtrarTenantsPorKpi('arquivados', this)" title="Corretores e imobiliárias arquivados — é aqui que fica o 🗑 Excluir">
+      <div class="stat-card-icon" style="background:#E5E7EB;color:#374151;">🗄</div>
+      <div class="stat-card-body"><div class="stat-card-value">${tenants.filter(t => t.arquivado).length}</div><div class="stat-card-label">Arquivados (restaurar / excluir)</div></div>
+    </div>
   `;
 }
 
@@ -1729,8 +1733,14 @@ function filtrarTenantsPorKpi(filtroStatus, cardEl) {
   const selStatus = $('filtro-tenant-status');
   const selPlano = $('filtro-tenant-plano');
   if (!selStatus) return;
+  const selArq = $('filtro-tenant-arquivado');
+  if (selArq) selArq.value = filtroStatus === 'arquivados' ? 'so_arquivados' : 'ativos';
 
-  if (filtroStatus === 'mrr') {
+  if (filtroStatus === 'arquivados') {
+    selStatus.value = '';
+    if (selPlano) selPlano.value = '';
+    renderTenantsTable();
+  } else if (filtroStatus === 'mrr') {
     // MRR: tenants pagantes (qualquer plano exceto trial), e ativos
     selStatus.value = '';
     if (selPlano) {
@@ -1777,8 +1787,11 @@ function renderTenantsTable() {
 
   let lista = _tenantsCarregados;
 
-  // Arquivados: por padrão oculta. "todos" mostra ambos. "so_arquivados" filtra
-  if (filtroArq === 'ativos') {
+  // Arquivados: por padrão oculta. "todos" mostra ambos. "so_arquivados" filtra.
+  // 05/11/2026: a BUSCA por nome/CPF/CNPJ procura também nos arquivados — antes o arquivado
+  // "sumia": digitar o nome dele dava "nenhum tenant" e o 🗑 Excluir (que só existe no
+  // arquivado) ficava inalcançável. A linha arquivada aparece cinza, com o selo 🗄.
+  if (filtroArq === 'ativos' && !filtroBusca) {
     lista = lista.filter(t => !t.arquivado);
   } else if (filtroArq === 'so_arquivados') {
     lista = lista.filter(t => !!t.arquivado);
@@ -1798,7 +1811,8 @@ function renderTenantsTable() {
   });
 
   if (lista.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum tenant corresponde aos filtros.</td></tr>`;
+    const nArq = filtroArq === 'ativos' ? _tenantsCarregados.filter(t => t.arquivado).length : 0;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">Nenhum tenant corresponde aos filtros.${nArq ? `<br><button class="btn btn-sm btn-secondary" style="margin-top:8px;" onclick="filtrarTenantsPorKpi('arquivados')">🗄 Ver os ${nArq} arquivado(s)</button>` : ''}</td></tr>`;
     return;
   }
 
@@ -1836,14 +1850,14 @@ function renderTenantsTable() {
     const acoes = t.arquivado
       ? `
         <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')" title="Ver detalhes (somente leitura)">⚙ Ver</button>
-        <button class="btn btn-sm btn-secondary" onclick="restaurarTenant('${t.id}')" title="Reativar este tenant">↻ Restaurar</button>
-        <button class="btn btn-sm" onclick="excluirTenantDefinitivo('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Excluir definitivamente" style="background:var(--danger); color:white; border-color:var(--danger);">🗑 Excluir</button>
+        <button class="btn btn-sm btn-secondary" onclick="restaurarTenant('${t.id}', this)" title="Reativar este tenant">↻ Restaurar</button>
+        <button class="btn btn-sm" onclick="excluirTenantDefinitivo('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}', this)" title="Excluir definitivamente" style="background:var(--danger); color:white; border-color:var(--danger);">🗑 Excluir</button>
       `
       : `
         <button class="btn btn-sm btn-secondary" onclick="openTenantModal('${t.id}')">⚙ Gerenciar</button>
         ${!isAtivo ? `<button class="btn btn-sm" onclick="definirTenantAtivoSuperAdmin('${t.id}')" title="Operar neste tenant nesta sessão (persistido pra próximos logins)" style="background:var(--primary); color:white; border-color:var(--primary);">🎯 Operar aqui</button>` : ''}
         ${!isDono ? `<button class="btn btn-sm btn-secondary" onclick="marcarComoTenantDono('${t.id}')" title="Entrar nesta conta ao fazer login (quando não houver outra escolhida)">🚪 Abrir ao entrar</button>` : ''}
-        <button class="btn btn-sm btn-secondary" onclick="arquivarTenant('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}')" title="Mover pra arquivo (pode restaurar depois)">🗄 Arquivar</button>
+        <button class="btn btn-sm btn-secondary" onclick="arquivarTenant('${t.id}', '${escapeHtml((t.nome || '').replace(/'/g, '&#39;'))}', this)" title="Mover pra arquivo (pode restaurar ou excluir depois, no card 🗄 Arquivados)">🗄 Arquivar</button>
       `;
 
     return `
@@ -1865,50 +1879,57 @@ function renderTenantsTable() {
 // =============================================================
 // Arquivar / Restaurar / Excluir tenants (Super Admin)
 // =============================================================
-async function arquivarTenant(tenantId, nome) {
+// 05/11/2026: mensagens na própria tela (#tenants-status), botão trava antes do await (drgSubmit)
+function statusTenants(msg, tipo) {
+  showInlineStatus('tenants-status', msg, tipo, tipo === 'success' ? 9000 : 0);
+}
+
+async function arquivarTenant(tenantId, nome, btn) {
   const ok = await confirmar({
     titulo: 'Arquivar cliente?',
     mensagem: `Mover <strong>${escapeHtml(nome)}</strong> para o arquivo.`,
-    detalhe: '✅ Os dados ficam preservados<br>✅ Você pode RESTAURAR depois<br>⚠️ O tenant some das listagens padrão (use o filtro "Mostrar arquivados" pra ver)',
+    detalhe: '✅ Os dados ficam preservados<br>✅ Você pode RESTAURAR depois<br>🗄 Ele passa a aparecer no card <strong>Arquivados</strong> (e na busca por nome) — é lá que fica o 🗑 Excluir',
     confirmar: '🗄 Arquivar',
     aviso: true,
   });
   if (!ok) return;
   try {
-    await db.collection('tenants').doc(tenantId).update({
-      arquivado: true,
-      arquivadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-      arquivadoPor: State.user?.uid || null,
+    await drgSubmit(btn, '⏳ Arquivando…', async () => {
+      await db.collection('tenants').doc(tenantId).update({
+        arquivado: true,
+        arquivadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        arquivadoPor: State.user?.uid || null,
+      });
+      if (typeof logAuditoria === 'function') logAuditoria('arquivar', 'tenant', tenantId, { nome });
+      await loadTenantsTable();
     });
-    if (typeof logAuditoria === 'function') {
-      logAuditoria('arquivar', 'tenant', tenantId, { nome });
-    }
-    await loadTenantsTable();
+    statusTenants(`✓ <strong>${escapeHtml(nome)}</strong> arquivado. Para restaurar ou excluir: <a href="#" onclick="filtrarTenantsPorKpi('arquivados'); return false;">🗄 ver arquivados</a>.`, 'success');
   } catch (err) {
     console.error('Erro ao arquivar tenant:', err);
-    alert('Erro ao arquivar: ' + err.message);
+    statusTenants(`❌ Erro ao arquivar: ${escapeHtml(err.message)}`, 'error');
   }
 }
 
-async function restaurarTenant(tenantId) {
+async function restaurarTenant(tenantId, btn) {
   try {
-    await db.collection('tenants').doc(tenantId).update({
-      arquivado: false,
-      arquivadoEm: null,
-      restauradoEm: firebase.firestore.FieldValue.serverTimestamp(),
-      restauradoPor: State.user?.uid || null,
+    await drgSubmit(btn, '⏳ Restaurando…', async () => {
+      await db.collection('tenants').doc(tenantId).update({
+        arquivado: false,
+        arquivadoEm: null,
+        restauradoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        restauradoPor: State.user?.uid || null,
+      });
+      if (typeof logAuditoria === 'function') logAuditoria('restaurar', 'tenant', tenantId, {});
+      await loadTenantsTable();
     });
-    if (typeof logAuditoria === 'function') {
-      logAuditoria('restaurar', 'tenant', tenantId, {});
-    }
-    await loadTenantsTable();
+    statusTenants('✓ Cliente restaurado — voltou para a lista de ativos.', 'success');
   } catch (err) {
     console.error('Erro ao restaurar tenant:', err);
-    alert('Erro ao restaurar: ' + err.message);
+    statusTenants(`❌ Erro ao restaurar: ${escapeHtml(err.message)}`, 'error');
   }
 }
 
-async function excluirTenantDefinitivo(tenantId, nome) {
+async function excluirTenantDefinitivo(tenantId, nome, btn) {
   // Confirmação 1 — aviso detalhado
   const confirma1 = await confirmar({
     titulo: '⚠️ Exclusão definitiva',
@@ -1919,37 +1940,30 @@ async function excluirTenantDefinitivo(tenantId, nome) {
   });
   if (!confirma1) return;
 
-  // Confirmação 2 — digitar nome (prompt nativo ainda, sem refatorar agora)
+  // Confirmação 2 — digitar nome
   const digite = prompt(`Pra confirmar a EXCLUSÃO, digite EXATAMENTE o nome do cliente abaixo:\n\n"${nome}"`);
   if (!digite || digite.trim() !== nome.trim()) {
-    await confirmar({
-      titulo: 'Operação cancelada',
-      mensagem: 'O nome digitado não confere. Nada foi excluído.',
-      confirmar: 'Entendi',
-      cancelar: 'Fechar',
-    });
+    statusTenants('O nome digitado não confere. Nada foi excluído.', 'error');
     return;
   }
 
   try {
-    // Log antes de deletar
-    if (typeof logAuditoria === 'function') {
-      logAuditoria('excluir_definitivo', 'tenant', tenantId, { nome });
-    }
-    // Marca como excluído ANTES de deletar (audit trail)
-    await db.collection('tenants').doc(tenantId).update({
-      excluido: true,
-      excluidoEm: firebase.firestore.FieldValue.serverTimestamp(),
-      excluidoPor: State.user?.uid || null,
-      nome: `[EXCLUÍDO ${new Date().toISOString().slice(0, 10)}] ${nome}`,
-    }).catch(() => {});
-    // Deleta o doc principal
-    await db.collection('tenants').doc(tenantId).delete();
-    alert(`✅ Tenant "${nome}" excluído.\n\nObservação: subcoleções (imóveis, contratos, etc) podem ter ficado órfãs. Use o painel do Firebase pra limpeza profunda se necessário.`);
-    await loadTenantsTable();
+    await drgSubmit(btn, '⏳ Excluindo… aguarde', async () => {
+      if (typeof logAuditoria === 'function') logAuditoria('excluir_definitivo', 'tenant', tenantId, { nome });
+      // Marca como excluído ANTES de deletar (audit trail)
+      await db.collection('tenants').doc(tenantId).update({
+        excluido: true,
+        excluidoEm: firebase.firestore.FieldValue.serverTimestamp(),
+        excluidoPor: State.user?.uid || null,
+        nome: `[EXCLUÍDO ${new Date().toISOString().slice(0, 10)}] ${nome}`,
+      }).catch(() => {});
+      await db.collection('tenants').doc(tenantId).delete();
+      await loadTenantsTable();
+    });
+    statusTenants(`✓ <strong>${escapeHtml(nome)}</strong> excluído. Imóveis, contratos e fotos dele podem ter ficado órfãos no Firebase — limpeza profunda pelo Console, se precisar.`, 'success');
   } catch (err) {
     console.error('Erro ao excluir tenant:', err);
-    alert('Erro ao excluir: ' + err.message);
+    statusTenants(`❌ Erro ao excluir: ${escapeHtml(err.message)}`, 'error');
   }
 }
 

@@ -1218,7 +1218,7 @@
                 <input type="text" id="filtro-tenant-busca" placeholder="Nome, CPF ou CNPJ" oninput="renderTenantsTable()">
               </div>
               <div class="form-group">
-                <label>Arquivados</label>
+                <label>🗄 Arquivados</label>
                 <select id="filtro-tenant-arquivado" onchange="renderTenantsTable()">
                   <option value="ativos">Ocultar arquivados (padrão)</option>
                   <option value="todos">Mostrar ativos + arquivados</option>
@@ -1227,6 +1227,7 @@
               </div>
             </div>
 
+            <div id="tenants-status" class="status-inline" style="display:none; margin-bottom:10px;"></div>
             <div class="table-wrap">
               <table class="table" id="table-tenants">
                 <thead>
@@ -6329,7 +6330,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261104a-celular"></script>
+  <script src="app.js?v=20261105a-arquivados"></script>
   <script src="trava-login.js?v=20261103a-trava"></script>
   <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
