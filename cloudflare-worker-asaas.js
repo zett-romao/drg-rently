@@ -806,7 +806,18 @@ async function aprovarPagamento(request, env, origin, usuario) {
     });
   } catch (_) { /* caixa não bloqueia o repasse já efetuado */ }
 
-  return jsonResponse({ ok: true, status: 'APROVADO', asaasTransferId: asaasData.id || '', valor: valor }, 200, origin);
+  // 💰 Financeiro: o balancete passa a mostrar "repassado"
+  if (sol.balanceteId && /^[A-Za-z0-9_-]{1,120}$/.test(String(sol.balanceteId))) {
+    try {
+      const bPath = `tenants/${tenantId}/balancetes/${sol.balanceteId}`;
+      const bal = await firestoreAdminGet(env, bPath);
+      if (bal) await firestoreAdminMerge(env, bPath, { repasse: Object.assign({}, bal.repasse || {}, {
+        solicitacaoId, status: 'PAGO', valor, pagoEm: quando, asaasTransferId: asaasData.id || '', aprovadoPor: usuario.uid,
+      }) });
+    } catch (_) { /* não bloqueia o repasse já feito */ }
+  }
+
+  return jsonResponse({ ok: true, status: 'APROVADO', asaasTransferId: asaasData.id || '', valor: valor, balanceteId: sol.balanceteId || null }, 200, origin);
 }
 
 export default {
@@ -822,6 +833,11 @@ export default {
     // Webhook do Asaas (não passa por auth do admin)
     if (path === '/webhook' && request.method === 'POST') {
       return await handleWebhook(request, env, origin);
+    }
+    // 💰 06/11/2026: webhook PRÓPRIO de cada imobiliária (token dela, gerado em "Ativar baixa automática")
+    const mWhT = path.match(/^\/webhook\/t\/([A-Za-z0-9_-]{1,64})$/);
+    if (mWhT && request.method === 'POST') {
+      return await handleWebhookTenant(request, env, mWhT[1]);
     }
 
     // Help page
@@ -1000,6 +1016,30 @@ export default {
       const matchTenantPayment = path.match(/^\/tenant\/payments\/([^\/]+)$/);
       if (matchTenantPayment && request.method === 'GET') {
         return await tenantBuscarCobranca(matchTenantPayment[1], env, origin, apiKey);
+      }
+      // 💰 06/11/2026 — cancelar cobrança, linha digitável, baixa manual, ativar webhook
+      if (matchTenantPayment && request.method === 'DELETE') {
+        return await tenantAsaasSimples(`/payments/${encodeURIComponent(matchTenantPayment[1])}`, 'DELETE', null, env, origin, apiKey);
+      }
+      const matchLinha = path.match(/^\/tenant\/payments\/([^\/]+)\/identificationField$/);
+      if (matchLinha && request.method === 'GET') {
+        return await tenantAsaasSimples(`/payments/${encodeURIComponent(matchLinha[1])}/identificationField`, 'GET', null, env, origin, apiKey);
+      }
+      const matchCash = path.match(/^\/tenant\/payments\/([^\/]+)\/receiveInCash$/);
+      if (matchCash && request.method === 'POST') {
+        const bc = await request.json().catch(() => ({}));
+        return await tenantAsaasSimples(`/payments/${encodeURIComponent(matchCash[1])}/receiveInCash`, 'POST',
+          { paymentDate: bc.paymentDate, value: Number(bc.value), notifyCustomer: false }, env, origin, apiKey);
+      }
+      if (path === '/tenant/webhook/configurar' && request.method === 'POST') {
+        return await tenantConfigurarWebhook(request, env, origin, apiKey, _usuarioAutenticado);
+      }
+      const matchPix = path.match(/^\/tenant\/payments\/([^\/]+)\/pixQrCode$/);
+      if (matchPix && request.method === 'GET') {
+        return await tenantAsaasSimples(`/payments/${encodeURIComponent(matchPix[1])}/pixQrCode`, 'GET', null, env, origin, apiKey);
+      }
+      if (path === '/tenant/financeiro/sincronizar' && request.method === 'POST') {
+        return await tenantSincronizarCobrancas(request, env, origin, _usuarioAutenticado);
       }
       // POST /tenant/transfers — transfere PIX/TED pro locador (repasse do líquido)
       if (path === '/tenant/transfers' && request.method === 'POST') {
@@ -1195,6 +1235,12 @@ async function handleWebhook(request, env, origin) {
   const payment = event.payment;
   const subscription = event.subscription;
 
+  // 💰 cobrança de aluguel gerada pelo Financeiro (externalReference "bal:<tid>:<balanceteId>")
+  if (payment && /^bal:/.test(String(payment.externalReference || ''))) {
+    try { await processarEventoAluguel(env, null, event); } catch (e) { console.error('webhook bal:', e); }
+    return new Response(JSON.stringify({ received: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+
   try {
 
     if ((eventType === 'PAYMENT_RECEIVED' || eventType === 'PAYMENT_CONFIRMED') && payment) {
@@ -1359,6 +1405,9 @@ async function tenantCriarCobranca(request, env, origin, apiKey) {
     description: payload.description || 'Cobrança DRG-Rently',
     externalReference: payload.externalReference || undefined,
     postalService: false,
+    // 06/11/2026: multa (%) e juros (% ao mês) dos Padrões da imobiliária
+    fine: Number(payload.multaPercent) > 0 ? { value: Number(payload.multaPercent), type: 'PERCENTAGE' } : undefined,
+    interest: Number(payload.jurosPercentMes) > 0 ? { value: Number(payload.jurosPercentMes) } : undefined,
   };
   Object.keys(body).forEach(k => body[k] === undefined && delete body[k]);
 
@@ -1611,4 +1660,205 @@ async function separarLicencas(env) {
     rel.movidos++;
   }
   return { ok: true, ...rel };
+}
+
+
+// =============================================================
+// 💰 FINANCEIRO DO MÊS (06/11/2026) — baixa automática do boleto do aluguel
+// =============================================================
+// Fluxo: o app gera a cobrança com externalReference "bal:<tenantId>:<balanceteId>".
+// Quando o Asaas avisa (webhook), NÃO confiamos no corpo do aviso: buscamos o pagamento
+// de novo NO ASAAS, com a chave da própria imobiliária guardada no servidor. Só então:
+// marca o balancete como pago (uma vez só), lança no Livro Caixa (id fixo = sem duplicar),
+// tira o "inadimplente" do contrato e CRIA a solicitação de repasse ao proprietário
+// (AGUARDANDO_APROVACAO). O PIX só sai quando alguém aprovar com senha + 2FA (regra S4).
+
+async function tenantAsaasSimples(caminho, metodo, corpo, env, origin, apiKey) {
+  const res = await asaasFetch(`${asaasBase(env)}${caminho}`, env, metodo, corpo, apiKey);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return jsonResponse({ error: data.errors?.[0]?.description || ('Erro Asaas ' + res.status), details: data }, res.status, origin);
+  return jsonResponse({ success: true, data }, 200, origin);
+}
+
+function hexAleatorio(n) {
+  const b = new Uint8Array(n); crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+// Liga o webhook NA CONTA ASAAS DA IMOBILIÁRIA apontando para /webhook/t/<tenantId>,
+// com um token só dela. Só o administrador da imobiliária (ou a equipe DRG) faz isso,
+// e só com a MESMA chave que o servidor usa para conferir os pagamentos.
+async function tenantConfigurarWebhook(request, env, origin, apiKey, usuario) {
+  if (!usuario) return jsonResponse({ ok: false, error: 'Faça login novamente.' }, 401, origin);
+  const b = await request.json().catch(() => ({}));
+  const tid = String(b.tenantId || '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(tid)) return jsonResponse({ ok: false, error: 'Imobiliária inválida.' }, 400, origin);
+  const u = await firestoreAdminGet(env, `users/${usuario.uid}`);
+  const equipeDRG = u && (u.role === 'super_admin' || u.role === 'operador_drg');
+  if (!u || (!equipeDRG && !(u.tenantId === tid && u.role === 'admin' && u.ativo !== false))) {
+    return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária ativa a baixa automática.' }, 403, origin);
+  }
+  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
+  if (!cfg || !cfg.asaasTenantToken) return jsonResponse({ ok: false, error: 'Salve a chave API do Asaas antes.' }, 400, origin);
+  if (cfg.asaasTenantToken !== apiKey) return jsonResponse({ ok: false, error: 'A chave enviada não é a chave salva da imobiliária. Recarregue a página.' }, 409, origin);
+
+  const url = `${new URL(request.url).origin}/webhook/t/${tid}`;
+  const token = hexAleatorio(24);
+  await firestoreAdminMerge(env, `tenants/${tid}/config/asaasWebhook`, { token, url, configuradoEm: new Date(), configuradoPor: usuario.uid });
+  const corpo = {
+    name: 'DRG-Rently - baixa automatica', url, email: u.email || usuario.email || undefined,
+    enabled: true, interrupted: false, apiVersion: 3, authToken: token, sendType: 'SEQUENTIALLY',
+    events: ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED', 'PAYMENT_OVERDUE', 'PAYMENT_DELETED', 'PAYMENT_REFUNDED', 'PAYMENT_RECEIVED_IN_CASH_UNDONE', 'PAYMENT_RESTORED'],
+  };
+  const lista = await asaasFetch(`${asaasBase(env)}/webhooks?limit=100`, env, 'GET', null, apiKey);
+  const lj = await lista.json().catch(() => ({}));
+  const existente = (lj.data || []).find(w => w.url === url);
+  const res = existente
+    ? await asaasFetch(`${asaasBase(env)}/webhooks/${existente.id}`, env, 'PUT', corpo, apiKey)
+    : await asaasFetch(`${asaasBase(env)}/webhooks`, env, 'POST', corpo, apiKey);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return jsonResponse({ ok: false, error: 'Asaas recusou o webhook: ' + (data.errors?.[0]?.description || res.status) }, 502, origin);
+  await firestoreAdminMerge(env, `tenants/${tid}/config/asaasWebhook`, { asaasWebhookId: data.id || (existente && existente.id) || '', ativo: true });
+  return jsonResponse({ ok: true, url, atualizado: !!existente }, 200, origin);
+}
+
+async function handleWebhookTenant(request, env, tid) {
+  const ok200 = () => new Response(JSON.stringify({ received: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  const cfgWh = await firestoreAdminGet(env, `tenants/${tid}/config/asaasWebhook`).catch(() => null);
+  const tk = request.headers.get('asaas-access-token') || '';
+  if (!cfgWh || !cfgWh.token || !drsIgual(tk, cfgWh.token)) return new Response('Unauthorized', { status: 401 });
+  let event;
+  try { event = await request.json(); } catch (_) { return new Response('Invalid JSON', { status: 400 }); }
+  try { await processarEventoAluguel(env, tid, event); } catch (e) { console.error('webhook tenant', tid, e); }
+  return ok200();
+}
+
+const ASAAS_PAGO = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+
+async function processarEventoAluguel(env, tidEsperado, event) {
+  const pay = event && event.payment;
+  if (!pay || !pay.id) return;
+  const m = String(pay.externalReference || '').match(/^bal:([A-Za-z0-9_-]{1,64}):([A-Za-z0-9_-]{1,120})$/);
+  if (!m) return;
+  const tid = m[1], bid = m[2];
+  if (tidEsperado && tid !== tidEsperado) return;
+  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
+  if (!cfg || !cfg.asaasTenantToken) return;
+  // Fonte da verdade: o pagamento lido de novo no Asaas da imobiliária
+  const r = await asaasFetch(`${asaasBase(env)}/payments/${encodeURIComponent(pay.id)}`, env, 'GET', null, cfg.asaasTenantToken);
+  if (!r.ok) return;
+  const p = await r.json();
+  if (p.externalReference !== pay.externalReference) return;
+
+  const bPath = `tenants/${tid}/balancetes/${bid}`;
+  const b = await firestoreAdminGet(env, bPath);
+  if (!b) return;
+  const c = b.cobranca || {};
+  if (c.asaasId && c.asaasId !== p.id) return;   // cobrança antiga, substituída
+
+  const hoje = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+  const novo = Object.assign({}, c, { asaasId: p.id, status: p.status, atualizadoEm: new Date() });
+  const pago = ASAAS_PAGO.includes(p.status);
+  if (pago) {
+    Object.assign(novo, {
+      pagaEm: p.paymentDate || p.clientPaymentDate || p.confirmedDate || hoje,
+      valorPago: Number(p.value) || 0,
+      valorLiquido: Number(p.netValue != null ? p.netValue : p.value) || 0,
+      baixa: c.baixa || (p.status === 'RECEIVED_IN_CASH' ? 'manual' : 'asaas'),
+    });
+  }
+  const primeiraBaixa = pago && !c.baixaProcessada;
+  if (primeiraBaixa) novo.baixaProcessada = true;
+  await firestoreAdminMerge(env, bPath, { cobranca: novo });
+
+  if (b.contratoId && /^[A-Za-z0-9_-]{1,120}$/.test(b.contratoId)) {
+    if (p.status === 'OVERDUE') await firestoreAdminMerge(env, `tenants/${tid}/contratos/${b.contratoId}`, { inadimplente: true }).catch(() => {});
+    if (primeiraBaixa) await firestoreAdminMerge(env, `tenants/${tid}/contratos/${b.contratoId}`, { inadimplente: false }).catch(() => {});
+  }
+  if (!primeiraBaixa) return;
+
+  const comp = `${b.ano}-${String(b.mes).padStart(2, '0')}`;
+  let nome = 'Locatário';
+  try { const lt = b.locatarioId ? await firestoreAdminGet(env, `tenants/${tid}/locatarios/${b.locatarioId}`) : null; nome = (lt && lt.nome) || nome; } catch (_) {}
+  // Livro Caixa — só o que entrou PELO ASAAS (dinheiro em mãos é lançado pela baixa manual do app)
+  if (p.status !== 'RECEIVED_IN_CASH') {
+    const valor = Number(p.value) || 0, liq = Number(p.netValue != null ? p.netValue : valor);
+    const base = { data: novo.pagaEm, competencia: comp, origem: 'asaas-webhook', refId: p.id, criadoEm: new Date(), criadoPor: 'sistema' };
+    await firestoreAdminMerge(env, `tenants/${tid}/caixaPool/asaas_${p.id}_e`, Object.assign({ tipo: 'entrada', rubrica: 'Aluguel recebido', nome, valor }, base));
+    const tarifa = Number((valor - liq).toFixed(2));
+    if (tarifa > 0) await firestoreAdminMerge(env, `tenants/${tid}/caixaPool/asaas_${p.id}_t`, Object.assign({ tipo: 'saida', rubrica: 'Tarifa Asaas', nome: 'Asaas', valor: tarifa }, base));
+  }
+  await criarRepasseAutomatico(env, tid, bid, b);
+}
+
+function tipoChavePix(pix) {
+  const s = String(pix || '').trim(), d = s.replace(/\D/g, '');
+  if (s.includes('@')) return 'EMAIL';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s)) return 'EVP';
+  if (s.startsWith('+')) return 'PHONE';
+  if (/^\d{11}$/.test(d)) return 'CPF';
+  if (/^\d{14}$/.test(d)) return 'CNPJ';
+  if (/^\d{10,13}$/.test(d)) return 'PHONE';
+  return 'EVP';
+}
+
+// Cria UMA solicitação por balancete (id fixo rep_<balanceteId>) — webhook repetido não duplica.
+async function criarRepasseAutomatico(env, tid, bid, b) {
+  const solId = `rep_${bid}`;
+  const solPath = `tenants/${tid}/solicitacoesPagamento/${solId}`;
+  if (await firestoreAdminGet(env, solPath)) return;
+  const bPath = `tenants/${tid}/balancetes/${bid}`;
+  const marca = (st, extra) => firestoreAdminMerge(env, bPath, { repasse: Object.assign({}, b.repasse || {}, { status: st, atualizadoEm: new Date() }, extra || {}) });
+  const valor = Number(Number(b.liquidoLocador || 0).toFixed(2));
+  if (!(valor > 0)) return marca('SEM_VALOR', { motivo: 'Líquido do proprietário é zero ou negativo.' });
+  if (!b.locadorId) return marca('PENDENTE_CADASTRO', { motivo: 'Balancete sem proprietário.' });
+  const loc = await firestoreAdminGet(env, `tenants/${tid}/locadores/${b.locadorId}`);
+  if (!loc) return marca('PENDENTE_CADASTRO', { motivo: 'Proprietário não encontrado.' });
+  const dest = destinoRepasseServidor(loc);
+  if (dest.pendencias.length) return marca('PENDENTE_CADASTRO', { motivo: 'Representante: ' + dest.pendencias.join('; ') });
+  if (!dest.pix) return marca('PENDENTE_CADASTRO', { motivo: 'Proprietário sem chave PIX cadastrada.' });
+  const paraRep = dest.para === 'representante';
+  const instr = paraRep ? ((loc.representante || {}).instrumento || {}) : null;
+  const ref = `${['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][(b.mes || 1) - 1]}/${b.ano}`;
+  await firestoreAdminMerge(env, solPath, {
+    tipo: 'pagamento_locador', status: 'AGUARDANDO_APROVACAO', valor,
+    pixAddressKey: dest.pix,
+    pixAddressKeyType: paraRep ? (dest.pix.length === 11 ? 'CPF' : 'CNPJ') : tipoChavePix(dest.pix),
+    descricao: paraRep ? `Repasse aluguel ${ref} — ${loc.nome || ''} (via ${dest.nome})` : `Repasse aluguel ${ref} — ${loc.nome || ''}`,
+    locadorId: b.locadorId, locadorNome: loc.nome || '',
+    destinatario: paraRep ? 'representante' : 'locador',
+    favorecidoNome: paraRep ? dest.nome : (loc.nome || ''),
+    favorecidoDocumento: paraRep ? dest.pix : null,
+    instrumento: paraRep ? { tipo: instr.tipo || null, data: instr.data || null, validade: instr.validade || null, arquivoPath: (instr.arquivo && instr.arquivo.path) || null } : null,
+    contratoId: b.contratoId || null, balanceteId: bid, balanceteRef: ref,
+    solicitadoPor: 'sistema', solicitadoPorNome: '🤖 Sistema — boleto pago', solicitadoPorEmail: '',
+    origem: 'baixa-automatica', solicitadoEm: new Date(),
+  });
+  await marca('AGUARDANDO_APROVACAO', { solicitacaoId: solId, valor });
+}
+
+// 🔄 Sincronizar (06/11/2026): o painel pede ao servidor que confira no Asaas as cobranças do mês.
+// Faz a MESMA baixa do webhook (idempotente) — cobre webhook desligado, atrasado ou perdido.
+async function tenantSincronizarCobrancas(request, env, origin, usuario) {
+  if (!usuario) return jsonResponse({ ok: false, error: 'Faça login novamente.' }, 401, origin);
+  const b = await request.json().catch(() => ({}));
+  const tid = String(b.tenantId || '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(tid)) return jsonResponse({ ok: false, error: 'Imobiliária inválida.' }, 400, origin);
+  const u = await firestoreAdminGet(env, `users/${usuario.uid}`);
+  const equipeDRG = u && (u.role === 'super_admin' || u.role === 'operador_drg');
+  if (!u || (!equipeDRG && !(u.tenantId === tid && u.ativo !== false))) return jsonResponse({ ok: false, error: 'Sem acesso a esta imobiliária.' }, 403, origin);
+  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
+  if (!cfg || !cfg.asaasTenantToken) return jsonResponse({ ok: false, error: 'Chave Asaas não configurada.' }, 400, origin);
+  const ids = (Array.isArray(b.paymentIds) ? b.paymentIds : []).map(String).filter(x => /^[A-Za-z0-9_-]{1,60}$/.test(x)).slice(0, 60);
+  const status = {};
+  for (const id of ids) {
+    try {
+      const r = await asaasFetch(`${asaasBase(env)}/payments/${id}`, env, 'GET', null, cfg.asaasTenantToken);
+      if (!r.ok) { status[id] = 'ERRO_' + r.status; continue; }
+      const p = await r.json();
+      status[id] = p.status;
+      if (String(p.externalReference || '').startsWith(`bal:${tid}:`)) await processarEventoAluguel(env, tid, { payment: p });
+    } catch (e) { status[id] = 'ERRO'; }
+  }
+  return jsonResponse({ ok: true, status }, 200, origin);
 }

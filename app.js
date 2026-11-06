@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.3.0';
 
 // =============================================================
 // State
@@ -3684,8 +3684,10 @@ async function loadCalendario() {
     contratosSnap.docs.forEach(d => {
       const c = d.data();
       if (c.status !== 'vigente' || !c.inicio) return;
-      const inicioDt = new Date(c.inicio + 'T00:00:00');
-      const periodicidadeMeses = 12; // simplificação
+      // 💰 06/11/2026: data-base + periodicidade do contrato (financeiro.js); senão, aniversário anual
+      const proxFin = typeof finProximoReajuste === 'function' ? finProximoReajuste(c) : null;
+      const inicioDt = proxFin ? new Date(`${proxFin}-${String(c.inicio).slice(8, 10) || '01'}T00:00:00`) : new Date(c.inicio + 'T00:00:00');
+      const periodicidadeMeses = c.reajustePeriodicidade === 'bienal' ? 24 : 12;
       // Calcula próximos N aniversários dentro do período
       let proxAniv = new Date(inicioDt);
       while (proxAniv < hoje) proxAniv.setMonth(proxAniv.getMonth() + periodicidadeMeses);
@@ -5846,7 +5848,11 @@ async function solicitarPagamentoLocador() {
       showInlineStatus(STATUS_ID, '🔄 Registrando solicitação…', 'loading');
       const mes = parseInt($('balancete-mes').value, 10);
       const ano = parseInt($('balancete-ano').value, 10);
-      const ref = await tenantPath().collection('solicitacoesPagamento').add({
+      // 💰 06/11/2026: id fixo por balancete — não duplica com o repasse criado na baixa do boleto
+      const bidSol = $('balancete-id').value || null;
+      const ref = bidSol ? tenantPath().collection('solicitacoesPagamento').doc(`rep_${bidSol}`) : tenantPath().collection('solicitacoesPagamento').doc();
+      if (bidSol && (await ref.get()).exists) throw new Error('Já existe um repasse para este balancete (veja ✅ Aprovações).');
+      await ref.set({
         tipo: 'pagamento_locador',
         status: 'AGUARDANDO_APROVACAO',
         valor: Number(liquido.toFixed(2)),
@@ -6450,6 +6456,12 @@ async function confirmarAprovacao() {
     const valorOk = data.valor || _aprovacaoAtual.valor || 0;
     showInlineStatus('aprovar-status', `✅ Aprovado! Transferência PIX de ${fmtBRL(valorOk)} enviada.`, 'success');
     await loadAprovacoes();
+    // 💰 Prestação de contas (PDF + Excel) ao proprietário sai sozinha depois do PIX
+    if (data.balanceteId && typeof finEnviarPrestacao === 'function') {
+      showInlineStatus('aprovar-status', `✅ Aprovado! PIX de ${fmtBRL(valorOk)} enviado. ⏳ Enviando a prestação de contas ao proprietário…`, 'success');
+      const pr = await finEnviarPrestacao(data.balanceteId, null, { silencioso: true });
+      showInlineStatus('aprovar-status', `✅ Aprovado! PIX de ${fmtBRL(valorOk)} enviado. ${pr.ok ? `📊 Prestação de contas enviada para ${escapeHtml(pr.para)}.` : `⚠ Prestação não enviada (${escapeHtml(pr.erro || '')}) — envie pelo 📊 em Balancetes.`}`, pr.ok ? 'success' : 'error');
+    }
     setTimeout(closeModalAprovar, 2800);
   } catch (err) {
     showInlineStatus('aprovar-status', `❌ ${err.message}`, 'error');
@@ -8003,14 +8015,15 @@ function fmtMesAno(mes, ano) {
 
 async function loadBalancetes() {
   const tbody = $('tbody-balancetes');
-  tbody.innerHTML = `<tr><td colspan="8" class="empty">Carregando…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="10" class="empty">Carregando…</td></tr>`;
 
   const mes = parseInt($('filtro-balancete-mes').value, 10);
   const ano = parseInt($('filtro-balancete-ano').value, 10);
   if (!mes || !ano) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty">Selecione mês e ano.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty">Selecione mês e ano.</td></tr>`;
     return;
   }
+  if (typeof finCarregarPainel === 'function') finCarregarPainel();   // 💰 painel do mês (financeiro.js)
 
   try {
     mostrarAvisoAlcance('balancetes', 'tbody-balancetes');
@@ -8023,7 +8036,7 @@ async function loadBalancetes() {
     ]);
 
     if (snap.empty) {
-      tbody.innerHTML = `<tr><td colspan="8" class="empty">Nenhum balancete para ${fmtMesAno(mes, ano)}. Clique em "Novo Balancete" para criar.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="empty">Nenhum balancete para ${fmtMesAno(mes, ano)}. Use "⚡ Gerar o mês" no painel acima ou "+ Novo Balancete".</td></tr>`;
       return;
     }
 
@@ -8034,23 +8047,26 @@ async function loadBalancetes() {
     const rows = snap.docs.map((doc, i) => {
       const b = doc.data();
       const status = b.status || 'aberto';
+      const fin = typeof finCelulasLinha === 'function';
       return `
-        <tr>
+        <tr${fin ? ` data-fin="${finFiltroLinha(b)}"` : ''}>
           <td>${i + 1}</td>
           <td><strong>${imMap[b.imovelId] || '—'}</strong></td>
           <td>${locadorMap[b.locadorId] || '—'}</td>
           <td>${locatarioMap[b.locatarioId] || '—'}</td>
           <td>${fmtBRL(b.aluguelBase)}</td>
           <td><strong>${fmtBRL(b.liquidoLocador)}</strong></td>
+          ${fin ? finCelulasLinha(doc.id, b) : '<td>—</td><td>—</td>'}
           <td><span class="badge-status ${status}">${BALANCETE_STATUS_LABEL[status] || status}</span></td>
-          <td><div class="action-btns"><button class="btn btn-sm btn-secondary" onclick="openBalanceteModal('${doc.id}')">Editar</button></div></td>
+          <td><div class="action-btns">${fin ? finAcoesLinha(doc.id, b) : `<button class="btn btn-sm btn-secondary" onclick="openBalanceteModal('${doc.id}')">Editar</button>`}</div></td>
         </tr>
       `;
     });
     tbody.innerHTML = rows.join('');
+    if (typeof finAplicarFiltro === 'function') finAplicarFiltro();
   } catch (err) {
     console.error('Erro ao carregar balancetes:', err);
-    tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="empty" style="color:var(--danger);">Erro: ${err.message}</td></tr>`;
   }
 }
 
@@ -13830,6 +13846,8 @@ async function openContratoModal(id) {
         $('contrato-multa').value = c.multaRescisoria ?? '';
         $('contrato-reajuste-indice').value = c.reajusteIndice || 'ipca';
         $('contrato-reajuste-periodicidade').value = c.reajustePeriodicidade || 'anual';
+        if ($('contrato-database-reajuste')) $('contrato-database-reajuste').value = c.dataBaseReajuste || String(c.inicio || '').slice(0, 7);
+        if (typeof finInfoReajusteContrato === 'function') finInfoReajusteContrato(c);
         $('contrato-primeiro-aluguel-escritorio').checked = !!c.primeiroAluguelEscritorio;
         $('contrato-inadimplente').checked = !!c.inadimplente;
 
@@ -14014,6 +14032,7 @@ async function saveContrato() {
     multaRescisoria: parseFloat($('contrato-multa').value) || (aluguel * 3),
     reajusteIndice: $('contrato-reajuste-indice').value,
     reajustePeriodicidade: $('contrato-reajuste-periodicidade').value,
+    dataBaseReajuste: $('contrato-database-reajuste')?.value || (inicio ? String(inicio).slice(0, 7) : null),
     primeiroAluguelEscritorio: $('contrato-primeiro-aluguel-escritorio').checked,
     inadimplente: $('contrato-inadimplente').checked,
     clausulas: $('contrato-clausulas').value.trim() || null,

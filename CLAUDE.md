@@ -377,6 +377,46 @@ Sheets, atualizada sozinha. Exige: planilha criada + compartilhada com uma servi
 grava no `caixaPool`. Fazer depois que o fluxo acima estiver testado em produção. Por ora,
 o **export .xlsx** já entrega uma planilha real por mês.
 
+## 💰 Financeiro do mês (`financeiro.js`, 06/11/2026)
+
+Liga balancete ↔ Asaas ↔ baixa ↔ repasse ↔ prestação de contas. Tudo na seção **Balancetes**
+(painel no topo + colunas Cobrança/Repasse na tabela). Teste de ponta a ponta (navegador real,
+Firestore falso, Asaas/Resend simulados, IGP-M real do BCB): ver o resumo do commit.
+
+- **📥 Importar boleto/conta** → Worker Gemini `modo: 'boleto_itens'` lê a COMPOSIÇÃO do boleto e
+  sugere quem arca (Lei 8.245: art. 23 XII ordinária → locatário; art. 22 X extraordinária →
+  proprietário). Tela **🧮 Distribuir despesas**: contrato achado por CPF/nome do pagador ou unidade;
+  🏠/👤 por item; fixa/variável; repetir (só este mês / todo mês / até). Dois modos:
+  *imobiliária paga* (locatário → `despesa_locatario`, proprietário → `despesa_locador`, cria
+  `contasPagar/{id}`) ou *locatário paga direto* (parte do proprietário vira `entrada` negativa
+  categoria `abatimento` — não conta duas vezes). Lançamento ganha `repetir`, `tipoValor`,
+  `repetirAte`, `quemArca`, `iaSugestao`, `origem: 'importacao'`.
+- **⚡ Gerar o mês**: contratos vigentes sem balancete → aluguel do contrato + linhas `repetir` do
+  último balancete (variáveis entram com `conferirValor: true` ⚠ e bloqueiam o boleto até conferir).
+  Importar o boleto do mês SUBSTITUI a linha repetida de mesma descrição.
+- **💳 Boleto**: `billingType: BOLETO` (traz Pix), vencimento = `diaVencimento` do contrato (mín.
+  hoje+2), multa/juros dos Padrões, `externalReference: bal:<tenantId>:<balanceteId>`. Grava
+  `balancete.cobranca {asaasId,status,valor,vencimento,invoiceUrl,...}` e manda ao locatário o
+  demonstrativo (HTML + PDF) com linha digitável e Pix copia-e-cola. Exige ação `aprovarCobranca`.
+- **Baixa automática**: Worker Asaas `/webhook/t/<tenantId>` (token próprio da imobiliária em
+  `config/asaasWebhook`, ligado em 1 clique no painel — rota `/tenant/webhook/configurar`). O Worker
+  NÃO confia no corpo do aviso: relê o pagamento no Asaas com a chave salva. Pago → `cobranca.status`,
+  `baixaProcessada`, Livro Caixa com id fixo (`asaas_<payId>_e/_t`), contrato `inadimplente:false` e
+  **solicitação de repasse `rep_<balanceteId>`** (`solicitadoPor: 'sistema'`). OVERDUE → inadimplente.
+  `🔄 Atualizar do Asaas` (`/tenant/financeiro/sincronizar`) faz a mesma baixa sem webhook.
+- **🔒 PIX continua S4** (decisão do dono 06/11/2026): o repasse nasce sozinho, mas só sai com
+  aprovação senha + 2FA. Id fixo `rep_<balanceteId>` também no "💸 Solicitar repasse" manual → nunca
+  há duas solicitações para o mesmo balancete. Aprovado → Worker grava `balancete.repasse.status: PAGO`
+  e o app envia a **prestação de contas** (PDF + Excel/ExcelJS) ao proprietário.
+- **✓ Baixa manual**: `receiveInCash` no Asaas + `cobranca.status: RECEIVED_IN_CASH` + caixa
+  `manual_<bid>` + repasse (solicitante = quem deu a baixa → outra pessoa aprova).
+- **📈 Reajuste** (decisão do dono: calcula e pede confirmação): `dataBaseReajuste` no contrato
+  (padrão = mês do início), índices IGP-M 189 / IPCA 433 / INPC 188 / IGP-DI 190 do SGS-BCB por
+  PERÍODO (⚠ `.../ultimos/N` recusa N > 20). Janela = 12 meses publicados antes do mês do reajuste;
+  acumulado negativo mantém o aluguel. Aplicar grava `ultimoReajuste` + `historicoReajustes`, ajusta
+  o balancete do mês (se sem boleto) e avisa locatário e proprietário.
+- Sem mudança de regras do Firestore (coleções novas caem na regra genérica da equipe).
+
 ## Rede de corretores (`rede.js` + papel `corretor`)
 
 Adicionado em 2026-10-11. Corretores (equipe **ou** parceiros autônomos) entram no tenant

@@ -21,7 +21,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png?v=20260801">
   <link rel="apple-touch-icon" href="icones/apple-touch-icon.png?v=20260801">
 
-  <link rel="stylesheet" href="styles.css?v=20261106a-financeiro">
+  <link rel="stylesheet" href="styles.css?v=20261106b-financeiro">
 
   <!-- Firebase v10.7.1 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -870,6 +870,7 @@
               </div>
             </div>
             <div id="fin-secao-status" class="status-inline" style="display:none; margin-bottom:12px;"></div>
+            <div id="fin-painel" class="fin-painel"></div>
 
             <div class="form-row" style="margin-bottom: 14px; max-width: 600px;">
               <div class="form-group">
@@ -905,12 +906,14 @@
                     <th>Locatário</th>
                     <th>Aluguel</th>
                     <th>Líquido a repassar</th>
+                    <th>Cobrança</th>
+                    <th>Repasse</th>
                     <th>Status</th>
                     <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody id="tbody-balancetes">
-                  <tr><td colspan="8" class="empty">Carregando…</td></tr>
+                  <tr><td colspan="10" class="empty">Carregando…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5575,8 +5578,14 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
               <option value="igpm">IGP-M</option>
               <option value="ipca" selected>IPCA</option>
               <option value="inpc">INPC</option>
+              <option value="igpdi">IGP-DI</option>
               <option value="sem">Sem reajuste</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label>Data-base do reajuste</label>
+            <input type="month" id="contrato-database-reajuste" title="Mês a partir do qual conta o período do reajuste (normalmente o início do contrato)">
+            <span class="input-status muted" id="contrato-reajuste-info">Índice oficial do Banco Central, calculado sozinho no mês do reajuste</span>
           </div>
           <div class="form-group">
             <label>Periodicidade do reajuste</label>
@@ -6336,8 +6345,8 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261106a-financeiro"></script>
-  <script src="financeiro.js?v=20261106a-financeiro"></script>
+  <script src="app.js?v=20261106b-financeiro"></script>
+  <script src="financeiro.js?v=20261106b-financeiro"></script>
   <script src="trava-login.js?v=20261103a-trava"></script>
   <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
