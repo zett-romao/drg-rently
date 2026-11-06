@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.1';
+const APP_VERSION = '0.3.2';
 
 // =============================================================
 // State
@@ -12846,7 +12846,7 @@ async function loadConfigImobiliaria() {
     if (feedEl) feedEl.value = cfg.workerFeedUrl || '';
     const assPlat = $('cfg-assinatura-plataforma');
     // quem já tinha a chave do Sign antes do seletor existir continua no DRG-Sign
-    if (assPlat) assPlat.value = cfg.assinaturaPlataforma || (cfg.signApiKey ? 'drg-sign' : '');
+    if (assPlat) assPlat.value = cfg.assinaturaPlataforma || (signPronto(cfg) ? 'drg-sign' : '');
     const assNome = $('cfg-assinatura-outra-nome');
     if (assNome) assNome.value = cfg.assinaturaOutraNome || '';
     const assUrl = $('cfg-assinatura-outra-url');
@@ -12854,7 +12854,7 @@ async function loadConfigImobiliaria() {
     const sgUrl = $('cfg-sign-api-url');
     if (sgUrl) sgUrl.value = cfg.signApiUrl || '';
     const sgKey = $('cfg-sign-api-key');
-    if (sgKey) sgKey.value = cfg.signApiKey || '';
+    cofrePrepararCampo(sgKey, cfg.signConectado || !!cfg.signApiKey, cfg.signChaveFinal, 'sgn_…');
     atualizarCamposPlataformaAssinatura();
     const asUrl = $('cfg-worker-asaas-url');
     if (asUrl) asUrl.value = cfg.workerAsaasUrl || '';
@@ -12867,20 +12867,18 @@ async function loadConfigImobiliaria() {
     const lgUrl = $('cfg-worker-legis-url');
     if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
     const lgTok = $('cfg-legis-admin-token');
-    if (lgTok) lgTok.value = cfg.legisAdminToken || '';
+    cofrePrepararCampo(lgTok, cfg.legisConectado || !!cfg.legisAdminToken, '', 'Token do Worker (só a equipe DR Systems)');
     // Bureaus de crédito (Quod + Idwall)
     const buUrl = $('cfg-worker-bureaus-url');
     if (buUrl) buUrl.value = cfg.workerBureausUrl || '';
     const buMock = $('cfg-bureaus-modo-mock');
     if (buMock) buMock.checked = !!cfg.bureausModoMock;
-    const qId = $('cfg-quod-client-id');
-    if (qId) qId.value = cfg.quodClientId || '';
-    const qSec = $('cfg-quod-client-secret');
-    if (qSec) qSec.value = cfg.quodClientSecret || '';
+    cofrePrepararCampo($('cfg-quod-client-id'), cfg.quodConectado || !!cfg.quodClientId, '', 'Deixe vazio para mock');
+    cofrePrepararCampo($('cfg-quod-client-secret'), cfg.quodConectado || !!cfg.quodClientSecret, '', '$ecret...');
     const qAmb = $('cfg-quod-ambiente');
     if (qAmb) qAmb.value = cfg.quodAmbiente || 'sandbox';
-    const idwTok = $('cfg-idwall-token');
-    if (idwTok) idwTok.value = cfg.idwallToken || '';
+    cofrePrepararCampo($('cfg-idwall-token'), cfg.idwallConectado || !!cfg.idwallToken, '', 'Deixe vazio para mock');
+    cofreStatus();   // pede ao servidor: migra o que ainda estiver exposto em config/site
     $('cfg-email-from').value = cfg.emailFrom || 'onboarding@resend.dev';
     $('cfg-email-template').value = cfg.emailTemplate || '';
 
@@ -13009,20 +13007,15 @@ async function saveConfigImobiliaria() {
         workerZapsignUrl: firebase.firestore.FieldValue.delete(),
         zapsignToken: firebase.firestore.FieldValue.delete(),
         workerLegisUrl: $('cfg-worker-legis-url')?.value.trim() || '',
-        legisAdminToken: $('cfg-legis-admin-token')?.value.trim() || '',
         assinaturaPlataforma: $('cfg-assinatura-plataforma')?.value || '',
         assinaturaOutraNome: $('cfg-assinatura-outra-nome')?.value.trim() || '',
         assinaturaOutraUrl: $('cfg-assinatura-outra-url')?.value.trim() || '',
         signApiUrl: $('cfg-sign-api-url')?.value.trim() || '',
-        signApiKey: $('cfg-sign-api-key')?.value.trim() || '',
         workerAsaasUrl: $('cfg-worker-asaas-url')?.value.trim() || '',
         // Bureaus de crédito
         workerBureausUrl: $('cfg-worker-bureaus-url')?.value.trim() || '',
         bureausModoMock: !!$('cfg-bureaus-modo-mock')?.checked,
-        quodClientId: $('cfg-quod-client-id')?.value.trim() || '',
-        quodClientSecret: $('cfg-quod-client-secret')?.value.trim() || '',
         quodAmbiente: $('cfg-quod-ambiente')?.value || 'sandbox',
-        idwallToken: $('cfg-idwall-token')?.value.trim() || '',
         emailFrom: $('cfg-email-from').value.trim(),
         emailTemplate: $('cfg-email-template').value,
         // Padrões operacionais
@@ -17347,12 +17340,12 @@ const _ASS = {
 // Plataforma escolhida → { id, nome, url, integrada, pronta, falta }
 function plataformaAssinatura(cfg) {
   cfg = cfg || {};
-  const id = cfg.assinaturaPlataforma || (cfg.signApiKey ? 'drg-sign' : '');
+  const id = cfg.assinaturaPlataforma || (signPronto(cfg) ? 'drg-sign' : '');
   const base = PLATAFORMAS_ASSINATURA[id];
   if (!base) return { id: '', pronta: false, falta: 'Escolha a plataforma de assinatura em Configurações → Assinatura eletrônica.' };
   const p = { id, ...base };
   if (id === 'outra') { p.nome = (cfg.assinaturaOutraNome || '').trim() || 'Outra plataforma'; p.url = (cfg.assinaturaOutraUrl || '').trim(); }
-  p.pronta = id !== 'drg-sign' || !!cfg.signApiKey;
+  p.pronta = id !== 'drg-sign' || signPronto(cfg);
   if (!p.pronta) p.falta = 'Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.';
   return p;
 }
@@ -17369,7 +17362,17 @@ async function _cfgSite() {
 
 // ---------- DRG-Sign (integrada) ----------
 const _signBase = (cfg) => String(cfg.signApiUrl || SIGN_API_PADRAO).replace(/\/+$/, '');
-const _signHeaders = (cfg) => ({ Authorization: `Bearer ${cfg.signApiKey}` });
+// 🔒 06/11/2026: a chave do Sign mora no cofre do servidor. O app chama /tenant/sign/<caminho>
+// no Worker, que põe a chave e encaminha para a API fixa do Sign (https://drg-sign-api.onrender.com).
+const COFRE_URL_PADRAO = 'https://drg-rently-asaas.zett-romao.workers.dev';
+function cofreUrl(cfg) { return String((cfg && cfg.workerAsaasUrl) || COFRE_URL_PADRAO).replace(/\/+$/, ''); }
+function signPronto(cfg) { return !!(cfg && (cfg.signConectado || cfg.signApiKey)); }
+async function signFetch(cfg, caminho, init = {}) {
+  const h = await asaasHeaders('servidor');
+  if (!init.body) delete h['Content-Type'];
+  return fetch(`${cofreUrl(cfg)}/tenant/sign/${caminho}`, { ...init, headers: { ...h, ...(init.headers || {}) } });
+}
+window.signFetch = signFetch; window.signPronto = signPronto; window.cofreUrl = cofreUrl;
 async function _signErro(res) {
   const d = await res.json().catch(() => ({}));
   if (res.status === 401) return new Error('Chave do DRG-Sign inválida ou revogada. Gere outra no Sign (Configurações → Integração) e cole em Configurações → Assinatura eletrônica.');
@@ -17385,8 +17388,8 @@ function _signParaRently(d) {
   };
 }
 async function _signConsultar(cfg, zs) {
-  if (!cfg.signApiKey) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
-  const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(zs.openId)}`, { headers: _signHeaders(cfg) });
+  if (!signPronto(cfg)) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
+  const res = await signFetch(cfg, `documentos/${encodeURIComponent(zs.openId)}`);
   if (!res.ok) throw await _signErro(res);
   return _signParaRently(await res.json());
 }
@@ -17859,7 +17862,7 @@ async function baixarPdfAssinado(tipo) {
       url = await storage.ref().child(zs.arquivoAssinadoPath).getDownloadURL();
     } else if (zs.provedor === 'drg-sign') {
       const cfg = await _cfgSite();
-      const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(zs.openId)}/final`, { headers: _signHeaders(cfg) });
+      const res = await signFetch(cfg, `documentos/${encodeURIComponent(zs.openId)}/final`);
       if (!res.ok) throw await _signErro(res);
       url = URL.createObjectURL(await res.blob());
     } else if (zs.signedFileUrl) {
@@ -20458,20 +20461,15 @@ async function legisSalvarUrls() {
     const workerUrl = legisWorkerUrlNormalizada();
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    if (!cfg.legisAdminToken) {
-      throw new Error('Configure o "Token administrativo do Worker" antes (campo logo acima).');
-    }
+
     const invalidas = _legisUrlsEditor.urls.filter(u => !u.url || !/^https?:\/\//i.test(u.url));
     if (invalidas.length) {
       throw new Error(`${invalidas.length} URL(s) inválida(s). Toda URL deve começar com http:// ou https://`);
     }
     showInlineStatus(SID, '⏳ Salvando…', 'loading');
-    const res = await fetch(workerUrl + '/urls', {
+    const res = await fetch(`${cofreUrl(cfg)}/tenant/legis/urls`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-DRG-Admin-Token': cfg.legisAdminToken,
-      },
+      headers: await asaasHeaders('servidor'),   // 🔒 o token do monitor fica no servidor
       body: JSON.stringify({ urls: _legisUrlsEditor.urls }),
     });
     const data = await res.json();
@@ -20492,11 +20490,10 @@ async function legisRestaurarUrls() {
     const workerUrl = legisWorkerUrlNormalizada();
     const cfgSnap = await tenantPath().collection('config').doc('site').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    if (!cfg.legisAdminToken) throw new Error('Configure o "Token administrativo do Worker" antes.');
     showInlineStatus(SID, '⏳ Restaurando…', 'loading');
-    const res = await fetch(workerUrl + '/urls', {
+    const res = await fetch(`${cofreUrl(cfg)}/tenant/legis/urls`, {
       method: 'DELETE',
-      headers: { 'X-DRG-Admin-Token': cfg.legisAdminToken },
+      headers: await asaasHeaders('servidor'),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -21793,8 +21790,8 @@ async function renderCreditoSection(entidadeTipo, entidadeId) {
 
   const cfg = await ensureConfigCache();
   const workerUrl = (cfg.workerBureausUrl || '').trim();
-  const quodAtivo = !!(cfg.quodClientId || cfg.bureausModoMock);
-  const idwallAtivo = !!(cfg.idwallToken || cfg.bureausModoMock);
+  const quodAtivo = !!(cfg.quodConectado || cfg.quodClientId || cfg.bureausModoMock);
+  const idwallAtivo = !!(cfg.idwallConectado || cfg.idwallToken || cfg.bureausModoMock);
 
   // Se Worker URL não configurada, mostra aviso
   if (!workerUrl) {
@@ -21894,12 +21891,7 @@ async function consultarCredito(provider, entidadeTipo, entidadeId) {
   }
 
   const cfg = await ensureConfigCache();
-  const workerUrl = (cfg.workerBureausUrl || '').replace(/\/+$/, '');
-  if (!workerUrl) {
-    const alertId = entidadeTipo === 'locatario' ? 'locatario-alert' : 'garantia-alert';
-    showAlert(alertId, 'Configure a URL do Worker em Configurações → Pesquisa de Crédito.');
-    return;
-  }
+  // (a URL do Worker de bureaus não é mais usada aqui: a consulta passa pelo cofre)
 
   // Loading state — desabilita botões e mostra spinner
   const botoes = $(ctx.botoesId);
@@ -21907,23 +21899,21 @@ async function consultarCredito(provider, entidadeTipo, entidadeId) {
   botoes.innerHTML = `<p class="muted" style="font-size:12px;">⏳ Consultando ${provider === 'quod' ? 'Quod' : 'Idwall'}… (pode levar alguns segundos)</p>`;
 
   try {
-    const headers = { 'Content-Type': 'application/json' };
+    // 🔒 06/11/2026: as credenciais Quod/Idwall ficam no cofre; o Worker as põe e chama os bureaus
+    const headers = await asaasHeaders('servidor');
     if (cfg.bureausModoMock) headers['X-Mock-Mode'] = 'true';
 
     let endpoint, tipo;
     if (provider === 'quod') {
       endpoint = '/quod/score-imobiliaria';
       tipo = 'quod_score_imob';
-      headers['X-Quod-Client-Id'] = cfg.quodClientId || '';
-      headers['X-Quod-Client-Secret'] = cfg.quodClientSecret || '';
       headers['X-Quod-Ambiente'] = cfg.quodAmbiente || 'sandbox';
     } else {
       endpoint = '/idwall/background-check';
       tipo = 'idwall_bgcheck';
-      headers['X-Idwall-Token'] = cfg.idwallToken || '';
     }
 
-    const res = await fetch(workerUrl + endpoint, {
+    const res = await fetch(`${cofreUrl(cfg)}/tenant/bureaus${endpoint}`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ cpf, nome }),
@@ -22100,3 +22090,60 @@ function renderIdwallResultado(c) {
         </div>`).join('')}</div>`}
   `;
 }
+
+
+// =============================================================
+// 🔒 COFRE DE CHAVES DE INTEGRAÇÃO (06/11/2026) — Sign, Quod, Idwall, monitor de leis
+// =============================================================
+// As chaves ficam no servidor (cofreSegredos/<imobiliária>, sem acesso pelo navegador). O campo
+// nunca mostra a chave salva; colar uma nova e sair do campo guarda no servidor na hora.
+const COFRE_CAMPO_POR_INPUT = {
+  'cfg-sign-api-key': 'signApiKey', 'cfg-legis-admin-token': 'legisAdminToken',
+  'cfg-quod-client-id': 'quodClientId', 'cfg-quod-client-secret': 'quodClientSecret', 'cfg-idwall-token': 'idwallToken',
+};
+function cofrePrepararCampo(el, conectado, final, phPadrao) {
+  if (!el) return;
+  el.value = '';
+  el.type = 'password';
+  el.autocomplete = 'off';
+  el.placeholder = conectado ? `🔒 Guardada no servidor${final ? ` (final ${final})` : ''} — cole outra para trocar` : phPadrao;
+  el.oninput = null;
+  el.onchange = () => cofreSalvarCampo(el);
+}
+function cofreAvisoCampo(el, msg, tipo) {
+  let s = el.parentElement.querySelector('.cofre-status');
+  if (!s) { s = document.createElement('div'); s.className = 'cofre-status status-inline'; el.insertAdjacentElement('afterend', s); }
+  s.className = `cofre-status status-inline is-${tipo}`;
+  s.innerHTML = msg; s.style.display = 'block';
+}
+async function cofreSalvarCampo(el) {
+  const campo = COFRE_CAMPO_POR_INPUT[el.id];
+  const v = el.value.trim();
+  if (!campo || !v) return;
+  el.disabled = true;
+  cofreAvisoCampo(el, '⏳ Guardando no servidor… aguarde', 'loading');
+  try {
+    const cfg = await _cfgSite();
+    const res = await fetch(`${cofreUrl(cfg)}/tenant/cofre/salvar`, { method: 'POST', headers: await asaasHeaders('servidor'), body: JSON.stringify({ segredos: { [campo]: v } }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.ok === false) throw new Error(j.error || `Erro ${res.status}`);
+    el.value = '';
+    el.placeholder = '🔒 Guardada no servidor — cole outra para trocar';
+    const aviso = campo === 'legisAdminToken' && !State.isSuperAdmin && State.userDoc?.role !== 'super_admin'
+      ? '✓ Recebido. O token do monitor é da plataforma: vale o que a equipe DR Systems guardou.'
+      : '✓ Guardada no servidor — ninguém da equipe consegue ver nem copiar.';
+    cofreAvisoCampo(el, aviso, 'success');
+    logAuditoria('salvar_chave_integracao', 'config', campo, null);
+  } catch (err) {
+    cofreAvisoCampo(el, `❌ Não guardei: ${escapeHtml(err.message)}`, 'error');
+  } finally { el.disabled = false; }
+}
+// Pergunta ao servidor (que migra o que ainda estiver em config/site) — qualquer pessoa da equipe
+async function cofreStatus() {
+  try {
+    const cfg = await _cfgSite();
+    if (!State.tenant?.id) return;
+    await fetch(`${cofreUrl(cfg)}/tenant/cofre/status`, { method: 'POST', headers: await asaasHeaders('servidor') });
+  } catch (_) {}
+}
+window.cofreSalvarCampo = cofreSalvarCampo; window.cofreStatus = cofreStatus; window.cofrePrepararCampo = cofrePrepararCampo;

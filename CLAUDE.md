@@ -424,6 +424,16 @@ Firestore falso, Asaas/Resend simulados, IGP-M real do BCB): ver o resumo do com
   testa no Asaas antes). Criar/cancelar/dar baixa em cobrança exige `aprovarCobranca` NO SERVIDOR
   (`acaoNoServidor`, espelho de `nivelPermissao`: aceita `true` e `'sim'`). `/tenant/transfers`
   FECHADA (410): todo dinheiro que sai passa por `/aprovar-pagamento`.
+- **🔒 Cofre das outras chaves** (06/11/2026): chave do DRG-Sign e credenciais Quod/Idwall em
+  `cofreSegredos/<tenantId>`; token ADMINISTRATIVO do monitor de leis (é da plataforma) em
+  `cofrePlataforma/legis` — coleções raiz sem regra. O app chama `/tenant/sign/<caminho>`,
+  `/tenant/bureaus/<rota>` e `/tenant/legis/urls` no Worker Asaas, que põe a credencial e encaminha
+  para destino FIXO no código (API do Sign; Workers de bureaus e monitor por ligação interna
+  `env.BUREAUS`/`env.LEGIS`) — nunca para URL vinda das Configurações. Monitor: só equipe DR Systems.
+  Salvar: colar no campo e sair dele (`/tenant/cofre/salvar`, só admin; token do monitor só o Super
+  Admin troca). **Migração automática no servidor** (`migrarSegredosLegado`) na 1ª chamada de qualquer
+  pessoa da imobiliária: tudo que estiver em `config/site` (inclusive `asaasTenantToken`) vai para o
+  cofre e é apagado de lá; ficam só os sinais `*Conectado`.
 - **🏢 Conta a pagar pelo Asaas**: "💳 Pagar pelo Asaas" cria `solicitacoesPagamento/conta_<id>`
   (`tipo: 'pagamento_conta'`); aprovação S4 (senha + 2FA + outra pessoa) → Worker confere conta aberta,
   linha digitável e valor iguais → `POST /bill` → conta `paga` + Livro Caixa. Rejeitar libera pedir de novo

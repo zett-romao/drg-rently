@@ -76,7 +76,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-DRG-Admin-Token, X-Tenant-Asaas-Token, X-Tenant-Id, asaas-access-token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-DRG-Admin-Token, X-Tenant-Asaas-Token, X-Tenant-Id, X-Mock-Mode, X-Quod-Ambiente, asaas-access-token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -1016,12 +1016,24 @@ export default {
       if (path.startsWith('/tenant/') && _usuarioAutenticado) {
         _tenantCtx = await contextoTenant(env, _usuarioAutenticado, tenantIdHdr);
         if (_tenantCtx.erro) return jsonResponse({ ok: false, error: _tenantCtx.erro }, 403, origin);
+        try { await migrarSegredosLegado(env, _tenantCtx.tid); } catch (e) { console.error('migrar segredos', e); }
+        if (path === '/tenant/cofre/status') {
+          const c = (await firestoreAdminGet(env, `tenants/${_tenantCtx.tid}/config/site`).catch(() => null)) || {};
+          return jsonResponse({ ok: true, signConectado: !!c.signConectado, quodConectado: !!c.quodConectado, idwallConectado: !!c.idwallConectado, legisConectado: !!c.legisConectado, asaasConectado: !!c.asaasConectado }, 200, origin);
+        }
         const doServidor = await chaveAsaasTenant(env, _tenantCtx.tid);
         // health com chave digitada testa ESSA chave; o resto usa a chave guardada no servidor
         apiKey = (path === '/tenant/health' && chaveDoHeader) ? chaveDoHeader : (doServidor || chaveDoHeader || null);
         if (path === '/tenant/asaas/chave' && request.method === 'POST') {
           return await tenantSalvarChave(request, env, origin, _tenantCtx);
         }
+        // 🔒 Cofre: Sign, bureaus e monitor de leis (não dependem de ter Asaas)
+        if (path === '/tenant/cofre/salvar' && request.method === 'POST') return await tenantCofreSalvar(request, env, origin, _tenantCtx);
+        const mSign = path.match(/^\/tenant\/sign\/(.+)$/);
+        if (mSign) return await tenantSignProxy(request, env, origin, _tenantCtx, mSign[1]);
+        const mBur = path.match(/^\/tenant\/bureaus\/(.+)$/);
+        if (mBur) return await tenantBureausProxy(request, env, origin, _tenantCtx, mBur[1]);
+        if (path === '/tenant/legis/urls') return await tenantLegisProxy(request, env, origin, _tenantCtx);
         if (!apiKey) return jsonResponse({ ok: false, error: 'Asaas não conectado: salve a chave API em Configurações.' }, 400, origin);
         // 🔒 Dinheiro: criar/cancelar/dar baixa em cobrança exige a ação "💳 Aprovar cobrança" NO SERVIDOR
         const mexeCobranca = (path === '/tenant/payments' && request.method === 'POST')
@@ -2001,4 +2013,141 @@ async function executarPagamentoConta(env, origin, usuario, userDoc, tenantId, s
       detalhe: 'Pagou pelo Asaas a conta "' + (conta.descricao || '') + '" de R$ ' + valor.toFixed(2) + '. Solicitado por ' + (sol.solicitadoPorEmail || sol.solicitadoPor || '?') + '. Asaas bill ' + (data.id || '-') + '.', timestamp: quando });
   } catch (_) {}
   return jsonResponse({ ok: true, status: 'APROVADO', valor, asaasBillId: data.id || '', conta: true }, 200, origin);
+}
+
+
+// =============================================================
+// 🔒 COFRE DE SEGREDOS (06/11/2026) — Sign, bureaus de crédito, monitor de leis
+// =============================================================
+// Antes: chave do DRG-Sign, credenciais Quod/Idwall e o token ADMINISTRATIVO do monitor de leis
+// (da plataforma!) ficavam em tenants/<id>/config/site, que toda a equipe lê. Agora ficam em
+// cofreSegredos/<tenantId> e cofrePlataforma/legis — coleções RAIZ sem regra no firestore.rules
+// (nenhum navegador lê/grava). O app chama o serviço POR AQUI; este Worker põe a credencial e
+// encaminha para um destino FIXO no código (nunca uma URL vinda das Configurações: quem edita
+// Configurações poderia apontar para um servidor próprio e capturar a chave).
+const SIGN_API_BASE = 'https://drg-sign-api.onrender.com/api/v1';
+const COFRE_CAMPOS = ['signApiKey', 'quodClientId', 'quodClientSecret', 'idwallToken'];
+const COFRE_TODOS = [...COFRE_CAMPOS, 'legisAdminToken'];
+
+async function cofreLer(env, tid) {
+  return (await firestoreAdminGet(env, `cofreSegredos/${tid}`).catch(() => null)) || {};
+}
+function respostaRepassada(r, origin) {
+  return new Response(r.body, { status: r.status, headers: { 'Content-Type': r.headers.get('content-type') || 'application/octet-stream', ...corsHeaders(origin) } });
+}
+
+// Salvar/remover segredos: administrador da imobiliária ou equipe DRG.
+// Token do monitor de leis é da PLATAFORMA: só o Super Admin troca; a 1ª migração vinda de uma
+// imobiliária só ocupa o lugar se ele ainda estiver vazio. Em todo caso some do config/site.
+async function tenantCofreSalvar(request, env, origin, ctx) {
+  const u = ctx.userDoc;
+  if (!ctx.equipeDRG && u.role !== 'admin') return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária guarda chaves de integração.' }, 403, origin);
+  const b = await request.json().catch(() => ({}));
+  const seg = (b && typeof b.segredos === 'object' && b.segredos) || {};
+  const tid = ctx.tid;
+  const atual = await cofreLer(env, tid);
+  const gravar = {}, apagar = [];
+  for (const campo of COFRE_CAMPOS) {
+    if (!(campo in seg)) continue;
+    const v = String(seg[campo] == null ? '' : seg[campo]).trim().slice(0, 500);
+    if (v) { gravar[campo] = v; atual[campo] = v; } else { apagar.push(campo); delete atual[campo]; }
+  }
+  if (Object.keys(gravar).length) await firestoreAdminMerge(env, `cofreSegredos/${tid}`, Object.assign(gravar, { atualizadoEm: new Date(), atualizadoPor: u.email || '' }));
+  if (apagar.length) await firestoreAdminApagarCampos(env, `cofreSegredos/${tid}`, apagar).catch(() => {});
+  let legisOk = !!((await firestoreAdminGet(env, 'cofrePlataforma/legis').catch(() => null)) || {}).token;
+  if ('legisAdminToken' in seg) {
+    const v = String(seg.legisAdminToken || '').trim().slice(0, 500);
+    if (v && (u.role === 'super_admin' || !legisOk)) {
+      await firestoreAdminMerge(env, 'cofrePlataforma/legis', { token: v, salvoEm: new Date(), salvoPor: u.email || '' });
+      legisOk = true;
+    }
+  }
+  // Nenhuma cópia fica em config/site; lá ficam só os sinais "conectado"
+  await firestoreAdminApagarCampos(env, `tenants/${tid}/config/site`, COFRE_TODOS).catch(() => {});
+  const flags = {
+    signConectado: !!atual.signApiKey, signChaveFinal: atual.signApiKey ? atual.signApiKey.slice(-4) : '',
+    quodConectado: !!(atual.quodClientId && atual.quodClientSecret), idwallConectado: !!atual.idwallToken, legisConectado: legisOk,
+  };
+  await firestoreAdminMerge(env, `tenants/${tid}/config/site`, flags);
+  try {
+    await firestoreAdminAddDoc(env, `tenants/${tid}/auditoria`, { acao: 'salvar_chaves_integracao', entidade: 'config', entidadeId: 'cofre',
+      userId: u.uid || '', userNome: u.nome || '', userEmail: u.email || '', userRole: u.role || '',
+      detalhe: 'Chaves guardadas no servidor: ' + [...Object.keys(seg)].join(', ') + '.', timestamp: new Date() });
+  } catch (_) {}
+  return jsonResponse({ ok: true, flags }, 200, origin);
+}
+
+// /tenant/sign/<caminho> → API do DRG-Sign com a chave da imobiliária
+async function tenantSignProxy(request, env, origin, ctx, sub) {
+  if (!/^(documentos(\/[A-Za-z0-9_-]{1,80}(\/final)?)?|sessoes)$/.test(sub)) return jsonResponse({ erro: 'Caminho do Sign não permitido.' }, 404, origin);
+  const k = (await cofreLer(env, ctx.tid)).signApiKey;
+  if (!k) return jsonResponse({ erro: 'Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.' }, 400, origin);
+  const q = new URL(request.url).search;
+  const init = { method: request.method, headers: { Authorization: 'Bearer ' + k } };
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    init.headers['Content-Type'] = request.headers.get('content-type') || 'application/json';
+    init.body = await request.arrayBuffer();
+  }
+  return respostaRepassada(await fetch(`${SIGN_API_BASE}/${sub}${q}`, init), origin);
+}
+
+// /tenant/bureaus/<quod/score-imobiliaria|idwall/background-check> → Worker de bureaus (ligação interna)
+async function tenantBureausProxy(request, env, origin, ctx, sub) {
+  if (!['quod/score-imobiliaria', 'idwall/background-check'].includes(sub) || request.method !== 'POST') return jsonResponse({ error: 'Consulta não permitida.' }, 404, origin);
+  const s = await cofreLer(env, ctx.tid);
+  const h = { 'Content-Type': 'application/json' };
+  if (request.headers.get('X-Mock-Mode') === 'true') h['X-Mock-Mode'] = 'true';
+  if (sub.startsWith('quod/')) {
+    h['X-Quod-Client-Id'] = s.quodClientId || '';
+    h['X-Quod-Client-Secret'] = s.quodClientSecret || '';
+    h['X-Quod-Ambiente'] = request.headers.get('X-Quod-Ambiente') || 'sandbox';
+  } else h['X-Idwall-Token'] = s.idwallToken || '';
+  const req = new Request(`https://drg-rently-bureaus.zett-romao.workers.dev/${sub}`, { method: 'POST', headers: h, body: await request.text() });
+  return respostaRepassada(env.BUREAUS ? await env.BUREAUS.fetch(req) : await fetch(req), origin);
+}
+
+// /tenant/legis/urls (POST/DELETE) → monitor de leis da PLATAFORMA: só a equipe DR Systems
+async function tenantLegisProxy(request, env, origin, ctx) {
+  if (!ctx.equipeDRG) return jsonResponse({ error: 'A lista do monitor de leis é da plataforma: só a equipe DR Systems altera.' }, 403, origin);
+  if (!['POST', 'DELETE'].includes(request.method)) return jsonResponse({ error: 'Use POST ou DELETE.' }, 405, origin);
+  const tk = ((await firestoreAdminGet(env, 'cofrePlataforma/legis').catch(() => null)) || {}).token;
+  if (!tk) return jsonResponse({ error: 'Token do monitor não guardado: cole-o em Configurações (Super Admin).' }, 400, origin);
+  const init = { method: request.method, headers: { 'X-DRG-Admin-Token': tk, 'Content-Type': 'application/json' } };
+  if (request.method === 'POST') init.body = await request.text();
+  const req = new Request('https://drg-rently-legis-monitor.zett-romao.workers.dev/urls', init);
+  return respostaRepassada(env.LEGIS ? await env.LEGIS.fetch(req) : await fetch(req), origin);
+}
+
+// Migração automática (06/11/2026): na 1ª chamada de qualquer pessoa da imobiliária, o que ainda
+// estiver em config/site (chave Asaas, Sign, Quod, Idwall, token do monitor) vai para o cofre e
+// some de lá. Ninguém precisa lembrar de clicar.
+async function migrarSegredosLegado(env, tid) {
+  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`).catch(() => null);
+  if (!cfg) return;
+  const tem = (k) => typeof cfg[k] === 'string' && cfg[k].trim() !== '';
+  const legado = [...COFRE_TODOS, 'asaasTenantToken'].filter(tem);
+  if (!legado.length) return;
+  const cofre = await cofreLer(env, tid);
+  const novos = {};
+  for (const k of COFRE_CAMPOS) if (tem(k) && !cofre[k]) novos[k] = cfg[k].trim();
+  if (Object.keys(novos).length) await firestoreAdminMerge(env, `cofreSegredos/${tid}`, Object.assign({}, novos, { migradoEm: new Date() }));
+  Object.assign(cofre, novos);
+  const flags = {};
+  if (tem('legisAdminToken')) {
+    const pl = (await firestoreAdminGet(env, 'cofrePlataforma/legis').catch(() => null)) || {};
+    if (!pl.token) await firestoreAdminMerge(env, 'cofrePlataforma/legis', { token: cfg.legisAdminToken.trim(), migradoEm: new Date(), migradoDe: tid });
+    flags.legisConectado = true;
+  }
+  if (tem('asaasTenantToken')) {
+    const ak = (await firestoreAdminGet(env, `asaasChaves/${tid}`).catch(() => null)) || {};
+    const ch = ak.chave || cfg.asaasTenantToken.trim();
+    if (!ak.chave) await firestoreAdminMerge(env, `asaasChaves/${tid}`, { chave: ch, final: ch.slice(-4), salvoEm: new Date(), salvoPor: 'migracao' });
+    Object.assign(flags, { asaasConectado: true, asaasChaveFinal: ch.slice(-4) });
+  }
+  await firestoreAdminApagarCampos(env, `tenants/${tid}/config/site`, legado);
+  Object.assign(flags, {
+    signConectado: !!cofre.signApiKey, signChaveFinal: cofre.signApiKey ? cofre.signApiKey.slice(-4) : '',
+    quodConectado: !!(cofre.quodClientId && cofre.quodClientSecret), idwallConectado: !!cofre.idwallToken,
+  });
+  await firestoreAdminMerge(env, `tenants/${tid}/config/site`, flags);
 }

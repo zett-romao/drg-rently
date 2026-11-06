@@ -307,7 +307,7 @@ async function abrirArquivoAvulsa(id, qual) {
         url = await storage.ref().child(z.arquivoAssinadoPath).getDownloadURL();
       } else if (z.provedor === 'drg-sign') {
         const cfg = await _cfgSite();
-        const res = await fetch(`${_signBase(cfg)}/api/v1/documentos/${encodeURIComponent(z.openId)}/final`, { headers: _signHeaders(cfg) });
+        const res = await signFetch(cfg, `documentos/${encodeURIComponent(z.openId)}/final`);
         if (!res.ok) throw await _signErro(res);
         url = URL.createObjectURL(await res.blob());
       } else {
@@ -419,11 +419,11 @@ async function sugestoesDeAvulsasDoImovel(imovelId) {
 // ---------- Abrir / fechar a tela ----------
 async function abrirTelaSign({ tipo, id, modo = 'novo', documentoId = null, titulo = '', signers = [], arquivos = [], sugestoes = [], extra = {} }) {
   const cfg = await _cfgSite();
-  if (!cfg.signApiKey) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
+  if (!signPronto(cfg)) throw new Error('Falta a chave do DRG-Sign em Configurações → Assinatura eletrônica.');
   const externalId = _externalIdRently(tipo, id);
-  const res = await fetch(`${_signBase(cfg)}/api/v1/sessoes`, {
+  const res = await signFetch(cfg, 'sessoes', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ..._signHeaders(cfg) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       modo, documento_id: documentoId, titulo, external_id: externalId, origem: location.origin, sugestoes,
       arquivos: arquivos.map(a => ({ nome: a.nome, pdf_base64: a.base64, sugerido: !!a.sugerido })),
@@ -450,7 +450,7 @@ async function fecharTelaSign() {
   if (!ctx.registrado) {
     try {
       const cfg = await _cfgSite();
-      const r = await fetch(`${_signBase(cfg)}/api/v1/documentos?external_id=${encodeURIComponent(ctx.externalId)}`, { headers: _signHeaders(cfg) });
+      const r = await signFetch(cfg, `documentos?external_id=${encodeURIComponent(ctx.externalId)}`);
       if (r.ok) {
         const lista = await r.json();
         if (lista.length) await _registrarEnvioSign(ctx, { documento_id: lista[0].documento_id, codigo: lista[0].codigo, titulo: lista[0].titulo, status: lista[0].status, signatarios: lista[0].signatarios });

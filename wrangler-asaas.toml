@@ -27,3 +27,13 @@ keep_vars = true
 [[services]]
 binding = "RESEND"
 service = "drg-rently-resend"
+
+# 🔒 Cofre (06/11/2026): o app chama bureaus e monitor de leis POR ESTE Worker, que põe a
+# credencial guardada no servidor. Ligação interna pelo mesmo motivo do RESEND (erro 1042).
+[[services]]
+binding = "BUREAUS"
+service = "drg-rently-bureaus"
+
+[[services]]
+binding = "LEGIS"
+service = "drg-rently-legis-monitor"
