@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.1.3';
+const APP_VERSION = '0.1.4';
 
 // =============================================================
 // State
@@ -2009,7 +2009,12 @@ async function openTenantModal(tenantId) {
     // Admin do tenant
     const adminSnap = await db.collection('users')
       .where('tenantId', '==', tenantId).where('role', '==', 'admin').limit(1).get();
-    $('tenant-admin').value = adminSnap.empty ? '—' : (adminSnap.docs[0].data().email || '—');
+    const adm = adminSnap.empty ? null : adminSnap.docs[0];
+    _tenantAdminAtual = adm ? { uid: adm.id, email: adm.data().email || '', nome: adm.data().nome || '' } : null;
+    _tenantTelefoneAtual = t.telefone || '';
+    $('tenant-admin').value = _tenantAdminAtual?.email || '';
+    const stA = $('tenant-acesso-status'); if (stA) stA.style.display = 'none';
+    const bA = $('btn-tenant-acesso'); if (bA) { bA.disabled = false; onTenantAdminEmailInput(); }
 
     // Métricas
     await loadTenantMetricas(tenantId);
@@ -2032,6 +2037,99 @@ async function openTenantModal(tenantId) {
     showAlert('tenant-alert', 'Erro: ' + err.message);
   }
 }
+
+// =============================================================
+// ✉️ Acesso do administrador do cliente (05/11/2026) — Super Admin troca o e-mail de login
+// e manda o link de "criar minha senha". Sem usuário admin ainda → cria o login aqui.
+// Troca de e-mail: Worker /usuarios/trocar-email (Auth + users/{uid}), que zera a senha
+// (aleatória) e devolve o link; o e-mail sai da plataforma (no-reply@rently.dev.br) pela
+// rota /usuarios/esqueci-senha. 🔐 Ninguém define senha por ela: ela cria a própria.
+// =============================================================
+let _tenantAdminAtual = null;   // { uid, email, nome } | null  — preenchido em openTenantModal
+let _tenantTelefoneAtual = '';
+
+function onTenantAdminEmailInput() {
+  const btn = $('btn-tenant-acesso');
+  if (!btn || btn.disabled) return;
+  const novo = ($('tenant-admin').value || '').trim().toLowerCase();
+  btn.innerHTML = !_tenantAdminAtual ? '➕ Criar acesso e enviar link'
+    : (novo && novo !== (_tenantAdminAtual.email || '').toLowerCase()) ? '✉️ Trocar e-mail e enviar link'
+    : '🔑 Reenviar link de acesso';
+}
+
+async function enviarAcessoAdminTenant(btn) {
+  const tenantId = $('tenant-id').value;
+  const email = ($('tenant-admin').value || '').trim().toLowerCase();
+  const st = (m, k) => showInlineStatus('tenant-acesso-status', m, k);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { st('❌ Digite um e-mail válido.', 'error'); return; }
+  const nomeTenant = ($('tenant-nome').value || '').trim();
+  const troca = !!_tenantAdminAtual && email !== (_tenantAdminAtual.email || '').toLowerCase();
+  const ok = await confirmar({
+    titulo: !_tenantAdminAtual ? '➕ Criar acesso?' : troca ? '✉️ Trocar o e-mail de login?' : '🔑 Reenviar acesso?',
+    mensagem: !_tenantAdminAtual ? `Criar o login de <strong>${escapeHtml(nomeTenant)}</strong> com o e-mail <strong>${escapeHtml(email)}</strong>.`
+      : troca ? `De <strong>${escapeHtml(_tenantAdminAtual.email || '—')}</strong> para <strong>${escapeHtml(email)}</strong>.`
+      : `Gerar um link novo para <strong>${escapeHtml(email)}</strong> criar a senha.`,
+    detalhe: 'A pessoa recebe por e-mail um link para <strong>criar a própria senha</strong> (vale 1 hora, uso único), e o link também aparece aqui para você mandar no WhatsApp.'
+      + (_tenantAdminAtual ? '<br>⚠️ A senha atual dela deixa de valer.' : ''),
+    confirmar: !_tenantAdminAtual ? '➕ Criar acesso' : troca ? '✉️ Trocar e enviar' : '🔑 Gerar link',
+  });
+  if (!ok) return;
+  $('tenant-acesso-status').style.display = 'none';
+  let r;
+  try {
+    r = await drgSubmit(btn, '⏳ Enviando… aguarde', async () => {
+      let uid = _tenantAdminAtual?.uid;
+      if (!uid) {
+        // Login novo com senha aleatória que ninguém vê — ela cria a dela pelo link
+        const conta = await criarOuRecuperarContaAuth(email, gerarSenhaAleatoria(16)); // rede.js
+        try {
+          await db.collection('users').doc(conta.uid).set({
+            nome: nomeTenant, email, tenantId, role: 'admin', ativo: true,
+            criadoEm: firebase.firestore.FieldValue.serverTimestamp(), criadoPor: State.user.uid,
+          });
+        } catch (e) { if (conta.nova) await apagarContaAuth(conta.idToken); throw e; }
+        uid = conta.uid;
+      }
+      const res = await trocarEmailLoginCorretor(uid, email); // rede.js → Worker /usuarios/trocar-email
+      if (!res) throw new Error('Operação cancelada.');
+      if (!res.linkSenha) throw new Error('O servidor não devolveu o link de senha.');
+      // E-mail em português, remetente da plataforma
+      let enviado = false;
+      try {
+        const w = await fetch(`${await getMfaWorkerUrl()}/usuarios/esqueci-senha`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+        });
+        enviado = w.ok;
+      } catch (_) {}
+      logAuditoria(troca ? 'trocar_email' : (_tenantAdminAtual ? 'reenviar_acesso' : 'criar_acesso'), 'tenant', tenantId,
+        { uid, email, emailAnterior: _tenantAdminAtual?.email || null, emailEnviado: enviado });
+      _tenantAdminAtual = { uid, email, nome: _tenantAdminAtual?.nome || nomeTenant };
+      return { link: res.linkSenha, enviado };
+    }, { destravar: true });
+  } catch (err) {
+    console.error('Acesso do admin do tenant:', err);
+    st(`❌ ${escapeHtml(err.message)}`, 'error');
+    return;
+  } finally { onTenantAdminEmailInput(); }
+  if (!r || !r.link) return;
+  _msgAcessoTenant = `Olá! Seu acesso ao DRG-Rently está pronto. Login: ${email}. Antes de entrar, crie sua senha por este link (vale 1 hora): ${r.link} — depois é só entrar em ${urlDoSistema()}`;
+  const whats = _tenantTelefoneAtual ? `https://wa.me/${telefoneWhatsApp(_tenantTelefoneAtual)}?text=${encodeURIComponent(_msgAcessoTenant)}` : '';
+  st(`✓ Pronto. ${r.enviado ? `E-mail enviado para <strong>${escapeHtml(email)}</strong>.` : '⚠️ O e-mail <strong>não</strong> saiu — mande o link abaixo pelo WhatsApp.'}
+    <br><input type="text" readonly value="${escapeHtml(r.link)}" style="width:100%;font-size:11px;margin-top:6px;" onclick="this.select()">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+      <button type="button" class="btn btn-sm btn-secondary" onclick="copiarMsgAcessoTenant(this)">📋 Copiar mensagem</button>
+      ${whats ? `<a class="btn btn-sm btn-primary" href="${whats}" target="_blank" rel="noopener">💬 Mandar no WhatsApp</a>` : ''}
+    </div>`, 'success');
+  loadTenantsTable();
+}
+let _msgAcessoTenant = '';
+async function copiarMsgAcessoTenant(btn) {
+  try { await navigator.clipboard.writeText(_msgAcessoTenant); btn.textContent = '✓ Copiado'; }
+  catch (_) { btn.textContent = '❌ Não copiou — selecione o link acima'; }
+}
+window.enviarAcessoAdminTenant = enviarAcessoAdminTenant;
+window.onTenantAdminEmailInput = onTenantAdminEmailInput;
+window.copiarMsgAcessoTenant = copiarMsgAcessoTenant;
 
 function closeTenantModal() {
   $('modal-tenant').style.display = 'none';

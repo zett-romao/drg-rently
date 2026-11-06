@@ -3453,8 +3453,10 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
             <input type="text" id="tenant-cnpj" disabled>
           </div>
           <div class="form-group">
-            <label>Admin</label>
-            <input type="text" id="tenant-admin" disabled>
+            <label>E-mail de login do administrador</label>
+            <input type="email" id="tenant-admin" placeholder="email@exemplo.com" oninput="onTenantAdminEmailInput()">
+            <button type="button" class="btn btn-sm btn-secondary" id="btn-tenant-acesso" style="margin-top:6px; width:100%;" onclick="enviarAcessoAdminTenant(this)">🔑 Reenviar link de acesso</button>
+            <div id="tenant-acesso-status" class="status-inline" style="display:none; margin-top:6px;"></div>
           </div>
         </div>
 
@@ -6330,7 +6332,7 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261105a-arquivados"></script>
+  <script src="app.js?v=20261105b-acesso-admin"></script>
   <script src="trava-login.js?v=20261103a-trava"></script>
   <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
