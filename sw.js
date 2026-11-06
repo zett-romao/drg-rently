@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v66-20261106-financeiro-completo';
+const CACHE_VERSION = 'drg-rently-v67-20261106-chave-servidor';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

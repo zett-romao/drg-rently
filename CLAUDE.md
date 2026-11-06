@@ -416,6 +416,18 @@ Firestore falso, Asaas/Resend simulados, IGP-M real do BCB): ver o resumo do com
   acumulado negativo mantém o aluguel. Aplicar grava `ultimoReajuste` + `historicoReajustes`, ajusta
   o balancete do mês (se sem boleto) e avisa locatário e proprietário.
 - Sem mudança de regras do Firestore (coleções novas caem na regra genérica da equipe).
+- **🔒 Chave Asaas só no servidor** (06/11/2026): `asaasChaves/<tenantId>` (coleção RAIZ sem regra →
+  nenhum navegador lê/grava). O app manda `X-Tenant-Id` + login; o Worker confere se a pessoa é da
+  imobiliária e busca a chave (`chaveAsaasTenant`; legado `config/site.asaasTenantToken` até migrar —
+  o admin migra sozinho ao abrir o painel/Configurações, e a cópia de `config/site` é apagada).
+  Salvar chave = botão "🔒 Salvar chave no servidor" (rota `/tenant/asaas/chave`, só admin/DRG,
+  testa no Asaas antes). Criar/cancelar/dar baixa em cobrança exige `aprovarCobranca` NO SERVIDOR
+  (`acaoNoServidor`, espelho de `nivelPermissao`: aceita `true` e `'sim'`). `/tenant/transfers`
+  FECHADA (410): todo dinheiro que sai passa por `/aprovar-pagamento`.
+- **🏢 Conta a pagar pelo Asaas**: "💳 Pagar pelo Asaas" cria `solicitacoesPagamento/conta_<id>`
+  (`tipo: 'pagamento_conta'`); aprovação S4 (senha + 2FA + outra pessoa) → Worker confere conta aberta,
+  linha digitável e valor iguais → `POST /bill` → conta `paga` + Livro Caixa. Rejeitar libera pedir de novo
+  (vale também para `rep_<balanceteId>`).
 
 ## Rede de corretores (`rede.js` + papel `corretor`)
 

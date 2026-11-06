@@ -76,7 +76,7 @@ function corsHeaders(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-DRG-Admin-Token, X-Tenant-Asaas-Token, asaas-access-token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-DRG-Admin-Token, X-Tenant-Asaas-Token, X-Tenant-Id, asaas-access-token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -648,8 +648,10 @@ async function usuarioPodeAprovarPix(env, userDoc, tenantId) {
     perfil = await firestoreAdminGet(env, `tenants/${tenantId}/perfis/seed_${role}`);
   }
   // Modelo 2.0 — o perfil tem o mapa acoes
-  if (perfil && perfil.acoes && typeof perfil.acoes === 'object') {
-    return perfil.acoes.aprovarPagamentoLocador === true;
+  if (perfil && perfil.acoes && typeof perfil.acoes === 'object' && 'aprovarPagamentoLocador' in perfil.acoes) {
+    // Perfis 3.0 gravam 'sim' | 'aprovacao' | 'nao'; 2.0 gravava true/false
+    const v = perfil.acoes.aprovarPagamentoLocador;
+    return v === true || v === 'sim';
   }
   // Nível 3 — legado ({modulos:[...]}) ou sem perfil: mapa fixo do role
   return ROLE_APROVA_PIX[role] === true;
@@ -722,6 +724,10 @@ async function aprovarPagamento(request, env, origin, usuario) {
     return jsonResponse({ ok: false, error: 'Você não pode aprovar a própria solicitação — outra pessoa precisa aprovar.' }, 403, origin);
   }
 
+  if (sol.tipo === 'pagamento_conta') {
+    return await executarPagamentoConta(env, origin, usuario, userDoc, tenantId, solicitacaoId, solPath, sol);
+  }
+
   const valor = Number(sol.valor);
   if (!(valor > 0)) return jsonResponse({ ok: false, error: 'Valor da solicitação inválido.' }, 400, origin);
   if (!sol.pixAddressKey) return jsonResponse({ ok: false, error: 'Solicitação sem chave PIX.' }, 400, origin);
@@ -751,8 +757,7 @@ async function aprovarPagamento(request, env, origin, usuario) {
   }
 
   // (7) só AGORA executa a transferência PIX no Asaas
-  const cfg = await firestoreAdminGet(env, `tenants/${tenantId}/config/site`);
-  const asaasKey = cfg && cfg.asaasTenantToken;
+  const asaasKey = await chaveAsaasTenant(env, tenantId);
   if (!asaasKey) return jsonResponse({ ok: false, error: 'Chave Asaas do tenant não configurada.' }, 400, origin);
 
   const transferBody = {
@@ -936,17 +941,21 @@ export default {
     const adminToken = request.headers.get('X-DRG-Admin-Token');
     const tenantAsaasKey = request.headers.get('X-Tenant-Asaas-Token');
     const isAdmin = adminToken && adminToken === env.WEBHOOK_TOKEN;
-    const isTenant = !!tenantAsaasKey;
+    const tenantIdHdr = request.headers.get('X-Tenant-Id') || '';
+    const isTenant = !!tenantAsaasKey || !!tenantIdHdr;
+    // 🔒 06/11/2026: a chave Asaas da imobiliária mora SÓ no servidor (asaasChaves/<tenantId>).
+    // O app manda "X-Tenant-Id" + login; o header de chave fica só para testar uma chave nova.
+    const chaveDoHeader = tenantAsaasKey && tenantAsaasKey !== 'servidor' ? tenantAsaasKey : '';
 
     // Endpoints /tenant/* exigem token do tenant; demais exigem admin (compat com cobrança DRG)
     let _usuarioAutenticado = null;
     if (path.startsWith('/tenant/')) {
       if (!isTenant) {
-        return jsonResponse({ error: 'Header X-Tenant-Asaas-Token obrigatório.' }, 401, origin);
+        return jsonResponse({ error: 'Imobiliária não informada (X-Tenant-Id).' }, 401, origin);
       }
       // CAMADA 2 — verifica identidade do usuário (Firebase ID token).
-      // /tenant/health é exceção (teste de chave, ainda sem usuário logado plenamente).
-      if (path !== '/tenant/health') {
+      // /tenant/health com chave no header é exceção (testar a chave digitada antes de salvar).
+      if (!(path === '/tenant/health' && chaveDoHeader)) {
         try {
           const idToken = await extrairIdToken(request);
           _usuarioAutenticado = await verificarIdTokenComTrava(idToken, env);
@@ -1002,7 +1011,26 @@ export default {
       // =============================================================
       // ROTAS TENANT (imobiliária usa SUA própria chave Asaas)
       // =============================================================
-      const apiKey = resolveApiKey(request);
+      let apiKey = chaveDoHeader || null;
+      let _tenantCtx = null;
+      if (path.startsWith('/tenant/') && _usuarioAutenticado) {
+        _tenantCtx = await contextoTenant(env, _usuarioAutenticado, tenantIdHdr);
+        if (_tenantCtx.erro) return jsonResponse({ ok: false, error: _tenantCtx.erro }, 403, origin);
+        const doServidor = await chaveAsaasTenant(env, _tenantCtx.tid);
+        // health com chave digitada testa ESSA chave; o resto usa a chave guardada no servidor
+        apiKey = (path === '/tenant/health' && chaveDoHeader) ? chaveDoHeader : (doServidor || chaveDoHeader || null);
+        if (path === '/tenant/asaas/chave' && request.method === 'POST') {
+          return await tenantSalvarChave(request, env, origin, _tenantCtx);
+        }
+        if (!apiKey) return jsonResponse({ ok: false, error: 'Asaas não conectado: salve a chave API em Configurações.' }, 400, origin);
+        // 🔒 Dinheiro: criar/cancelar/dar baixa em cobrança exige a ação "💳 Aprovar cobrança" NO SERVIDOR
+        const mexeCobranca = (path === '/tenant/payments' && request.method === 'POST')
+          || (/^\/tenant\/payments\/[^\/]+$/.test(path) && request.method === 'DELETE')
+          || /\/receiveInCash$/.test(path);
+        if (mexeCobranca && !(await acaoNoServidor(env, _tenantCtx.userDoc, _tenantCtx.tid, 'aprovarCobranca'))) {
+          return jsonResponse({ ok: false, error: 'Seu perfil não tem "💳 Aprovar cobrança ao locatário".' }, 403, origin);
+        }
+      }
 
       // POST /tenant/customers — cria cliente no Asaas do tenant
       if (path === '/tenant/customers' && request.method === 'POST') {
@@ -1041,9 +1069,10 @@ export default {
       if (path === '/tenant/financeiro/sincronizar' && request.method === 'POST') {
         return await tenantSincronizarCobrancas(request, env, origin, _usuarioAutenticado);
       }
-      // POST /tenant/transfers — transfere PIX/TED pro locador (repasse do líquido)
-      if (path === '/tenant/transfers' && request.method === 'POST') {
-        return await tenantCriarTransferencia(request, env, origin, apiKey);
+      // 🔒 06/11/2026: /tenant/transfers FECHADA. Mandava PIX sem aprovação. Todo dinheiro que sai
+      // passa por /aprovar-pagamento (senha + 2FA + separação de funções — regra S4).
+      if (path === '/tenant/transfers') {
+        return jsonResponse({ ok: false, error: 'Transferência direta desativada. Use a solicitação de repasse e ✅ Aprovações.' }, 410, origin);
       }
       // GET /tenant/balance — saldo disponível no Asaas do tenant
       if (path === '/tenant/balance' && request.method === 'GET') {
@@ -1698,9 +1727,9 @@ async function tenantConfigurarWebhook(request, env, origin, apiKey, usuario) {
   if (!u || (!equipeDRG && !(u.tenantId === tid && u.role === 'admin' && u.ativo !== false))) {
     return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária ativa a baixa automática.' }, 403, origin);
   }
-  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
-  if (!cfg || !cfg.asaasTenantToken) return jsonResponse({ ok: false, error: 'Salve a chave API do Asaas antes.' }, 400, origin);
-  if (cfg.asaasTenantToken !== apiKey) return jsonResponse({ ok: false, error: 'A chave enviada não é a chave salva da imobiliária. Recarregue a página.' }, 409, origin);
+  const chaveSrv = await chaveAsaasTenant(env, tid);
+  if (!chaveSrv) return jsonResponse({ ok: false, error: 'Salve a chave API do Asaas antes.' }, 400, origin);
+  if (chaveSrv !== apiKey) return jsonResponse({ ok: false, error: 'A chave em uso não é a chave salva da imobiliária. Recarregue a página.' }, 409, origin);
 
   const url = `${new URL(request.url).origin}/webhook/t/${tid}`;
   const token = hexAleatorio(24);
@@ -1742,10 +1771,10 @@ async function processarEventoAluguel(env, tidEsperado, event) {
   if (!m) return;
   const tid = m[1], bid = m[2];
   if (tidEsperado && tid !== tidEsperado) return;
-  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
-  if (!cfg || !cfg.asaasTenantToken) return;
+  const chave = await chaveAsaasTenant(env, tid);
+  if (!chave) return;
   // Fonte da verdade: o pagamento lido de novo no Asaas da imobiliária
-  const r = await asaasFetch(`${asaasBase(env)}/payments/${encodeURIComponent(pay.id)}`, env, 'GET', null, cfg.asaasTenantToken);
+  const r = await asaasFetch(`${asaasBase(env)}/payments/${encodeURIComponent(pay.id)}`, env, 'GET', null, chave);
   if (!r.ok) return;
   const p = await r.json();
   if (p.externalReference !== pay.externalReference) return;
@@ -1847,13 +1876,13 @@ async function tenantSincronizarCobrancas(request, env, origin, usuario) {
   const u = await firestoreAdminGet(env, `users/${usuario.uid}`);
   const equipeDRG = u && (u.role === 'super_admin' || u.role === 'operador_drg');
   if (!u || (!equipeDRG && !(u.tenantId === tid && u.ativo !== false))) return jsonResponse({ ok: false, error: 'Sem acesso a esta imobiliária.' }, 403, origin);
-  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`);
-  if (!cfg || !cfg.asaasTenantToken) return jsonResponse({ ok: false, error: 'Chave Asaas não configurada.' }, 400, origin);
+  const chave = await chaveAsaasTenant(env, tid);
+  if (!chave) return jsonResponse({ ok: false, error: 'Chave Asaas não configurada.' }, 400, origin);
   const ids = (Array.isArray(b.paymentIds) ? b.paymentIds : []).map(String).filter(x => /^[A-Za-z0-9_-]{1,60}$/.test(x)).slice(0, 60);
   const status = {};
   for (const id of ids) {
     try {
-      const r = await asaasFetch(`${asaasBase(env)}/payments/${id}`, env, 'GET', null, cfg.asaasTenantToken);
+      const r = await asaasFetch(`${asaasBase(env)}/payments/${id}`, env, 'GET', null, chave);
       if (!r.ok) { status[id] = 'ERRO_' + r.status; continue; }
       const p = await r.json();
       status[id] = p.status;
@@ -1861,4 +1890,115 @@ async function tenantSincronizarCobrancas(request, env, origin, usuario) {
     } catch (e) { status[id] = 'ERRO'; }
   }
   return jsonResponse({ ok: true, status }, 200, origin);
+}
+
+
+// =============================================================
+// 🔒 CHAVE ASAAS SÓ NO SERVIDOR + PERMISSÃO NO SERVIDOR (06/11/2026)
+// =============================================================
+// A chave fica em asaasChaves/<tenantId> — coleção RAIZ sem regra no firestore.rules, então
+// nenhum navegador lê nem grava (o padrão do Firestore é negar). Só o Worker (conta de serviço).
+// Legado: enquanto a imobiliária não salvar de novo, vale config/site.asaasTenantToken.
+async function chaveAsaasTenant(env, tid) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(String(tid || ''))) return null;
+  const k = await firestoreAdminGet(env, `asaasChaves/${tid}`).catch(() => null);
+  if (k && k.chave) return k.chave;
+  const cfg = await firestoreAdminGet(env, `tenants/${tid}/config/site`).catch(() => null);
+  return (cfg && cfg.asaasTenantToken) || null;
+}
+
+// Quem é o usuário e de qual imobiliária ele pode mexer
+async function contextoTenant(env, usuario, tidPedido) {
+  const userDoc = await firestoreAdminGet(env, `users/${usuario.uid}`);
+  if (!userDoc) return { erro: 'Usuário não encontrado.' };
+  const equipeDRG = userDoc.role === 'super_admin' || userDoc.role === 'operador_drg';
+  const tid = String(tidPedido || userDoc.tenantId || '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(tid)) return { erro: 'Imobiliária inválida.' };
+  if (!equipeDRG && (userDoc.tenantId !== tid || userDoc.ativo === false)) return { erro: 'Você não faz parte desta imobiliária.' };
+  return { tid, userDoc, equipeDRG };
+}
+
+// Espelho de nivelPermissao(acao) do app.js: perfil próprio → perfil seed do papel → padrão do papel.
+// Perfis 3.0 gravam 'sim' | 'aprovacao' | 'nao'; 2.0 gravava true/false. Só 'sim'/true libera.
+const ROLE_ACOES_SERVIDOR = {
+  operador_drg: ['aprovarPagamentoLocador', 'solicitarRepasse', 'aprovarCobranca', 'fecharBalancete'],
+  admin: ['aprovarPagamentoLocador', 'solicitarRepasse', 'aprovarCobranca', 'fecharBalancete'],
+  operador: ['solicitarRepasse'],
+  corretor: [],
+};
+async function acaoNoServidor(env, userDoc, tid, acao) {
+  const role = userDoc.role || 'operador';
+  if (role === 'super_admin') return true;
+  let perfil = null;
+  if (userDoc.perfilId) perfil = await firestoreAdminGet(env, `tenants/${tid}/perfis/${userDoc.perfilId}`).catch(() => null);
+  if (!perfil) perfil = await firestoreAdminGet(env, `tenants/${tid}/perfis/seed_${role}`).catch(() => null);
+  if (perfil && perfil.acoes && typeof perfil.acoes === 'object' && acao in perfil.acoes) {
+    const v = perfil.acoes[acao];
+    return v === true || v === 'sim';
+  }
+  return (ROLE_ACOES_SERVIDOR[role] || []).includes(acao);
+}
+
+// Salva (ou remove) a chave: só o administrador da imobiliária ou a equipe DRG.
+// Confere a chave no Asaas antes de guardar e APAGA a cópia antiga de config/site.
+async function tenantSalvarChave(request, env, origin, ctx) {
+  const u = ctx.userDoc;
+  if (!ctx.equipeDRG && u.role !== 'admin') return jsonResponse({ ok: false, error: 'Só o administrador da imobiliária troca a chave do Asaas.' }, 403, origin);
+  const b = await request.json().catch(() => ({}));
+  const chave = String(b.chave || '').trim();
+  const tid = ctx.tid;
+  if (!chave) {
+    await firestoreAdminDelete(env, `asaasChaves/${tid}`);
+    await firestoreAdminApagarCampos(env, `tenants/${tid}/config/site`, ['asaasTenantToken']).catch(() => {});
+    await firestoreAdminMerge(env, `tenants/${tid}/config/site`, { asaasConectado: false, asaasChaveFinal: '' });
+    return jsonResponse({ ok: true, removida: true }, 200, origin);
+  }
+  if (!/^\$?aact_/.test(chave) || chave.length < 30) return jsonResponse({ ok: false, error: 'Isso não parece uma chave API do Asaas (começa com $aact_).' }, 400, origin);
+  const r = await asaasFetch(`${asaasBase(env)}/myAccount`, env, 'GET', null, chave);
+  if (!r.ok) return jsonResponse({ ok: false, error: 'O Asaas não aceitou esta chave (' + r.status + '). Confira e cole de novo.' }, 400, origin);
+  const conta = await r.json().catch(() => ({}));
+  await firestoreAdminMerge(env, `asaasChaves/${tid}`, { chave, final: chave.slice(-4), salvoEm: new Date(), salvoPor: u.email || '' });
+  await firestoreAdminApagarCampos(env, `tenants/${tid}/config/site`, ['asaasTenantToken']).catch(() => {});
+  await firestoreAdminMerge(env, `tenants/${tid}/config/site`, { asaasConectado: true, asaasChaveFinal: chave.slice(-4), asaasContaNome: conta.name || conta.companyName || '' });
+  try {
+    await firestoreAdminAddDoc(env, `tenants/${tid}/auditoria`, { acao: 'salvar_chave_asaas', entidade: 'config', entidadeId: 'asaas',
+      userId: u.uid || '', userNome: u.nome || '', userEmail: u.email || '', userRole: u.role || '', detalhe: 'Chave Asaas salva no servidor (final ' + chave.slice(-4) + ').', timestamp: new Date() });
+  } catch (_) {}
+  return jsonResponse({ ok: true, final: chave.slice(-4), conta: conta.name || conta.companyName || '' }, 200, origin);
+}
+
+// 🏢 Pagar conta (boleto do condomínio/consumo) pelo Asaas — chamado por aprovarPagamento depois
+// das verificações 1–6 (senha recente, permissão, 2FA, status, separação de funções).
+async function executarPagamentoConta(env, origin, usuario, userDoc, tenantId, solicitacaoId, solPath, sol) {
+  const contaId = String(sol.contaPagarId || '');
+  if (!/^[A-Za-z0-9_-]{1,120}$/.test(contaId)) return jsonResponse({ ok: false, error: 'Solicitação sem conta vinculada.' }, 400, origin);
+  const cPath = `tenants/${tenantId}/contasPagar/${contaId}`;
+  const conta = await firestoreAdminGet(env, cPath);
+  if (!conta) return jsonResponse({ ok: false, error: 'Conta a pagar não encontrada.' }, 404, origin);
+  if (conta.status !== 'aberta') return jsonResponse({ ok: false, error: 'Esta conta já não está em aberto (' + conta.status + ').' }, 409, origin);
+  const linha = String(conta.linhaDigitavel || '').replace(/\D/g, '');
+  if (!linha || linha !== String(sol.linhaDigitavel || '').replace(/\D/g, '')) return jsonResponse({ ok: false, error: 'A linha digitável mudou depois da solicitação. Rejeite e solicite de novo.' }, 409, origin);
+  const valor = Number(sol.valor);
+  if (!(valor > 0) || Math.abs(valor - Number(conta.valor || 0)) > 0.009) return jsonResponse({ ok: false, error: 'O valor da conta mudou depois da solicitação. Rejeite e solicite de novo.' }, 409, origin);
+  const chave = await chaveAsaasTenant(env, tenantId);
+  if (!chave) return jsonResponse({ ok: false, error: 'Chave Asaas da imobiliária não configurada.' }, 400, origin);
+  const corpo = { identificationField: linha, description: String(sol.descricao || conta.descricao || 'Conta').slice(0, 200), value: Number(valor.toFixed(2)) };
+  if (conta.vencimento) corpo.dueDate = conta.vencimento;
+  const res = await asaasFetch(`${asaasBase(env)}/bill`, env, 'POST', corpo, chave);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return jsonResponse({ ok: false, error: 'Asaas recusou o pagamento da conta: ' + (data.errors?.[0]?.description || res.status) }, 502, origin);
+  const quando = new Date();
+  await firestoreAdminMerge(env, solPath, { status: 'APROVADO', aprovadoPor: usuario.uid, aprovadoPorEmail: usuario.email || '', aprovadoEm: quando, asaasBillId: data.id || '', asaasBillStatus: data.status || '' });
+  await firestoreAdminMerge(env, cPath, { status: 'paga', pagaEm: quando.toISOString().slice(0, 10), pagaPor: usuario.uid, pagaVia: 'asaas', asaasBillId: data.id || '' });
+  try {
+    await firestoreAdminMerge(env, `tenants/${tenantId}/caixaPool/conta_${contaId}`, { tipo: 'saida', rubrica: 'Conta paga (condomínio/consumo)',
+      nome: conta.beneficiario || conta.descricao || '', valor: Number(valor.toFixed(2)), data: quando.toISOString().slice(0, 10),
+      competencia: conta.competencia || quando.toISOString().slice(0, 7), origem: 'contas-pagar-asaas', refId: contaId, criadoEm: quando, criadoPor: usuario.uid });
+  } catch (_) {}
+  try {
+    await firestoreAdminAddDoc(env, `tenants/${tenantId}/auditoria`, { acao: 'aprovar_pagamento_conta', entidade: 'contasPagar', entidadeId: contaId,
+      userId: usuario.uid, userNome: userDoc.nome || '', userEmail: usuario.email || '', userRole: userDoc.role || '',
+      detalhe: 'Pagou pelo Asaas a conta "' + (conta.descricao || '') + '" de R$ ' + valor.toFixed(2) + '. Solicitado por ' + (sol.solicitadoPorEmail || sol.solicitadoPor || '?') + '. Asaas bill ' + (data.id || '-') + '.', timestamp: quando });
+  } catch (_) {}
+  return jsonResponse({ ok: true, status: 'APROVADO', valor, asaasBillId: data.id || '', conta: true }, 200, origin);
 }

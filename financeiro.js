@@ -585,6 +585,9 @@ function finAcoesLinha(id, b) {
     a.push(`<button class="btn btn-sm btn-secondary" onclick="finEnviarLocatario('${id}', this)" title="Reenvia o boleto e o demonstrativo por e-mail ao locatário">✉ Reenviar</button>`);
     a.push(`<button class="btn btn-sm btn-secondary" onclick="finAbrirBaixaManual('${id}')" title="O locatário pagou fora do boleto (Pix direto, dinheiro…)">✓ Baixa manual</button>`);
   }
+  if (FIN_PAGO.includes(st) && ['REJEITADO', 'PENDENTE_CADASTRO', undefined].includes((b.repasse || {}).status)) {
+    a.push(`<button class="btn btn-sm btn-primary" onclick="finPedirRepasse('${id}', this)" title="Cria o pedido de PIX ao proprietário (depois de corrigir o cadastro, se for o caso)">💸 Pedir repasse</button>`);
+  }
   if (FIN_PAGO.includes(st) && typeof finEnviarPrestacao === 'function') {
     a.push(`<button class="btn btn-sm btn-secondary" onclick="finEnviarPrestacao('${id}', this)" title="PDF + planilha Excel ao proprietário">📊 Prestação</button>`);
   }
@@ -640,7 +643,7 @@ async function finCarregarPainel() {
     if (prontos.length) alertas.push(`<button type="button" class="fin-alerta-item" onclick="finGerarBoletosMes(this)">💳 <strong>${prontos.length}</strong> balancete(s) prontos sem boleto — <u>gerar os boletos e enviar</u></button>`);
     if (semCad.length) alertas.push(`<button type="button" class="fin-alerta-item fin-alerta-vermelho" onclick="finAbrirProprietario('${semCad[0].locadorId || ''}')">⚠ <strong>${semCad.length}</strong> repasse(s) travado(s): ${escapeHtml((semCad[0].repasse || {}).motivo || 'falta cadastro')} — <u>abrir cadastro</u></button>`);
     if (aRep.length) alertas.push(`<button type="button" class="fin-alerta-item" onclick="showSection('aprovacoes')">💸 <strong>${aRep.length}</strong> repasse(s) de ${fmtBRL(soma(aRep, b => b.repasse.valor))} aguardando aprovação — <u>aprovar</u></button>`);
-    if (!cfg.asaasTenantToken) alertas.push(`<button type="button" class="fin-alerta-item fin-alerta-vermelho" onclick="showSection('configuracoes')">🔌 Asaas não conectado — <u>cole a chave API em Configurações</u> para gerar boletos</button>`);
+    if (!finAsaasOk(cfg)) alertas.push(`<button type="button" class="fin-alerta-item fin-alerta-vermelho" onclick="showSection('configuracoes')">🔌 Asaas não conectado — <u>cole a chave API em Configurações</u> para gerar boletos</button>`);
     else alertas.push(`<span class="fin-alerta-item fin-alerta-neutro" id="fin-webhook-aviso">🔗 Baixa automática: verificando…</span>`);
     if (typeof finAlertasReajuste === 'function') alertas.push(...(await finAlertasReajuste(vigentes, mes, ano)));
 
@@ -672,14 +675,16 @@ async function finCarregarPainel() {
             <div class="fin-conta-acoes">
               ${x.linhaDigitavel ? `<button type="button" class="btn btn-sm btn-secondary" onclick="finCopiar(this, ${escapeHtml(JSON.stringify(x.linhaDigitavel))})">📋 Linha digitável</button>` : ''}
               ${x.arquivoPath ? `<button type="button" class="btn btn-sm btn-secondary" onclick="finAbrirArquivo('${escapeHtml(x.arquivoPath)}')">📄 Boleto</button>` : ''}
-              <button type="button" class="btn btn-sm btn-primary" onclick="finContaPaga('${x.id}', this)">✓ Paguei</button>
+              ${x.solicitacaoId ? '<span class="fin-badge fin-b-amarelo">🕓 pagamento em aprovação</span>'
+                : (x.linhaDigitavel && finAsaasOk(cfg) ? `<button type="button" class="btn btn-sm btn-primary" onclick="finSolicitarPagamentoConta('${x.id}', this)" title="Paga o boleto pelo saldo do Asaas — precisa de aprovação com senha + 2FA">💳 Pagar pelo Asaas</button>` : '')}
+              <button type="button" class="btn btn-sm btn-secondary" onclick="finContaPaga('${x.id}', this)" title="Já paguei por fora (banco, app)">✓ Paguei por fora</button>
             </div>
           </div>`).join('')}</div>
       </details>` : ''}`;
     finAplicarFiltro();
-    if (cfg.asaasTenantToken) finVerWebhook();
+    if (finAsaasOk(cfg)) { finVerWebhook(); finMigrarChaveAsaas(cfg); }
     // Sincroniza sozinho (no máx. a cada 10 min) as cobranças em aberto do mês
-    if (cfg.asaasTenantToken && (pend.length || venc.length) && Date.now() - _finPainel.sincronizadoEm > 600000) {
+    if (finAsaasOk(cfg) && (pend.length || venc.length) && Date.now() - _finPainel.sincronizadoEm > 600000) {
       _finPainel.sincronizadoEm = Date.now();
       finSincronizar(null, true);
     }
@@ -1020,7 +1025,8 @@ window.finConfirmarBaixa = finConfirmarBaixa;
 // nunca existem duas solicitações para o mesmo mês/contrato.
 async function finSolicitarRepasse(bid) {
   const solRef = tenantPath().collection('solicitacoesPagamento').doc(`rep_${bid}`);
-  if ((await solRef.get()).exists) return { msg: 'O repasse ao proprietário já estava criado.' };
+  const ant = await solRef.get();
+  if (ant.exists && ant.data().status !== 'REJEITADO') return { msg: 'O repasse ao proprietário já estava criado.' };
   const bRef = tenantPath().collection('balancetes').doc(bid);
   const b = (await bRef.get()).data();
   const marca = (status, extra) => bRef.update({ repasse: { ...(b.repasse || {}), status, ...(extra || {}) } }).catch(() => {});
@@ -1558,3 +1564,94 @@ function finInfoReajusteContrato(c) {
     : 'Sem reajuste configurado';
 }
 window.finInfoReajusteContrato = finInfoReajusteContrato;
+
+
+// =============================================================
+// 🔒 CHAVE ASAAS NO SERVIDOR (06/11/2026)
+// =============================================================
+function finAsaasOk(cfg) { return !!(cfg && (cfg.asaasConectado || cfg.asaasTenantToken)); }
+
+async function finSalvarChaveAsaas(btn) {
+  const campo = $('cfg-asaas-tenant-token');
+  const chave = (campo?.value || '').trim();
+  const st = (m, k) => showInlineStatus('asaas-tenant-status', m, k);
+  if (!chave) { st('❌ Cole a chave API do Asaas no campo (começa com $aact_).', 'error'); campo?.focus(); return; }
+  try {
+    const r = await drgSubmit(btn, '⏳ Conferindo no Asaas…', async () => {
+      const url = ($('cfg-worker-asaas-url')?.value || (await getCfgAsaas()).url || '').trim().replace(/\/+$/, '');
+      if (!url) throw new Error('Preencha a URL do Worker Asaas acima.');
+      const res = await fetch(`${url}/tenant/asaas/chave`, { method: 'POST', headers: await asaasHeaders('servidor'), body: JSON.stringify({ chave }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j.ok === false) throw new Error(j.error || `Erro ${res.status}`);
+      return j;
+    }, { destravar: true });
+    if (r === DRG_IGNORADO) return;
+    campo.value = '';
+    campo.placeholder = `🔒 Guardada no servidor (final ${r.final}) — cole outra para trocar`;
+    st(`✓ Chave guardada no servidor${r.conta ? ` — conta Asaas <strong>${escapeHtml(r.conta)}</strong>` : ''} (final ${escapeHtml(r.final)}). Ninguém da equipe consegue vê-la.`, 'success');
+  } catch (err) { st(`❌ ${escapeHtml(err.message)}`, 'error'); }
+}
+window.finSalvarChaveAsaas = finSalvarChaveAsaas;
+
+// Imobiliária que ainda tem a chave em config/site (legível pela equipe): o administrador
+// migra sozinho, sem clicar, na primeira vez que abre o painel ou as Configurações.
+let _finMigrando = false;
+async function finMigrarChaveAsaas(cfg) {
+  if (_finMigrando || !cfg || !cfg.asaasTenantToken || cfg.asaasConectado) return;
+  if (!(State.userDoc?.role === 'admin' || State.isSuperAdmin)) return;
+  _finMigrando = true;
+  try {
+    const url = (cfg.workerAsaasUrl || '').replace(/\/+$/, '');
+    if (!url) return;
+    const res = await fetch(`${url}/tenant/asaas/chave`, { method: 'POST', headers: await asaasHeaders('servidor'), body: JSON.stringify({ chave: cfg.asaasTenantToken }) });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.ok) {
+      logAuditoria('migrar_chave_asaas', 'config', 'asaas', { final: j.final });
+      finAvisoSecao(`🔒 A chave do Asaas foi movida para o servidor (final ${escapeHtml(j.final)}): a equipe não consegue mais vê-la.`, 'success');
+    } else console.warn('Migração da chave Asaas:', j.error || res.status);
+  } catch (e) { console.warn('Migração da chave Asaas:', e); }
+  finally { _finMigrando = false; }
+}
+window.finMigrarChaveAsaas = finMigrarChaveAsaas;
+
+// 🏢 Pagar conta pelo Asaas: vira solicitação (id fixo conta_<id>) e só sai com senha + 2FA
+async function finSolicitarPagamentoConta(id, btn) {
+  if (!pode('solicitarRepasse')) { finAvisoSecao('⛔ Seu perfil não solicita pagamentos (📨 Solicitar repasse). Peça a um gestor.', 'error'); return; }
+  const ref = tenantPath().collection('contasPagar').doc(id);
+  const x = (await ref.get()).data();
+  if (!x || x.status !== 'aberta') { finAvisoSecao('Esta conta já não está em aberto.', 'info'); return; }
+  const ok = await confirmar({ titulo: '💳 Pagar pelo Asaas?', mensagem: `<strong>${escapeHtml(x.descricao || 'Conta')}</strong> — ${fmtBRL(x.valor)}, vence ${finFmtData(x.vencimento)}.`,
+    detalhe: `Linha digitável: <code>${escapeHtml(x.linhaDigitavel || '')}</code><br>O pagamento sai do <strong>saldo do Asaas</strong> e só acontece quando outra pessoa aprovar com senha + 2FA em ✅ Aprovações.`, confirmar: '📨 Pedir aprovação' });
+  if (!ok) return;
+  try {
+    await drgSubmit(btn, '⏳ Enviando…', async () => {
+      const solRef = tenantPath().collection('solicitacoesPagamento').doc(`conta_${id}`);
+      const ant = await solRef.get();
+      if (ant.exists && ant.data().status !== 'REJEITADO') throw new Error('Já existe pedido de pagamento desta conta (veja ✅ Aprovações).');
+      await solRef.set({
+        tipo: 'pagamento_conta', status: 'AGUARDANDO_APROVACAO', valor: finR2(x.valor), contaPagarId: id,
+        linhaDigitavel: x.linhaDigitavel, descricao: `Conta: ${x.descricao || ''}`.slice(0, 200),
+        locadorNome: `🏢 ${x.descricao || 'Conta'}${x.vencimento ? ` (vence ${finFmtData(x.vencimento)})` : ''}`,
+        pixAddressKey: x.linhaDigitavel, pixAddressKeyType: 'BOLETO', favorecidoNome: x.beneficiario || '',
+        contratoId: x.contratoId || null, balanceteId: null,
+        solicitadoPor: State.user.uid, solicitadoPorNome: State.userDoc?.nome || State.user.email || '', solicitadoPorEmail: State.user.email || '',
+        solicitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      await ref.update({ solicitacaoId: solRef.id, pagamentoSolicitadoEm: new Date().toISOString() });
+      logAuditoria('solicitar_pagamento_conta', 'contasPagar', id, { valor: x.valor });
+    });
+    finAvisoSecao(`✓ Pedido de pagamento de ${fmtBRL(x.valor)} enviado para aprovação em ✅ Aprovações.`, 'success');
+    finCarregarPainel();
+  } catch (err) { finAvisoSecao(`❌ ${escapeHtml(err.message)}`, 'error'); }
+}
+window.finSolicitarPagamentoConta = finSolicitarPagamentoConta;
+
+async function finPedirRepasse(bid, btn) {
+  try {
+    const r = await drgSubmit(btn, '⏳ Criando…', () => finSolicitarRepasse(bid), { destravar: true });
+    if (r === DRG_IGNORADO) return;
+    finAvisoSecao(r.msg.startsWith('⚠') ? r.msg : `✓ ${r.msg}`, r.msg.startsWith('⚠') ? 'error' : 'success');
+    loadBalancetes();
+  } catch (err) { finAvisoSecao(`❌ ${escapeHtml(err.message)}`, 'error'); }
+}
+window.finPedirRepasse = finPedirRepasse;

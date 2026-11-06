@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 
 // =============================================================
 // State
@@ -56,7 +56,7 @@ const MODULOS_DISPONIVEIS = [
 const ACOES_SENSIVEIS = [
   { id: 'gerenciarUsuariosPerfis', label: '👥 Gerenciar usuários e perfis',        desc: 'Criar usuários, montar perfis e atribuí-los — só até o limite das suas próprias permissões' },
   { id: 'aprovarAlteracoes',       label: '✔ Aprovar alterações da equipe',       desc: 'Aprovar o que a equipe fez "Com aprovação" — só nos itens em que você mesmo tem ✅ Pode' },
-  { id: 'aprovarPagamentoLocador', label: '💸 Aprovar pagamento ao locador (PIX)', desc: 'Liberar transferências PIX de repasse ao locador' },
+  { id: 'aprovarPagamentoLocador', label: '💸 Aprovar pagamentos (PIX ao locador e contas)', desc: 'Liberar transferências PIX de repasse ao locador e o pagamento de contas (boleto do condomínio) pelo Asaas' },
   { id: 'solicitarRepasse',        label: '📨 Solicitar repasse',                  desc: 'Criar a solicitação de repasse no balancete (outra pessoa aprova)' },
   { id: 'alterarDadosRepasse',     label: '🏦 Alterar Pix/conta de repasse',        desc: 'Mudar chave Pix ou conta bancária do proprietário', tresNiveis: true },
   { id: 'repasseRepresentante',    label: '🔁 Repasse ao representante',           desc: 'Ligar/desligar o repasse ao representante e mexer na autorização (instrumento)', tresNiveis: true },
@@ -5498,9 +5498,12 @@ window.clearInlineStatus = clearInlineStatus;
 async function getCfgAsaas() {
   const snap = await tenantPath().collection('config').doc('site').get();
   const cfg = snap.exists ? snap.data() : {};
+  // 🔒 06/11/2026: a chave mora no servidor; aqui só a marca "servidor" (o Worker busca a chave)
   return {
     url: (cfg.workerAsaasUrl || '').replace(/\/+$/, ''),
-    token: cfg.asaasTenantToken || '',
+    token: cfg.asaasTenantToken || (cfg.asaasConectado ? 'servidor' : ''),
+    conectado: !!cfg.asaasConectado,
+    final: cfg.asaasChaveFinal || '',
   };
 }
 
@@ -5516,8 +5519,10 @@ async function getIdTokenAtual(forceRefresh = false) {
 async function asaasHeaders(token) {
   const h = {
     'Content-Type': 'application/json',
-    'X-Tenant-Asaas-Token': token,
+    'X-Tenant-Id': State.tenant?.id || '',
   };
+  // Chave no header só no legado (antes de migrar) ou ao testar uma chave digitada
+  if (token && token !== 'servidor') h['X-Tenant-Asaas-Token'] = token;
   try {
     h['Authorization'] = 'Bearer ' + await getIdTokenAtual();
   } catch (_) { /* health endpoint não exige; demais vão falhar com 401 explícito */ }
@@ -5662,9 +5667,10 @@ async function testarAsaasTenant() {
   showInlineStatus(SID, '🔄 Testando…', 'loading');
   try {
     const { url, token } = await getCfgAsaas();
+    const digitada = ($('cfg-asaas-tenant-token')?.value || '').trim();
     if (!url) throw new Error('URL do Worker Asaas não configurada.');
-    if (!token) throw new Error('Chave Asaas não configurada.');
-    const res = await fetch(`${url}/tenant/health`, { headers: await asaasHeaders(token) });
+    if (!digitada && !token) throw new Error('Chave Asaas não configurada.');
+    const res = await fetch(`${url}/tenant/health`, { headers: await asaasHeaders(digitada || token) });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Chave inválida');
     showInlineStatus(SID, `✅ <strong>${data.account.name}</strong> (${data.ambiente}) — chave válida.`, 'success');
@@ -5851,7 +5857,8 @@ async function solicitarPagamentoLocador() {
       // 💰 06/11/2026: id fixo por balancete — não duplica com o repasse criado na baixa do boleto
       const bidSol = $('balancete-id').value || null;
       const ref = bidSol ? tenantPath().collection('solicitacoesPagamento').doc(`rep_${bidSol}`) : tenantPath().collection('solicitacoesPagamento').doc();
-      if (bidSol && (await ref.get()).exists) throw new Error('Já existe um repasse para este balancete (veja ✅ Aprovações).');
+      const jaExiste = bidSol ? await ref.get() : null;
+      if (jaExiste && jaExiste.exists && jaExiste.data().status !== 'REJEITADO') throw new Error('Já existe um repasse para este balancete (veja ✅ Aprovações).');
       await ref.set({
         tipo: 'pagamento_locador',
         status: 'AGUARDANDO_APROVACAO',
@@ -6454,7 +6461,7 @@ async function confirmarAprovacao() {
     if (!res.ok || data.ok === false) throw new Error(data.error || `Erro ${res.status}`);
     sucesso = true;
     const valorOk = data.valor || _aprovacaoAtual.valor || 0;
-    showInlineStatus('aprovar-status', `✅ Aprovado! Transferência PIX de ${fmtBRL(valorOk)} enviada.`, 'success');
+    showInlineStatus('aprovar-status', data.conta ? `✅ Aprovado! Conta de ${fmtBRL(valorOk)} paga pelo Asaas.` : `✅ Aprovado! Transferência PIX de ${fmtBRL(valorOk)} enviada.`, 'success');
     await loadAprovacoes();
     // 💰 Prestação de contas (PDF + Excel) ao proprietário sai sozinha depois do PIX
     if (data.balanceteId && typeof finEnviarPrestacao === 'function') {
@@ -6489,6 +6496,11 @@ async function rejeitarSolicitacao(id) {
       rejeitadoEm: firebase.firestore.FieldValue.serverTimestamp(),
     });
     logAuditoria('update', 'solicitacaoPagamento', id, { status: 'REJEITADO' });
+    // 💰 o balancete / a conta voltam a aceitar um pedido novo (depois de corrigir o cadastro)
+    try {
+      if (s.balanceteId) await tenantPath().collection('balancetes').doc(s.balanceteId).update({ 'repasse.status': 'REJEITADO' });
+      if (s.contaPagarId) await tenantPath().collection('contasPagar').doc(s.contaPagarId).update({ solicitacaoId: null });
+    } catch (e) { console.warn('rejeição — atualizar balancete/conta:', e); }
     await loadAprovacoes();
   } catch (err) {
     console.error('Erro ao rejeitar solicitação:', err);
@@ -12847,7 +12859,11 @@ async function loadConfigImobiliaria() {
     const asUrl = $('cfg-worker-asaas-url');
     if (asUrl) asUrl.value = cfg.workerAsaasUrl || '';
     const asTok = $('cfg-asaas-tenant-token');
-    if (asTok) asTok.value = cfg.asaasTenantToken || '';
+    if (asTok) {
+      asTok.value = '';
+      asTok.placeholder = cfg.asaasConectado ? `🔒 Guardada no servidor (final ${cfg.asaasChaveFinal || '••••'}) — cole outra para trocar` : '$aact_...';
+    }
+    if (typeof finMigrarChaveAsaas === 'function') finMigrarChaveAsaas(cfg);
     const lgUrl = $('cfg-worker-legis-url');
     if (lgUrl) lgUrl.value = cfg.workerLegisUrl || '';
     const lgTok = $('cfg-legis-admin-token');
@@ -13000,7 +13016,6 @@ async function saveConfigImobiliaria() {
         signApiUrl: $('cfg-sign-api-url')?.value.trim() || '',
         signApiKey: $('cfg-sign-api-key')?.value.trim() || '',
         workerAsaasUrl: $('cfg-worker-asaas-url')?.value.trim() || '',
-        asaasTenantToken: $('cfg-asaas-tenant-token')?.value.trim() || '',
         // Bureaus de crédito
         workerBureausUrl: $('cfg-worker-bureaus-url')?.value.trim() || '',
         bureausModoMock: !!$('cfg-bureaus-modo-mock')?.checked,
