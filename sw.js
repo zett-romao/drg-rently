@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v69-20261112-checklist';
+const CACHE_VERSION = 'drg-rently-v70-20261113-vitrine-status';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

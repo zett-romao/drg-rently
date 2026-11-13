@@ -111,7 +111,9 @@ let _allImoveis = []; // cache pra filtros
     $$('og-desc').setAttribute('content', `Confira nossos imóveis disponíveis`);
 
     // Carrega imóveis + suas primeiras fotos
-    _allImoveis = await Promise.all(imSnap.docs.map(async (doc) => {
+    // Só disponível: cópia antiga na vitrine (alugado/vendido/indisponível) não aparece
+    const docsDisponiveis = imSnap.docs.filter(d => { const s = d.data().status; return !s || s === 'disponivel'; });
+    _allImoveis = await Promise.all(docsDisponiveis.map(async (doc) => {
       const data = { id: doc.id, ...doc.data() };
       if (data.coverUrl) return data; // vitrine já traz a capa
       try {

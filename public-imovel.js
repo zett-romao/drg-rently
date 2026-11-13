@@ -187,6 +187,7 @@ function mostrarFaixaPrevia(publicado) {
     if (!imSnap.exists) { showError('Imóvel não encontrado.'); return; }
     const im = imSnap.data();
     if (im.linkPublico !== true) { showError('Este imóvel não está publicado.'); return; }
+    if (im.status && im.status !== 'disponivel') { showError('Este imóvel não está mais disponível. Veja os outros imóveis da vitrine.'); return; }
 
     const tenant = tSnap.exists ? tSnap.data() : {};
 
@@ -519,6 +520,7 @@ async function carregarSemelhantes(db, tenantId, im) {
   const casaFinalidade = f => fin === 'ambos' || f === 'ambos' || f === fin;
   const lista = snap.docs
     .filter(d => d.id !== imovelId)
+    .filter(d => { const s = d.data().status; return !s || s === 'disponivel'; })
     .map(d => ({ id: d.id, ...d.data() }))
     .filter(x => casaFinalidade(x.finalidade || 'locacao'))
     .map(x => {

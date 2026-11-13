@@ -436,9 +436,16 @@ async function coordenadaPorCep(cep) {
   return c;
 }
 
+// Só imóvel DISPONÍVEL fica na vitrine (site, /imoveis, feed dos portais). Alugado, vendido,
+// em reforma ou indisponível sai — antes saía só ao desligar o link público (bug 13/11/2026:
+// casa marcada 🔴 Indisponível continuava em destaque no drglobalimoveis.com.br).
+function imovelVaiParaVitrine(im) {
+  return im.linkPublico === true && !im.rascunho && (!im.status || im.status === 'disponivel');
+}
+
 async function sincronizarVitrine(imovelId, im, ctx) {
   const ref = tenantPath().collection('vitrine').doc(imovelId);
-  if (im.linkPublico === true && !im.rascunho) {
+  if (imovelVaiParaVitrine(im)) {
     const dados = montarDadosVitrine(im, ctx);
     // Bairro oculto = não divulga localização (nem aproximada)
     if ((im.publicacao || {}).mostrarBairro !== false) {

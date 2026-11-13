@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.3';
+const APP_VERSION = '0.3.4';
 
 // =============================================================
 // State
@@ -6311,7 +6311,7 @@ POS_APROVACAO.imoveis = async ({ id, op, fichaJaRemovida }) => {
 POS_APROVACAO.negociacoes = async ({ id, op, dados, antes }) => {
   if (op === 'excluir') {
     if (antes && antes.status === 'fechada' && antes.imovelId) {
-      await tenantPath().collection('imoveis').doc(antes.imovelId).update({ status: 'disponivel' });
+      await tenantPath().collection('imoveis').doc(antes.imovelId).update({ status: 'disponivel' }); posStatusImovel(antes.imovelId);
     }
     try {
       const list = await storageTenantRef().child(`negociacoes/${id}`).listAll();
@@ -10938,13 +10938,22 @@ async function saveNegociacao() {
   }
 }
 
+// Status do imóvel mudou sozinho (contrato/venda): a vitrine pública acompanha —
+// alugado/vendido sai do site e dos portais, disponível volta (rede.js → sincronizarVitrine).
+function posStatusImovel(imovelId) {
+  invalidateImoveisCache();
+  if (imovelId && typeof sincronizarFichaRede === 'function') {
+    sincronizarFichaRede(imovelId).catch(e => console.warn('Vitrine não sincronizada após troca de status:', e));
+  }
+}
+
 async function syncImovelStatusFromNegociacao(imovelId, statusNovo, statusAnterior) {
   if (!imovelId) return;
   const imovelRef = tenantPath().collection('imoveis').doc(imovelId);
   if (statusNovo === 'fechada') {
-    await imovelRef.update({ status: 'vendido' });
+    await imovelRef.update({ status: 'vendido' }); posStatusImovel(imovelRef.id);
   } else if ((statusNovo === 'recusada' || statusNovo === 'rascunho') && statusAnterior === 'fechada') {
-    await imovelRef.update({ status: 'disponivel' });
+    await imovelRef.update({ status: 'disponivel' }); posStatusImovel(imovelRef.id);
   }
 }
 
@@ -14110,9 +14119,9 @@ async function syncImovelStatusFromContrato(imovelId, statusNovo, statusAnterior
   } catch (_) {}
 
   if (statusNovo === 'vigente') {
-    await imovelRef.update({ status: 'alugado' });
+    await imovelRef.update({ status: 'alugado' }); posStatusImovel(imovelRef.id);
   } else if ((statusNovo === 'encerrado' || statusNovo === 'rescindido') && statusAnterior === 'vigente') {
-    await imovelRef.update({ status: 'disponivel' });
+    await imovelRef.update({ status: 'disponivel' }); posStatusImovel(imovelRef.id);
   }
 }
 
@@ -14153,7 +14162,7 @@ async function excluirContratoCascata(id) {
 
     // 1. Libera o imóvel se o contrato estava vigente
     if (c.status === 'vigente' && c.imovelId) {
-      await tenantPath().collection('imoveis').doc(c.imovelId).update({ status: 'disponivel' });
+      await tenantPath().collection('imoveis').doc(c.imovelId).update({ status: 'disponivel' }); posStatusImovel(c.imovelId);
       invalidateImoveisCache();
     }
 
@@ -21719,7 +21728,7 @@ async function distratoSalvar() {
         const imovelRef = tenantPath().collection('imoveis').doc(ctx.contrato.imovelId);
         const snap = await imovelRef.get();
         if (snap.exists && !snap.data().multiplasUnidades) {
-          await imovelRef.update({ status: 'disponivel' });
+          await imovelRef.update({ status: 'disponivel' }); posStatusImovel(imovelRef.id);
           invalidateImoveisCache();
         }
       } catch (_) {}

@@ -216,7 +216,7 @@
     const alvo = $('[data-vitrine]'); if (!alvo || !window.db) return;
     try {
       const snap = await db.collection('tenants').doc(tenantId).collection('vitrine').get();
-      const ims = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((im) => im.status !== 'locado' && im.status !== 'vendido')
+      const ims = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((im) => !im.status || im.status === 'disponivel') // só disponível (o status real é 'alugado', não 'locado')
         .sort((a, b) => (b.atualizadoEm?.seconds || 0) - (a.atualizadoEm?.seconds || 0)).slice(0, Number(alvo.dataset.vitrine) || 6);
       alvo.innerHTML = ims.length ? ims.map(cardIm).join('') : '<div class="empty">Novos imóveis em breve. Fale conosco pelo WhatsApp para conhecer as opções disponíveis.</div>';
     } catch (e) { alvo.innerHTML = '<div class="empty">Não foi possível carregar os imóveis agora.</div>'; console.error(e); }
