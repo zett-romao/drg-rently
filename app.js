@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.2';
+const APP_VERSION = '0.3.3';
 
 // =============================================================
 // State
@@ -6317,6 +6317,7 @@ POS_APROVACAO.negociacoes = async ({ id, op, dados, antes }) => {
       const list = await storageTenantRef().child(`negociacoes/${id}`).listAll();
       await Promise.all(list.items.map(item => item.delete()));
     } catch (_) {}
+    if (typeof apagarAnexosChecklistVenda === 'function') await apagarAnexosChecklistVenda(id); // certidões do checklist
     await tenantPath().collection('comissoes').doc(id).delete().catch(() => {}); // extrato dos corretores
     invalidateImoveisCache();
     return;
@@ -10835,6 +10836,8 @@ async function openNegociacaoModal(id) {
     }
     $('negociacao-docs-section').style.display = 'block';
     loadNegociacaoDocs(id);
+    if ($('chk-venda-conjuge')) $('chk-venda-conjuge').value = '';
+    if (typeof carregarChecklistVenda === 'function') carregarChecklistVenda(id); // checklist-venda.js
   } else {
     $('negociacao-docs-section').style.display = 'none';
   }

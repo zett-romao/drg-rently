@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v68-20261106-cofre';
+const CACHE_VERSION = 'drg-rently-v69-20261112-checklist';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',

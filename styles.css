@@ -4675,3 +4675,26 @@ button:active, .btn:active { transform: scale(.98); filter: brightness(.92); }
   .tabela-balancetes .action-btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }
   .tabela-balancetes .action-btns .btn { min-height: 40px; text-align: center; }
 }
+
+/* ===== ✅ Checklist de diligência — venda e compra (checklist-venda.js) ===== */
+.chk-partes { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; }
+.chk-partes input { width: 100%; margin-top: 4px; }
+.chk-grupo { margin-bottom: 14px; }
+.chk-grupo-titulo { font-weight: 700; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+.chk-item { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; background: var(--card-bg); transition: box-shadow .3s; }
+.chk-item.chk-piscar { box-shadow: 0 0 0 3px #FCD34D; }
+.chk-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.chk-titulo { font-weight: 600; font-size: 13px; }
+.chk-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; }
+.chk-campos select, .chk-campos input { min-height: 38px; font-size: 13px; width: 100%; }
+.chk-anexos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+.chk-arq { display: inline-flex; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px 2px 8px; }
+.chk-arq a { color: var(--primary); text-decoration: none; word-break: break-all; }
+.chk-anexar { cursor: pointer; }
+.chk-salvo { color: var(--text-muted); font-size: 11px; margin-left: auto; }
+.btn:active, .chk-anexar:active { transform: scale(.98); filter: brightness(.92); }
+@media (max-width: 600px) {
+  .chk-cab { flex-direction: column; align-items: flex-start; }
+  .chk-salvo { margin-left: 0; width: 100%; }
+  .chk-campos select, .chk-campos input, .chk-anexar { min-height: 40px; }
+}
