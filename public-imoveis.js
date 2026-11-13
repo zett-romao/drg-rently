@@ -112,7 +112,7 @@ let _allImoveis = []; // cache pra filtros
 
     // Carrega imóveis + suas primeiras fotos
     // Só disponível: cópia antiga na vitrine (alugado/vendido/indisponível) não aparece
-    const docsDisponiveis = imSnap.docs.filter(d => { const s = d.data().status; return !s || s === 'disponivel'; });
+    const docsDisponiveis = imSnap.docs.filter(d => { const s = d.data().status; return !s || s === 'disponivel' || (s === 'em_reforma' && d.data().anunciarEmReforma === true); });
     _allImoveis = await Promise.all(docsDisponiveis.map(async (doc) => {
       const data = { id: doc.id, ...doc.data() };
       if (data.coverUrl) return data; // vitrine já traz a capa

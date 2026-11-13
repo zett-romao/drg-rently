@@ -299,7 +299,11 @@ async function sincronizarFichaRede(imovelId) {
   const meta = {
     captadorUid: im.criadoPor || null,
     codigoAnuncio: im.codigoAnuncio || null, // não é dado sensível: serve para achar o anúncio
-    visivel: vis === 'rede' && !im.rascunho,
+    // 🔓 ALTERADA 13/11/2026 (dono: "a ficha precisa olhar o status"): alugado/vendido/indisponível
+    // (ou em reforma sem a opção de anunciar) some da rede — antes só o rascunho tirava.
+    visivel: vis === 'rede' && !im.rascunho && disponivelParaAnuncio(im),
+    statusImovel: im.status || 'disponivel',
+    disponivelRede: disponivelParaAnuncio(im),
     compartilhadoCom: Array.isArray(im.compartilhadoCom) ? im.compartilhadoCom : [],
     finalidadeFiltro: im.finalidade || 'locacao', // sempre presente pros filtros da tela
     atualizadoEm: firebase.firestore.FieldValue.serverTimestamp(),
@@ -356,6 +360,7 @@ function montarDadosVitrine(im, ctx) {
     subtipo: im.subtipo || null,
     finalidade: im.finalidade || 'locacao',
     status: im.status || 'disponivel',
+    anunciarEmReforma: im.status === 'em_reforma' && im.anunciarEmReforma === true,
     publicacao: pub,
     endereco: mostrarBairro
       ? { cep: end.cep || null, logradouro: end.logradouro || null, bairro: end.bairro || null, cidade: end.cidade || null, uf: end.uf || null }
@@ -439,8 +444,14 @@ async function coordenadaPorCep(cep) {
 // Só imóvel DISPONÍVEL fica na vitrine (site, /imoveis, feed dos portais). Alugado, vendido,
 // em reforma ou indisponível sai — antes saía só ao desligar o link público (bug 13/11/2026:
 // casa marcada 🔴 Indisponível continuava em destaque no drglobalimoveis.com.br).
+// Status que pode ser anunciado: Disponível, ou Em reforma com "Anunciar mesmo em reforma" marcado
+// (13/11/2026). Vale para a vitrine pública E para a ficha da rede de corretores.
+function disponivelParaAnuncio(im) {
+  const s = (im && im.status) || 'disponivel';
+  return s === 'disponivel' || (s === 'em_reforma' && im.anunciarEmReforma === true);
+}
 function imovelVaiParaVitrine(im) {
-  return im.linkPublico === true && !im.rascunho && (!im.status || im.status === 'disponivel');
+  return im.linkPublico === true && !im.rascunho && disponivelParaAnuncio(im);
 }
 
 async function sincronizarVitrine(imovelId, im, ctx) {
@@ -455,6 +466,9 @@ async function sincronizarVitrine(imovelId, im, ctx) {
   } else if (!isCorretor()) {
     // corretor não publica nem despublica — só a equipe remove da vitrine
     await ref.delete();
+  } else if (im.linkPublico === true && !im.rascunho) {
+    // corretor mudou o status do imóvel dele: a cópia leva o status novo e os leitores escondem
+    await ref.set(montarDadosVitrine(im, ctx)).catch(e => console.warn('Vitrine (status):', e.code || e.message));
   }
 }
 
@@ -1082,6 +1096,18 @@ async function loadRede() {
       docs = (await col.get()).docs;
     }
     const uid = State.user.uid;
+    // Ficha gravada antes de 13/11/2026 não tem o status: a equipe regrava em segundo plano
+    if (!isCorretor()) {
+      const antigas = docs.filter(d => d.data().disponivelRede === undefined).map(d => d.id);
+      if (antigas.length) {
+        (async () => {
+          for (const id of antigas) { try { await sincronizarFichaRede(id); } catch (e) { console.warn('Ficha antiga', id, e); } }
+          if ($('rede-grid')) loadRede();
+        })();
+      }
+    }
+    // Corretor: imóvel indisponível sai da rede (só o captador continua vendo o próprio)
+    if (isCorretor()) docs = docs.filter(d => { const f = d.data(); return f.disponivelRede !== false || f.captadorUid === uid; });
     _redeCarregada = docs.map(d => {
       const f = d.data();
       return {
@@ -1148,7 +1174,8 @@ function renderRede() {
     const selos = [
       f._meu ? '<span class="papel-chip" style="background:#CCFBF1;color:#0F766E;">⭐ Meu</span>' : '',
       !f._meu && f._completo && isCorretor() ? '<span class="papel-chip" style="background:#DBEAFE;color:#1E40AF;">🔓 Completo liberado</span>' : '',
-      !f.visivel ? '<span class="papel-chip" style="background:#E5E7EB;color:#374151;">🔒 Privado</span>' : '',
+      f.disponivelRede === false ? `<span class="papel-chip" style="background:#FEE2E2;color:#991B1B;">🔴 ${escapeHtml(({ alugado: 'Alugado', vendido: 'Vendido', em_reforma: 'Em reforma', indisponivel: 'Indisponível' })[f.statusImovel] || 'Indisponível')} — fora da rede</span>` : '',
+      !f.visivel && f.disponivelRede !== false ? '<span class="papel-chip" style="background:#E5E7EB;color:#374151;">🔒 Privado</span>' : '',
       temPermuta(f) ? '<span class="selo-permuta-chip">PERMUTA</span>' : '',
     ].join(' ');
     return `

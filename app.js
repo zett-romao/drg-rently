@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.4';
+const APP_VERSION = '0.3.5';
 
 // =============================================================
 // State
@@ -11145,6 +11145,13 @@ const IMOVEL_STATUS_LABEL = {
   indisponivel: 'Indisponível',
 };
 
+// "Em reforma" pergunta se continua anunciado (site, portais e rede de corretores)
+function atualizarOpcaoReforma() {
+  const box = document.getElementById('imovel-reforma-opcao');
+  if (box) box.style.display = document.getElementById('imovel-status')?.value === 'em_reforma' ? '' : 'none';
+}
+window.atualizarOpcaoReforma = atualizarOpcaoReforma;
+
 const IMOVEL_TIPO_LABEL = {
   residencial: 'Residencial',
   comercial: 'Comercial',
@@ -11396,6 +11403,8 @@ async function openImovelModal(id) {
   // Toggle do feed XML (default ON)
   const vfeedDefault = $('imovel-vitrine-feed'); if (vfeedDefault) vfeedDefault.checked = true;
   $('imovel-status').value = 'disponivel';
+  $('imovel-anunciar-reforma').checked = false;
+  atualizarOpcaoReforma();
   $('imovel-tipo').value = 'residencial';
   $('imovel-subtipo').value = '';
   $('imovel-finalidade').value = 'locacao';
@@ -11424,6 +11433,8 @@ async function openImovelModal(id) {
         const im = snap.data();
         $('imovel-apelido').value = im.apelido || '';
         $('imovel-status').value = im.status || 'disponivel';
+        $('imovel-anunciar-reforma').checked = im.anunciarEmReforma === true;
+        atualizarOpcaoReforma();
         $('imovel-tipo').value = im.tipo || 'residencial';
         $('imovel-subtipo').value = im.subtipo || '';
         await populateLocadorSelect($('imovel-locador'), im.locadorId);
@@ -11632,6 +11643,7 @@ async function saveImovel(opts) {
   const data = {
     apelido,
     status: $('imovel-status').value,
+    anunciarEmReforma: $('imovel-status').value === 'em_reforma' && $('imovel-anunciar-reforma').checked,
     tipo: $('imovel-tipo').value,
     subtipo: $('imovel-subtipo').value || null,
     locadorId: locadorId || null,

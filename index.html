@@ -4943,13 +4943,17 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
           </div>
           <div class="form-group">
             <label>Status</label>
-            <select id="imovel-status">
+            <select id="imovel-status" onchange="atualizarOpcaoReforma()">
               <option value="disponivel">🟢 Disponível</option>
               <option value="alugado">🟠 Alugado</option>
               <option value="vendido">💰 Vendido</option>
               <option value="em_reforma">🟡 Em reforma</option>
               <option value="indisponivel">🔴 Indisponível</option>
             </select>
+            <label id="imovel-reforma-opcao" style="display:none;margin-top:8px;font-weight:500;cursor:pointer;">
+              <input type="checkbox" id="imovel-anunciar-reforma"> 📢 Anunciar mesmo em reforma
+              <small class="muted" style="display:block;font-weight:400;">Marcado: continua no site, nos portais e na rede de corretores. Desmarcado: sai de tudo até voltar a Disponível.</small>
+            </label>
           </div>
         </div>
 
@@ -6367,12 +6371,12 @@ A transmissão da posse ocorrerá em {{negociacao.dataPosse}}.
 
   <script src="site-padrao.js?v=20261017j-protecao"></script>
   <script src="auditoria.js?v=20261017j-protecao"></script>
-  <script src="app.js?v=20261113a-vitrine"></script>
+  <script src="app.js?v=20261113b-reforma"></script>
   <script src="financeiro.js?v=20261106d-cofre"></script>
   <script src="trava-login.js?v=20261103a-trava"></script>
   <script src="alcance.js?v=20261029b-equipes"></script>
   <script src="cadastro-comum.js?v=20261028h-cadastro"></script>
-  <script src="rede.js?v=20261113a-vitrine"></script>
+  <script src="rede.js?v=20261113b-reforma"></script>
   <script src="caracteristicas.js?v=20261029a"></script>
   <script src="protecao.js?v=20261029q-alcance"></script>
   <script src="carteira.js?v=20261029q-alcance"></script>

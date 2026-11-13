@@ -134,7 +134,7 @@ export default {
       // Filtra: só os com vitrineFeed !== false (default true)
       imoveis = imoveis.filter(im => im.vitrineFeed !== false);
       // Só disponível: alugado/vendido/em reforma/indisponível não vai para portal
-      imoveis = imoveis.filter(im => !im.status || im.status === 'disponivel');
+      imoveis = imoveis.filter(im => !im.status || im.status === 'disponivel' || (im.status === 'em_reforma' && im.anunciarEmReforma === true));
 
       // Portais escolhidos no anúncio (anuncioPortais = { portalId: nivel }).
       // Sem o mapa = anúncio antigo, vai para todos (comportamento de sempre).
