@@ -3,7 +3,7 @@
 // Fase 0: Auth Firebase + multi-tenant + roteamento básico
 // =============================================================
 
-const APP_VERSION = '0.3.5';
+const APP_VERSION = '0.3.6';
 
 // =============================================================
 // State
@@ -63,6 +63,7 @@ const ACOES_SENSIVEIS = [
   { id: 'aprovarCobranca',         label: '💳 Aprovar cobrança ao locatário',      desc: 'Gerar boletos/PIX de cobrança via Asaas' },
   { id: 'gerenciarAssinaturaAsaas', label: '🔁 Gerenciar assinatura recorrente',   desc: 'Criar, reajustar e cancelar assinaturas Asaas' },
   { id: 'fecharBalancete',         label: '📊 Fechar/consolidar balancete',        desc: 'Marcar balancete como fechado/enviado', tresNiveis: true },
+  { id: 'retirarAnuncio',          label: '📴 Tirar imóvel do anúncio',            desc: 'Mudar o status para alugado, vendido, em reforma ou indisponível — o imóvel sai do site, dos portais e da rede de corretores', tresNiveis: true },
   { id: 'publicarSite',            label: '🚀 Publicar o site',                    desc: 'Colocar no ar as alterações feitas em 🌐 Meu site' },
   { id: 'excluirTenant',           label: '🗑 Excluir tenant definitivo',          desc: 'Exclusão permanente de cliente (Super Admin)' },
 ];
@@ -118,15 +119,17 @@ const MODULOS_NUCLEO = ['rede', 'corretores'];
 // (lista = "Pode"; o resto é "Não pode", salvo ROLE_ACOES_APROVACAO)
 const ROLE_ACOES_PADRAO = {
   super_admin:  ACOES_SENSIVEIS.map(a => a.id),
-  operador_drg: ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite'],
-  admin:        ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite'],
+  operador_drg: ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite','retirarAnuncio'],
+  admin:        ['gerenciarUsuariosPerfis','aprovarAlteracoes','aprovarPagamentoLocador','solicitarRepasse','alterarDadosRepasse','repasseRepresentante','aprovarCobranca','gerenciarAssinaturaAsaas','fecharBalancete','publicarSite','retirarAnuncio'],
   // operador comum NÃO aprova nada por padrão; mantém o que já fazia antes dos perfis 3.0
-  operador:     ['solicitarRepasse','alterarDadosRepasse','repasseRepresentante'],
+  operador:     ['solicitarRepasse','alterarDadosRepasse','repasseRepresentante','retirarAnuncio'],
   corretor:     [],
 };
 // Ações "Com aprovação" por padrão (o dono, 12/10/2026: corretor precisa de autorização)
 const ROLE_ACOES_APROVACAO = {
-  corretor: ['alterarDadosRepasse', 'repasseRepresentante'],
+  corretor: ['alterarDadosRepasse', 'repasseRepresentante',
+    // o dono, 13/11/2026: "o corretor até pode retirar, mas isso deve ser validado por um delegado"
+    'retirarAnuncio'],
 };
 // Criar/Editar/Excluir por padrão, nos módulos que o role vê. Sem entrada = tudo "Pode".
 const ROLE_OPS_PADRAO = {
@@ -1007,6 +1010,8 @@ function normalizarPerfil(perfilDoc, role) {
     solicitarRepasse:        () => (permissoes.balancetes.editar === 'sim' ? 'sim' : 'nao'),
     alterarDadosRepasse:     () => permissoes.locadores.editar,
     repasseRepresentante:    () => permissoes.locadores.editar,
+    // Perfil salvo antes de 13/11/2026: corretor pede aprovação; os demais seguem como editavam o imóvel
+    retirarAnuncio:          () => (role === 'corretor' ? 'aprovacao' : permissoes.imoveis.editar),
   };
   ACOES_SENSIVEIS.forEach(a => {
     let n;
@@ -6097,11 +6102,19 @@ function podeAprovarPedido(p) {
 function acoesDoPedido(p, atual) {
   const set = new Set(p.acoesEnvolvidas || []);
   const depois = { ...(atual || {}), ...(p.dados || {}) };
+  if (p.colecao === 'imoveis' && p.op !== 'excluir') acoesDelicadasImovel(atual, depois).forEach(a => set.add(a));
   if (p.colecao === 'locadores' && p.op !== 'excluir') acoesDelicadasLocador(atual || {}, depois).forEach(a => set.add(a));
   if (p.colecao === 'balancetes' && p.op !== 'excluir') {
     if ((depois.status || 'aberto') !== 'aberto' && ((atual && atual.status) || 'aberto') === 'aberto') set.add('fecharBalancete');
   }
   return [...set];
+}
+
+// Imóvel que estava anunciado e deixa de estar (status) = 📴 Tirar do anúncio (ação delicada)
+function acoesDelicadasImovel(antes, depois) {
+  if (!antes || typeof disponivelParaAnuncio !== 'function') return [];
+  const status = { status: (depois || {}).status, anunciarEmReforma: (depois || {}).anunciarEmReforma };
+  return disponivelParaAnuncio(antes) && !disponivelParaAnuncio(status) ? ['retirarAnuncio'] : [];
 }
 
 let _alteracoesCache = [];
@@ -11768,10 +11781,12 @@ async function saveImovel(opts) {
       if (codigo) data.codigoAnuncio = codigo;
     }
     const r = await gravar({ modulo: 'imoveis', colecao: 'imoveis', op: id ? 'editar' : 'criar', id: id || null,
-      dados: data, antes, titulo: `Imóvel ${data.apelido}` });
+      dados: data, antes, titulo: `Imóvel ${data.apelido}`, acoes: acoesDelicadasImovel(antes, data) });
     if (r.pendente) {
       modalAutoSaveClear('imovel');
-      showInlineStatus('imovel-acoes-status', msgGravacao(r), 'success');
+      showInlineStatus('imovel-acoes-status', acoesDelicadasImovel(antes, data).length
+        ? '📴 Pedido para tirar do anúncio enviado. O imóvel continua no site, nos portais e na rede até um delegado aprovar em ✅ Aprovações.'
+        : msgGravacao(r), 'success');
       setTimeout(closeImovelModal, 1800);
       return;
     }

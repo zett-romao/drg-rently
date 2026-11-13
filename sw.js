@@ -10,7 +10,7 @@
 //   (sempre busca direto da rede)
 // =============================================================
 
-const CACHE_VERSION = 'drg-rently-v71-20261113-reforma-rede';
+const CACHE_VERSION = 'drg-rently-v72-20261113-retirar-anuncio';
 const STATIC_ASSETS = [
   './logo.png?v=20260514ai',
   './manifest.json',
